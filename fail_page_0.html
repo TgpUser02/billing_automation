@@ -1,0 +1,2709 @@
+<html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="icon" type="image/x-icon" href="../wss/images/favicon.ico"><meta http-equiv="Content-Type" content="text/html; charset=utf-8"><meta name="google" content="notranslate"><meta name="Referrer-Policy" content="no-referrer | same-origin"><title>
+	Mahavitaran - HT/LTIP Energy Bill
+</title><script type="text/javascript" src="/ruxitagentjs_ICA7NQVfghqrux_10327251022105625.js" data-dtconfig="rid=RID_213144753|rpid=-1661313114|domain=mahadiscom.in|reportUrl=/rb_bf47874yok|app=b6759b136071145c|owasp=1|featureHash=ICA7NQVfghqrux|msl=153600|srsr=5000|rdnt=1|uxrgce=1|cuc=i9ki9ku7|srms=2,1,0,0%2Ftextarea%2Cinput%2Cselect%2Coption;0%2Fdatalist;0%2Fform%20button;0%2F%5Bdata-dtrum-input%5D;0%2F.data-dtrum-input;1%2F%5Edata%28%28%5C-.%2B%24%29%7C%24%29|mel=100000|expw=1|dpvc=1|md=mdcc1=a#topnav_LoggedInUserName@menuanchorclass,mdcc2=a#form2 ^rb div.container ^rb div.header ^rb div.language_div|lastModification=1769051186775|postfix=i9ki9ku7|tp=500,50,0|srbbv=2|agentUri=/ruxitagentjs_ICA7NQVfghqrux_10327251022105625.js"></script><link href="css/style.css" rel="stylesheet" type="text/css">
+    <style type="text/css">
+        @media print
+        {
+            .printButtonContainer
+            {
+                display: none;
+            }
+        }
+        .printButtonContainer
+        {
+            margin: 0px auto;
+            width: 700px;
+            text-align: right;
+        }
+        
+        button
+        {
+            border: none;
+            background: none;
+            padding: 0;
+            margin: 0;
+            width: auto;
+            overflow: visible;
+            text-align: center;
+            white-space: nowrap;
+            height: 20px;
+            line-height: 20px;
+            margin-right: 5px;
+            cursor: pointer;
+        }
+        button span, button em
+        {
+            display: block;
+            line-height: 20px;
+            margin: 0;
+            color: #000000;
+            font-size: 10px;
+        }
+        button span
+        {
+            padding-left: 20px;
+            background: url(images/bg_button.gif) no-repeat 0 0;
+        }
+        button em
+        {
+            font-style: normal;
+            padding-right: 20px;
+            background: url(images/bg_button.gif) no-repeat 100% 0;
+        }
+        .separator_h10
+        {
+            height: 10px;
+            line-height: 10px;
+            clear: both;
+        }
+        div.gey_box
+        {
+            background-color: #EAEAEC;
+            padding: 5px;
+            margin: 5px 10px;
+            text-align: center;
+        }
+        div.gey_box .red
+        {
+            font-weight: bold;
+            color: red;
+            font-size: 14px;
+        }
+    </style>
+
+
+    
+    <script type="text/javascript" language="javascript">
+        function payNowClick() {
+            //debugger;
+
+            var netbill = document.getElementById("totalBillAmountDPC").innerHTML;
+            var message = "Payable bill amount is Zero.Do you want to make advance payment?";
+            document.getElementById("consumerNumber").value = document.getElementById("lblConsumerNumber").innerHTML;
+            document.getElementById("BUnumber").value = document.getElementById("lblSubDivisionCode").innerHTML;
+            document.getElementById("uiActionName").value = "makePayment";
+            HTEnergyBillForm.target = '_self';
+            if (netbill <= 0) {//modified by rahul on 27-03-2019 for advance payment
+                if (confirm(message)) {
+                    document.forms[0].submit();
+                    return false;
+                }
+
+            }
+            else {
+                document.forms[0].submit();
+                return false;
+            }
+           
+        }
+        function printVersionHT() {
+            var HTEnergyBillForm = document.getElementById("HTEnergyBillForm");
+            HTEnergyBillForm.target = '_blank';
+            var consumerNumber = document.getElementById("lblConsumerNumber").innerHTML;
+            var billingUnit = document.getElementById("lblCircleCode").innerHTML;
+            var billMonth = document.getElementById("lblBillMonth").innerHTML;
+            document.getElementById("hdnConsumerNumber").value = consumerNumber;
+            document.getElementById('uiActionName').value = "getHTEnergyBill";
+            document.getElementById('hdnBillMonth').value = billMonth;
+            document.HTEnergyBillForm.submit();
+            return false;
+        }
+        function htEnergyBillPage() {
+            var form = document.getElementById('HTEnergyBillForm');
+            form.target = "_self";
+            var consumerNumber = document.getElementById('lblConsumerNumber').innerHTML;
+            var billingUnit = document.getElementById('lblCircleCode').innerHTML;
+            var billMonth = document.getElementById("lblBillMonth").innerHTML;
+            document.getElementById("hdnConsumerNumber").value = consumerNumber;
+            document.getElementById('uiActionName').value = "getHTEnergyBillPage";
+            document.getElementById("isViaForm").value = "Y";
+            document.getElementById('hdnBillMonth').value = billMonth;
+            document.HTEnergyBillForm.submit();
+            return false;
+        }
+    </script>
+</head>
+<body>
+    <div class="container">
+        
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="format-detection" content="telephone=no">
+<div class="pre_header"><table width="100%" cellspacing="0" cellpadding="0" border="0">
+                    <tbody>
+                    <tr>
+                      <td><img src="images/logo_billing.gif" width="195px" height="85px"></td>
+                <td>
+                 <img src="images/new_banner_1.png"></td>
+                <td align="right">
+
+                </td>
+
+
+              </tr>
+</tbody>
+</table>
+</div>
+<div class="right">
+<input name="header$Application_Version" type="hidden" id="header_Application_Version">
+</div>
+
+        
+<link href="css/wss.css" rel="stylesheet" type="text/css">
+<script type="text/javascript" src="js/common.js"></script>
+<script language="javascript" src="js/submenudiv.js" type="text/javascript">
+
+
+
+  <script type="text/javascript" src="js/errormessages.js"></script>
+
+<script type="text/javascript">
+//added by rahul on 07-10-2019 for disable back button
+    function preventBack() { window.history.forward(); }
+    setTimeout("preventBack()", 0);
+    window.onunload = function () { null };
+</script>
+
+<div class="header">
+<div class="language_div">
+  <h3><label id="topnav_LoggedInUserName" class="menuanchorclass">Welcome   MR VINOD CHITAMAN BELSARE  </label>&nbsp;&nbsp;<label id="topnav_lblseparator1"></label>&nbsp;<a href="/wss/wss?uiActionName=getHome&amp;action=logout" id="topnav_hreflogout">Logout</a>
+</h3></div>
+<div id="sub_products" style="display:block" class="menudiv">
+       <a href="wss?uiActionName=getHome&amp;Lang=English" onclick="document.forms[0].submit();">English</a>
+       <a href="wss?uiActionName=getHome&amp;Lang=Marathi" onclick="document.forms[0].submit();">मराठी</a>
+       
+  </div>
+  <div class="left">
+    <h1><span id="topnav_lblWebSelfService">वेब स्वयंसेवा</span></h1>
+  </div>
+  <div class="right">
+    <div class="hor_navigation">    
+      <a href="/wss/wss?uiActionName=getHome" id="topnav_PageNameLink1"> Web Self Service Home</a><label id="topnav_lblseprator2"> &gt; </label><a href="wss#" id="topnav_PageNameLink2" onclick="htEnergyBillPage();">Energy Bill</a>
+    </div>
+    <h2>
+    <label id="topnav_lblPageHeaderName">Energy Bill</label>
+  </h2>
+   
+  </div>
+  
+</div>
+<div class="clear"></div>
+        <!-- wrapper starts here -->
+        <div class="wrapper">
+            <!-- left navigation starts -->
+            <table width="100%" border="0" cellspacing="0" cellpadding="0">
+                <tbody><tr>
+                    <td width="20%" class="left_navigation_td">
+                        
+    <style type="text/css">
+    .menudiv
+    {
+        text-align:left;
+        
+        }
+        
+      .blink{
+    text-shadow: -2px 2px 0 #FFF,
+    2px 2px 0 #FFF,
+    2px -2px 0 #FFF,
+    -2px -2px 0 #FFF;
+    background:#EEE;
+    font-family:cursive;
+    color:#DC143C;
+    Font-weight: 900;
+    font-size:12px;
+    margin-left:10px;
+    -webkit-animation: blink 1.5s step-end infinite;
+    animation:blink 1.5s step-end infinite;
+}
+
+@-webkit-keyframes blink { 50% {visibility: hidden;}}
+@keyframes blink {50% {visibility: hidden;}}  
+        
+        
+    </style>
+   <!-- left navigation starts -->
+        
+          
+        <div id="sub_products_css" style="display:block;width:280px;height:250px;" class="menudiv">
+        <ul style="padding-left:20px;list-style-type: square;">
+            <li>
+            <a href="https://css.mahadiscom.in/UI/PAYNC/SearchApplication.aspx" id="leftnav_css_lnk_NewConnection" target="_blank"><span id="leftnav_Label1" style="font-size:11px;font-weight:bold;"> नवीन कनेक्शन </span></a>
+            </li>
+            <li>
+            <a href="https://css.mahadiscom.in/UI/ROOFTOP/Solar_RTS.aspx" id="leftnav_css_lnk_SolarRoofTop" target="_blank"><span id="leftnav_Label3" style="font-size:11px;font-weight:bold;"> सौर रुफ टॉप </span></a>
+            </li>
+            <li>
+            <a href="https://css.mahadiscom.in/UI/CHANGENAME/ChangeNameUploadDoc.aspx" id="leftnav_css_lnk_ChangeofName" target="_blank"><span id="leftnav_Label4" style="font-size:11px;font-weight:bold;"> नाव बदलणे </span></a>
+            </li>
+            <li>
+            <a href="https://css.mahadiscom.in/UI/LOADCHANGE/LoadChange.aspx" id="leftnav_css_lnk_ChangeofLoad" target="_blank"><span id="leftnav_Label5" style="font-size:11px;font-weight:bold;"> भार बदल / मागणी बदल </span></a>
+            </li>
+            <li>
+            <a href=" https://css.mahadiscom.in/UI/PAYDUES/PayDues.aspx" id="leftnav_css_lnk_ReConnection" target="_blank"><span id="leftnav_Label6" style="font-size:11px;font-weight:bold;">  पुन्हा कनेक्शन </span></a>
+            </li>
+            <li>
+            <a href="https://css.mahadiscom.in/UI/AC/AddressCorrection.aspx" id="leftnav_css_lnk_AddressCorrection" target="_blank"><span id="leftnav_Label7" style="font-size:11px;font-weight:bold;">पत्ता दुरुस्ती </span></a>
+            </li>
+             <li>
+            <a href="http://css.mahadiscom.in/UI/SDREFUND/SdRefund.aspx" id="leftnav_css_lnk_SDRefund" target="_blank"><span id="leftnav_Label2" style="font-size:11px;font-weight:bold;">   सुरक्षा ठेव परतावा </span></a>
+            </li>
+             <li>
+            <a href="https://css.mahadiscom.in/UI/InfraCharge/InfraCharge.aspx" id="leftnav_css_lnk_ICRefund" target="_blank"><span id="leftnav_Label16" style="font-size:11px;font-weight:bold;">पायाभूत सुविधा शुल्क परतावा</span></a>
+            </li>          
+              <li>
+            <a href="https://css.mahadiscom.in/UI/ServiceCharge/ServiceCharge.aspx" id="leftnav_css_lnk_SCRefund" target="_blank"><span id="leftnav_Label14" style="font-size:11px;font-weight:bold;">सेवा शुल्क परतावा</span></a>
+            </li>
+              <li>
+            <a href="https://css.mahadiscom.in/UI/InstallmentPolicy/Installment_Policy.aspx" id="leftnav_css_lnk_InstPlan" target="_blank"><span id="leftnav_Label12" style="font-size:11px;font-weight:bold;"> हप्ता योजना  </span></a>
+            </li>
+                <li>
+            <a href="https://css.mahadiscom.in/UI/TariffChange/TariffChange.aspx" id="leftnav_css_lnk_TariffChange" target="_blank"><span id="leftnav_Label13" style="font-size:11px;font-weight:bold;">दर बदलण्यासाठी ग्राहक एक्टिविटी नोंदणी</span></a>
+            </li>
+            <li id="leftnav_compensationRequest"> 
+              <a href="/wss/wss?uiActionName=getCompensationRequestLink" id="leftnav_compensationRequestlnk"><span id="leftnav_lbllcompensationRequestlnk" title=" नुकसान भरपाई नोंदणी" style="font-size:11px;font-weight:bold;"> नुकसान भरपाई नोंदणी</span><span class="blink">New</span></a> 
+            </li>
+            <li>
+            <a href="https://css.mahadiscom.in/UI/PDAmnesty/PDAmnesty.aspx" id="leftnav_css_lnk_PDAmnesty" target="_blank"><span id="leftnav_Label17" style="font-size:11px;font-weight:bold;">महावितरण अभय योजना २०२४</span></a>
+            </li>
+        </ul>
+       
+       
+  </div>
+
+
+<div id="leftnav_loggedin" class="left_navigation">
+  <ul>
+    <li>
+      <a href="/wss/wss?uiActionName=getMyAccount" id="leftnav_myAccount"><span id="leftnav_lblMyAcct">माझं खात</span></a>
+    </li>
+    <li>
+      <a href="/wss/wss?uiActionName=getChangeResetPassword" id="leftnav_changePassword"><span id="leftnav_lblChngPwd">परवली शब्द बदल</span></a>
+    </li>
+    <li>
+      <a href="/wss/wss?uiActionName=getCreateUpdateCustProfile" id="leftnav_updateProfile"><span id="leftnav_lblUpdProfile">वीज खाते माहिती बदल</span></a>
+    </li>
+    <li>
+      <a href="/wss/wss?uiActionName=getApplianceParticulars" id="leftnav_consumptionCalcPage2"><span id="leftnav_lblConsumptionCalc2">वीज वापर परिगणक</span></a>
+    </li>
+    <li>
+      <a href="/wss/wss?uiActionName=getEnergyBillCalculator" id="leftnav_energyBillcalcPage2"><span id="leftnav_lblEnergyBill2">वीज देयक परिगणक</span></a>
+    </li>
+     <li>
+       <a href="/wss/wss?uiActionName=getNewConnectionRequest" id="leftnav_newConnectionRequest2"><span id="leftnav_lblNewConnectionRequest2">नवीन जोडणीची  मागणी</span></a>
+     </li>  
+
+           
+    
+
+
+   
+     <li id="leftnav_viewUploadDoc1">
+              <a id="leftnav_viewUploadDoclnk1" target="_blank" class="menuanchorclass" onmouseover="divMenu.show('sub_products_css', this, 0, 33)" onmouseout="divMenu.hide('sub_products_css')"><span id="leftnav_lblUploadDoc1">स्थितीचा मागोवा घेणे, दस्तऐवज पाठवणे, शुल्क भरणे आणि नुकसान भरपाई नोंदणी</span></a>
+    </li> 
+   
+     <li id="leftnav_OtherCharges1">
+              <a href="https://otheronlinepayment.mahadiscom.in/OtherReceipts/onlinePayment.jsp" id="leftnav_OtherChargeslnk1" target="_blank"><span class="red">*</span><span id="leftnav_Label9">इतर शुल्काचे ऑनलाइन देय</span></a>
+            </li>
+    <li id="leftnav_update_mobile_email">
+    <a href="https://pro.mahadiscom.in/ConsumerInfo/consumer.jsp" id="leftnav_update_mobile_emaillnk" target="_blank"><span class="red" meta:resourcekey="updatemobemailnew">*</span><span id="leftnav_Label10">मोबाइल नंबर, ई-मेल, आधार, टी.डी.एस आणि पॅन क्रमांक नोंदणी / बदल</span></a>
+   
+    </li>
+     
+
+   
+    <li>
+      
+    </li>
+  </ul>
+</div>        
+
+                        <!-- left navigation ends -->
+                    </td>
+                    <td class="content_td">
+                        <!-- page content starts -->
+                        <div class="new_bill_container">
+                            
+	
+	<!-- Message Starts -->
+	
+	<!-- Message Ends -->
+                            <form name="HTEnergyBillForm" method="post" action="wss" id="HTEnergyBillForm" onsubmit="return false">
+<div>
+<input type="hidden" name="__VIEWSTATE" id="__VIEWSTATE" value="/wEPDwUJOTc2MjYwNjY4D2QWAgIMD2QWAgKNAQ88KwARAgEQFgAWABYADBQrAABkGAEFFWdyZEN1c3RCaWxsaW5nRGV0YWlscw9nZDCp+Z8Eq9ZbZTeX0E1KOkmW42JAaTpTpcSheDO5fXea">
+</div>
+
+<div>
+
+	<input type="hidden" name="__VIEWSTATEGENERATOR" id="__VIEWSTATEGENERATOR" value="565B7B51">
+	<input type="hidden" name="__EVENTVALIDATION" id="__EVENTVALIDATION" value="/wEdAArue3s3PcX3qAcs29ZPhqlpm+a4XS/139pgIjRPc/b73k8cuq9exDgCTNum7jJLkghlo+BcWdXcPH7beMgIqnkwPgMsvkwXOC+9ZsqeQivs6o55DqUMiQ4M1Y7Pkrer/I9URN/VHt+ljWAN+PnD/h9717jrWmbyetGrCE1zJYe2zp7PJ6XxAJgqBVM/iAt3bzTvEVjcY0YS5nWYay084x7PP3akm0EiX4bdfuuYKLSrAxiCN6RWuHLS4iBa4BIKsPM=">
+</div>
+                            <input name="hdnConsumerNumber" type="hidden" id="hdnConsumerNumber">
+                            <input name="hdnBillMonth" type="hidden" id="hdnBillMonth">
+                            <input name="isViaForm" type="hidden" id="isViaForm">
+                            <input name="uiActionName" type="hidden" id="uiActionName">
+                            <input name="hdnAccountID" type="hidden" id="hdnAccountID">
+                            <input name="consumerNumber" type="hidden" id="consumerNumber">
+                            <input name="BUnumber" type="hidden" id="BUnumber">
+                            <table width="100%" border="0" cellspacing="0" cellpadding="0" class="table_border_2">
+                                <tbody><tr class="center">
+                                    <td align="center">
+                                        <a class="center" href="#" onclick="printVersionHT();"><strong>View Printable Version
+                                        </strong></a>
+                                    </td>
+                                </tr>
+                            </tbody></table>
+                            <div class="separator">
+                            </div>
+                            <table id="tblHeader_MSEDCL" style="width: 100%;" cellpadding="0" cellspacing="0">
+	<tbody><tr>
+		<td id="tdLogo" rowspan="3" width="30%">
+                                       
+                                       <img id="ImgLogo" alt="Maharashtra State Electricity Distribution Co. Ltd." src="images/logo_billing.gif" style="height:75px;width:195px;border-width:0px;">
+                                    </td>
+		<td id="tdTitle" colspan="3" style="border-style: none none none none; border-width: thin; border-color: #000000;" class="style4">
+                                   
+                                   <label id="lbllTitle">Maharashtra State Electricity Distribution Co. Ltd.</label>
+                                    </td>
+	</tr>
+</tbody></table>
+
+                                
+                                    
+                                  
+
+                                 
+                                    
+                                    
+                                    <table style="width: 100%;" cellpadding="0" cellspacing="0">
+                                <tbody><tr>
+                                    <td id="tdBillSupply" colspan="3" style="background-color: #800000; color: #FFFFFF;">
+                                        <span class="style3"><strong>BILL OF SUPPLY FOR THE MONTH OF </strong></span><span class="style3"><strong>
+                                                <span id="lblBillMonth" style="">Jan 2026</span>
+                                            </strong>&nbsp; <strong>
+                                                <span id="lblBillNumber" style="">000003172239395</span>
+                                            </strong></span>
+                                            <label id="lblGGNStatus" style="color:#33CC33;"></label>
+                                    </td>
+
+                                </tr>
+                                <tr>
+                                    <td style="background-color: #800000; color: #FFFFFF;">
+                                        GSTIN:
+                                        <span id="lblGSTIN" style="font-weight:bold;">27AA ECM2933K1ZB</span>
+                                    </td>
+                                    <td style="background-color: #800000; color: #FFFFFF;">
+                                    <label id="lblSite">Website : www.mahadiscom.in</label>
+                                      
+                                    </td>
+                                    <td id="tdHSN" style="background-color: #800000; color: #FFFFFF;">
+                                        HSN CODE:
+                                        <span id="lblHSIN" style="font-weight:bold;">27160000 </span>
+                                    </td>
+
+                                </tr>
+                            </tbody></table>
+                            <div>
+                                <table width="70%" align="right">
+                                    <tbody><tr>
+                                        <td>
+                                            <span id="lblCircleName">NAGPUR (U) CIRCLE</span>:<span id="lblCircleCode">699</span>
+                                        </td>
+                                        <td>
+                                            <span id="lblDivisionName">NAGPUR CONGRESS NAGAR DIV</span>
+                                            :
+                                            <span id="lblDivisionCode">673</span>
+                                        </td>
+                                        <td>
+                                            <span id="lblSubDivisionName">REGENT S/DN.</span>:
+                                            <span id="lblSubDivisionCode">682</span>
+                                        </td>
+                                        <td class="right-align">
+                                            1
+                                        </td>
+                                    </tr>
+                                </tbody></table>
+                            </div>
+                            <div>
+                                <table width="98%" cellpadding="0" cellspacing="4" align="center">
+                                    <tbody><tr>
+                                        <td width="50%">
+                                            <table width="100%" cellpadding="1" cellspacing="1" frame="border" style="border-style: outset;
+                                                border-width: thin">
+                                                <tbody><tr>
+                                                    <td class="tdLabel">
+                                                        Consumer No. :
+                                                    </td>
+                                                 
+                                                          <td colspan="3">
+                                                        <span id="lblConsumerNumber">410011972806</span><span id="lblConsumer_Type"></span> &nbsp;&nbsp;
+                                                        <span id="tdSolarCap"><span id="lbltdSolarCap">SOLAR NET METER(3 KW)</span></span>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td class="tdLabel">
+                                                        Consumer Name :
+                                                    </td>
+                                                    <td colspan="3">
+                                                        <span id="lblConsumerName">MR VINOD CHITAMAN BELSARE</span>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td class="tdLabel">
+                                                        Adresss :
+                                                    </td>
+                                                    <td colspan="3">
+                                                        <span id="lblMeterAddressLine1">DEONAGAR KHAMLAROAD</span>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td>
+                                                        &nbsp;
+                                                    </td>
+                                                    <td colspan="3">
+                                                        <span id="lblMeterAddressLine2"></span>
+                                                    </td>
+                                                </tr>
+                                           
+                                                    <tr>
+                                                      <td class="tdLabel" style="width: 34%;">
+                                                       <span id="lblTdPdDate"></span>
+                                                    </td>
+                                                       <td>
+                                                    <span id="lblTdPdDateValue"></span>
+                                                    </td>
+                                                  
+                                                </tr>
+                                                <tr>
+                                                      <td class="tdLabel" style="width: 34%;">
+                                                       <span id="lbSolarAgreeDt">Solar Agreement Date:</span>
+                                                    </td>
+                                                   <td>
+                                                     <span id="lbSolarAgreeDtValue">04-08-2023</span>
+                                                    </td>
+                                                  
+                                                </tr>
+                                                <tr>
+                                                    <td class="tdLabel">
+                                                        Village :
+                                                    </td>
+                                                    <td>
+                                                        <span id="lblVillage">NAGPUR</span>
+                                                    </td>
+                                                    <td class="tdLabel">
+                                                        Pincode :
+                                                    </td>
+                                                    <td>
+                                                        <span id="lblPinCode">440015</span>
+                                                    </td>
+                                                </tr>
+                                                
+                                            </tbody></table>
+                                        </td>
+                                        <td width="50%">
+                                            <table width="100%" cellpadding="0.5" cellspacing="1" border="1">
+                                                <tbody><tr>
+                                                    <td width="32%" style="background-color: #FFCC99; font-weight: bold;">
+                                                        BILL DATE
+                                                    </td>
+                                                    <td style="background-color: #FFCC99">
+                                                        <span id="lblBillDate">06-01-2026</span>
+                                                    </td>
+                                                    <td rowspan="2" style="background-color: #FFCC99">
+                                                        <span id="lblbillDueDateAmount1">510.00</span>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td width="32%" style="background-color: #FFCC99; font-weight: bold;">
+                                                        DUE DATE
+                                                    </td>
+                                                    <td style="background-color: #FFCC99">
+                                                        <span id="lblBillDueDate1">27-01-2026</span>
+                                                    </td>
+                                                </tr>
+                                                <tr id="trPaidUpto">
+	<td width="32%" style="background-color: #FFCC99; font-weight: bold;">
+                                                        IF PAID UPTO
+                                                    </td>
+	<td style="background-color: #FFCC99">
+                                                        <span id="lblPromptPaymentDate">15-01-2026</span>
+                                                    </td>
+	<td style="background-color: #FFCC99">
+                                                        <span id="lblPromptPaymentAmount">510.00</span>
+                                                    </td>
+</tr>
+
+                                                <tr>
+                                                    <td width="32%" style="background-color: #FFCC99; color: #FF0000; font-weight: bold;">
+                                                        IF PAID AFTER
+                                                    </td>
+                                                    <td style="background-color: #FFCC99">
+                                                        <span id="lblBillDueDate2">27-01-2026</span>
+                                                    </td>
+                                                    <td style="background-color: #FFCC99">
+                                                        <span id="lblbillDueDateAmount2">520.00</span>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td width="32%" colspan="2" class="tdLabel">
+                                                        Last Receipt No./Date
+                                                    </td>
+                                                    <td>
+                                                        <span id="lblLastReceiptNumber"></span>
+                                                        /<span id="lblLAstReciptDate">23-12-2025</span>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td width="32%" colspan="2" class="tdLabel">
+                                                        Last Month Payment
+                                                    </td>
+                                                    <td>
+                                                        <span id="lblLastMonthPayment">140</span>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td width="32%" colspan="2" class="tdLabel">
+                                                        Scale / Sector
+                                                    </td>
+                                                    <td>
+                                                        <span id="lblScale">Large Scale/Private Sector</span><span id="lblSector"></span>
+                                                    </td>
+                                                </tr>
+                                            </tbody></table>
+                                        </td>
+                                    </tr>
+                                </tbody></table>
+                            </div>
+                            <div>
+                                <table width="98%" cellpadding="0" cellspacing="0" align="center" style="border: 1px solid black;">
+                                    <tbody><tr>
+                                        <td width="12.5%" class="tdLabel" style="border-bottom: 1px solid black;">
+                                            Email ID :
+                                        </td>
+                                        <td colspan="3" style="border-bottom: 1px solid black;">
+                                            <span id="lblEmail">ari********@gmail.com</span>
+                                        </td>
+                                        <td width="12.5%" style="border-bottom: 1px solid black;" class="tdLabel">
+                                            Activity :
+                                        </td>
+                                        <td colspan="3" style="border-bottom: 1px solid black;">
+                                            <span id="lblActivity"></span>
+                                        </td>
+                                    </tr>
+                                    <tr style="border: 1px solid black;">
+                                        <td width="13.5%" style="border-bottom: 1px solid black;" class="tdLabel">
+                                            Mobile No. :
+                                        </td>
+                                        <td width="12.5%" style="border-bottom: 1px solid black;">
+                                            <span id="lblMobNo">99******46</span>
+                                        </td>
+                                        <td width="12.5%" style="border-bottom: 1px solid black;" class="tdLabel">
+                                            Meter No.:
+                                        </td>
+                                        <td width="12.5%" style="border-bottom: 1px solid black;">
+                                            <span id="lblMakeCodeSerailNumber">100-A5512081</span>
+                                        </td>
+                                        <td width="13.5%" style="border-bottom: 1px solid black;" class="tdLabel">
+                                            Seasonal :
+                                        </td>
+                                        <td width="11.5%" style="border-bottom: 1px solid black;">
+                                            <span id="lblSeasonal">N</span>
+                                        </td>
+                                        <td width="13.5%" style="border-bottom: 1px solid black;" class="tdLabel">
+                                            Load Shed Ind :
+                                        </td>
+                                        <td width="10.5%" style="border-bottom: 1px solid black;">
+                                            &nbsp;
+                                            <span id="lblLoadSheddingIndicator"></span>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td width="13.5%" style="border-bottom: 1px solid black;" class="tdLabel">
+                                            Tariff :
+                                        </td>
+                                        <td width="12.5%" style="border-bottom: 1px solid black;">
+                                            <span id="lblTariffCode">090</span>
+                                            <span id="lblTariffCategory">LT I Res 1-Phase</span>
+                                        </td>
+                                        <td width="12.5%" style="border-bottom: 1px solid black;" class="tdLabel">
+                                            Connected Load (KW):
+                                        </td>
+                                        <td width="12.5%" style="border-bottom: 1px solid black;">
+                                            <span id="lblConnectedLoadKW">      3 KW</span>
+                                        </td>
+                                        <td width="13.5%" style="border-bottom: 1px solid black;" class="tdLabel">
+                                            Urban/Rural Flag :
+                                        </td>
+                                        <td width="11.5%" style="border-bottom: 1px solid black;">
+                                            <span id="lblUrbanRuralFlag">U</span>
+                                        </td>
+                                        <td width="13.5%" style="border-bottom: 1px solid black;" class="tdLabel">
+                                            Express Feeder Flag :
+                                        </td>
+                                        <td width="10.5%" style="border-bottom: 1px solid black;">
+                                            <span id="lblExpressFeederFlag">N</span>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td width="13.5%" style="border-bottom: 1px solid black;" class="tdLabel">
+                                            Contract Demand (KVA) :
+                                        </td>
+                                        <td width="12.5%" style="border-bottom: 1px solid black;">
+                                            <span id="lblContractDemandKVA">0.00</span>
+                                        </td>
+                                        <td width="12.5%" style="border-bottom: 1px solid black;" class="tdLabel"> 
+                                            40% of Con. Demand(KVA) :
+                                        </td>
+                                        <td width="12.5%" style="border-bottom: 1px solid black;">
+                                            <span id="lblHalfOfContractDemand">0.00</span>
+                                        </td>
+                                        <td width="13.5%" style="border-bottom: 1px solid black;" class="tdLabel">
+                                            Feeder Voltage (KV) :
+                                        </td>
+                                        <td width="12.5%" style="border-bottom: 1px solid black;">
+                                            <span id="lblFeederVoltage">11</span>
+                                        </td>
+                                        <td width="13.5%" style="border-bottom: 1px solid black;" class="tdLabel">
+                                            LIS Indicator&nbsp; :
+                                        </td>
+                                        <td width="10.5%" style="border-bottom: 1px solid black;">
+                                            &nbsp;
+                                        </td>
+                                    </tr>
+                                    <tr id="trSanctioned_load">
+	<td width="13.5%" class="tdLabel">
+                                            Sanctioned load (KW)  :
+                                        </td>
+	<td width="12.5%">
+                                            <span id="lblSanctioned_load">      3 KW</span>
+                                        </td>
+	<td width="12.5%">
+                                            &nbsp; 
+                                        </td>
+	<td width="12.5%">
+                                            &nbsp; 
+                                        </td>
+	<td width="13.5%">
+                                            &nbsp; 
+                                        </td>
+	<td width="12.5%">
+                                            &nbsp; 
+                                        </td>
+	<td width="13.5%">
+                                            &nbsp; 
+                                        </td>
+	<td width="10.5%">
+                                            &nbsp;
+                                        </td>
+</tr>
+
+                                    <tr id="trBU_PC">
+	<td class="tdLabel">
+                                            <span id="Label3" class="tdLabel">DTC :</span>
+                                        </td>
+	<td>
+                                            <span id="lblIP_DTC_CODE">4682283</span>
+                                        </td>
+	<td>
+                                            <span id="Label2" class="tdLabel">PC-MR-ROUTE-SEQ :</span>
+                                        </td>
+	<td>
+                                            &nbsp;
+                                            <span id="lblPC_Route_Seq">00-04-6269-1481</span>
+                                        </td>
+	<td class="tdLabel">
+                                            BU :
+                                        </td>
+	<td>
+                                            <span id="lblIP_BU">4682</span>
+                                        </td>
+	<td class="tdLabel">
+                                            PC :
+                                        </td>
+	<td>
+                                            <span id="lblIP_PC">01</span>
+                                        </td>
+</tr>
+
+                                </tbody></table>
+                            </div>
+                            <div>
+                                <table width="98%" cellpadding="0" cellspacing="0" align="center" style="border: 1px solid black;">
+                                    <tbody><tr>
+                                        <td width="16.6%" style="border-bottom: 1px solid black;" class="tdLabel">
+                                            Date of Connection :
+                                        </td>
+                                        <td width="16.6%" style="border-bottom: 1px solid black;">
+                                            <span id="lblDateOfConnection">12-04-1986</span>
+                                        </td>
+                                        <td width="16.6%" style="border-bottom: 1px solid black;" class="tdLabel">
+                                            Category :
+                                        </td>
+                                        <td width="16.6%" style="border-bottom: 1px solid black;">
+                                        <span id="lblcatg">LT I Res 1-Phase</span>
+                                        </td>
+                                        <td width="16.6%" style="border-bottom: 1px solid black;" class="tdLabel">
+                                            GSTIN :
+                                        </td>
+                                        <td width="16.6%" style="border-bottom: 1px solid black;">
+                                            <span id="lblConGSTIN"></span>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td width="16.6%" style="border-bottom: 1px solid black;" class="tdLabel">
+                                            Supply at :
+                                        </td>
+                                        <td width="16.6%" style="border-bottom: 1px solid black;">
+                                            <span id="lblMETERING_FLAG">LT</span>
+                                        </td>
+                                        <td width="16.6%" style="border-bottom: 1px solid black;" class="tdLabel">
+                                            Elec. Duty :
+                                        </td>
+                                        <td width="16.6%" style="border-bottom: 1px solid black;">
+                                            <span id="lblDutyCode">51</span>
+                                        </td>
+                                        <td width="16.6%" style="border-bottom: 1px solid black;" class="tdLabel">
+                                            PAN :
+                                        </td>
+                                        <td width="16.6%" style="border-bottom: 1px solid black;">
+                                            <span id="lblTanNo"></span>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td width="16.6%" style="border-bottom: 1px solid black;" class="tdLabel">
+                                            Prev. Highest (Mth) :
+                                        </td>
+                                        <td width="16.6%" style="border-bottom: 1px solid black;">
+                                            <span id="lblD11BD_MONTH"></span>
+                                        </td>
+                                        <td width="16.6%" style="border-bottom: 1px solid black;" class="tdLabel">
+                                            Prev. Highest Bill Demand (KVA) :
+                                        </td>
+                                        <td width="16.6%" style="border-bottom: 1px solid black;" colspan="3">
+                                            <span id="lblD11_MONTH_BD"></span>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td width="16.6%" style="color: #FF3300; border-bottom: 1px solid black;">
+                                            Security Deposit Held Rs. :
+                                        </td>
+                                        <td width="16.6%" style="border-bottom: 1px solid black;">
+                                            <span id="SECURITY_DEPOSIT_HELD">4,911.18</span>
+                                        </td>
+                                        <td width="16.6%" style="color: #FF3300; border-bottom: 1px solid black;" class="tdLabel">
+                                            Addl. S.D. Demanded Rs :
+                                        </td>
+                                        <td width="16.6%" style="border-bottom: 1px solid black;" colspan="3">
+                                            <span id="SD_DEMANDED">00.00</span>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td width="16.6%" class="tdLabel" style="color: #FF3300">
+                                            Bank Guarantee Rs. :
+                                        </td>
+                                        <td width="16.6%">
+                                            <span id="lblBG_LC_AMOUNT">0.00</span>
+                                        </td>
+                                        <td width="16.6%" class="tdLabel" style="color: #FF3300">
+                                            S.D. Arrears Rs. :
+                                        </td>
+                                        <td width="16.6%" colspan="3">
+                                            <span id="SD_ARREARS">00.00</span>
+                                        </td>
+                                    </tr>
+                                </tbody></table>
+                            </div>
+                            <div>
+                                <table width="98%" cellpadding="2" cellspacing="1" align="center" style="border: 1px solid black;">
+                                    <tbody><tr>
+                                        <td width="56%" valign="top">
+                                            <table width="100%" align="center">
+                                                <tbody><tr>
+                                                    <td width="100%" align="center" style="background-color: #990000; color: #FFFFFF;
+                                                        font-weight: bold; font-size: medium;">
+                                                        BILLING HISTORY
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td width="100%">
+                                                        <div>
+	<table cellspacing="0" cellpadding="0" rules="all" border="1" id="grdCustBillingDetails" style="width:100%;border-collapse:collapse;">
+		<tbody><tr>
+			<th class="right" scope="col">
+                                                                        <a href="#" id="grdCustBillingDetails_ctl01_lblbillMonth" style="text-decoration: none; color: black" onclick="setCashCollectionSortCriteria('BILL_MTH');">
+                                                                            <span id="grdCustBillingDetails_ctl01_Label1">Bill Month</span></a>
+                                                                    </th><th class="right" scope="col">
+                                                                        <a href="#" id="grdCustBillingDetails_ctl01_lblconsumptionUnits" style="text-decoration: none; color: black" onclick="setCashCollectionSortCriteria('METER1_UNITS');">
+                                                                            <span id="grdCustBillingDetails_ctl01_Label52">Consumption (Units)</span></a>
+                                                                    </th><th class="right" scope="col">
+                                                                        <a href="#" id="grdCustBillingDetails_ctl01_lblBillDemand" style="text-decoration: none; color: black" onclick="setCashCollectionSortCriteria('BILLING_DEMAND');">
+                                                                            <span id="grdCustBillingDetails_ctl01_LabelBillDemand">Bill Demand (KVA)</span></a>
+                                                                    </th><th class="right" scope="col">
+                                                                        <a href="#" id="grdCustBillingDetails_ctl01_lblbillAmount" style="text-decoration: none; color: black" onclick="setCashCollectionSortCriteria('C_ROUNDED_NET_BILL');">
+                                                                            <span id="grdCustBillingDetails_ctl01_Label58">Bill Amount</span></a>
+                                                                    </th>
+		</tr><tr>
+			<td class="right" align="right">
+                                                                        Dec 2025
+                                                                    </td><td class="right" align="right">
+                                                                        0
+                                                                    </td><td class="right" align="right">
+                                                                        0
+                                                                    </td><td class="right" align="center" valign="middle">
+                                                                                 140
+                                                                    </td>
+		</tr><tr class="td_odd">
+			<td class="right" align="right">
+                                                                        Nov 2025
+                                                                    </td><td class="right" align="right">
+                                                                        43
+                                                                    </td><td class="right" align="right">
+                                                                        0
+                                                                    </td><td class="right" align="center" valign="middle">
+                                                                              449.21
+                                                                    </td>
+		</tr><tr>
+			<td class="right" align="right">
+                                                                        Oct 2025
+                                                                    </td><td class="right" align="right">
+                                                                        64
+                                                                    </td><td class="right" align="right">
+                                                                        0
+                                                                    </td><td class="right" align="center" valign="middle">
+                                                                              615.26
+                                                                    </td>
+		</tr><tr class="td_odd">
+			<td class="right" align="right">
+                                                                        Sep 2025
+                                                                    </td><td class="right" align="right">
+                                                                        85
+                                                                    </td><td class="right" align="right">
+                                                                        0
+                                                                    </td><td class="right" align="center" valign="middle">
+                                                                              749.07
+                                                                    </td>
+		</tr><tr>
+			<td class="right" align="right">
+                                                                        Aug 2025
+                                                                    </td><td class="right" align="right">
+                                                                        176
+                                                                    </td><td class="right" align="right">
+                                                                        0
+                                                                    </td><td class="right" align="center" valign="middle">
+                                                                              1899.4
+                                                                    </td>
+		</tr><tr class="td_odd">
+			<td class="right" align="right">
+                                                                        Jul 2025
+                                                                    </td><td class="right" align="right">
+                                                                        405
+                                                                    </td><td class="right" align="right">
+                                                                        0
+                                                                    </td><td class="right" align="center" valign="middle">
+                                                                             5415.58
+                                                                    </td>
+		</tr><tr>
+			<td class="right" align="right">
+                                                                        Jun 2025
+                                                                    </td><td class="right" align="right">
+                                                                        336
+                                                                    </td><td class="right" align="right">
+                                                                        0
+                                                                    </td><td class="right" align="center" valign="middle">
+                                                                             4093.45
+                                                                    </td>
+		</tr><tr class="td_odd">
+			<td class="right" align="right">
+                                                                        May 2025
+                                                                    </td><td class="right" align="right">
+                                                                        266
+                                                                    </td><td class="right" align="right">
+                                                                        0
+                                                                    </td><td class="right" align="center" valign="middle">
+                                                                              3048.9
+                                                                    </td>
+		</tr><tr>
+			<td class="right" align="right">
+                                                                        Apr 2025
+                                                                    </td><td class="right" align="right">
+                                                                        189
+                                                                    </td><td class="right" align="right">
+                                                                        0
+                                                                    </td><td class="right" align="center" valign="middle">
+                                                                             2095.59
+                                                                    </td>
+		</tr><tr class="td_odd">
+			<td class="right" align="right">
+                                                                        Mar 2025
+                                                                    </td><td class="right" align="right">
+                                                                        0
+                                                                    </td><td class="right" align="right">
+                                                                        0
+                                                                    </td><td class="right" align="center" valign="middle">
+                                                                                 138
+                                                                    </td>
+		</tr><tr>
+			<td class="right" align="right">
+                                                                        Feb 2025
+                                                                    </td><td class="right" align="right">
+                                                                        0
+                                                                    </td><td class="right" align="right">
+                                                                        0
+                                                                    </td><td class="right" align="center" valign="middle">
+                                                                                 138
+                                                                    </td>
+		</tr><tr class="td_odd">
+			<td class="right" align="right">
+                                                                        Jan 2025
+                                                                    </td><td class="right" align="right">
+                                                                        0
+                                                                    </td><td class="right" align="right">
+                                                                        0
+                                                                    </td><td class="right" align="center" valign="middle">
+                                                                                 138
+                                                                    </td>
+		</tr>
+	</tbody></table>
+</div>
+                                                    </td>
+                                                </tr>
+                                            </tbody></table>
+                                        </td>
+                                       
+                                        <td width="44%" valign="top">
+                                            
+                                            <table width="100%" cellspacing="0" border="1" align="center">
+                                                <tbody><tr id="trCCTFN">
+	<td align="center" style="background-color: #FFCC99;">
+                                                        <b><font size="4">CUSTOMER CARE Toll Free No.
+                                                            <br>
+                                                            1912, 1800-102-3435,<br>
+                                                            1800-233-3435<br>
+                                                        </font></b>
+                                                    </td>
+</tr>
+
+                                                  
+                                 
+                                  
+                                 
+  
+                                                <tr>
+                                                    <td style="background-color: #FFCCCC;">
+
+                                                         <span id="lblCC">Rule &amp; Procedure for Consumer Grievances Redressal is available at www.mahadiscom.in&gt;consumer portal&gt;CGRF Instead of Printed bill , register for E-bill and avail Rs. 10 per bill as a “Go-green “ discount.For registration visit at www.mahadiscom.in-&gt;consumer portal-&gt;Quick access-&gt;Go-green request </span>
+                                                        <br>
+                                                        <br>
+                                                    
+                                                    </td>
+                                                </tr>
+                                                
+                                                  <tr>
+    <td align="center" colspan="2">
+        <table id="tblQRCode" width="100%" border="0" cellspacing="0" cellpadding="0">
+	<tbody><tr>
+		<td colspan="2" align="center">
+    <!-- Content related to QR code scanning -->
+    <p>Scan this QR Code with BHIM App for UPI Payment <br>
+        <span id="lblQRValidityDate">QR code is valid up to date: 12/02/2026</span>
+    </p>
+                    </td>
+	</tr>
+	<tr>
+		<td align="center" colspan="2">
+                    <!-- Placeholder for the QR code image -->
+                    <img id="ImgQrCode" src="QRCode/GetQRCode.ashx?code=4100119728064682A12026021201&amp;am=510&amp;No=1770834600" style="height:105px;width:105px;border-width:0px;">
+                </td>
+	</tr>
+	<tr>
+		<td colspan="2" align="center">
+                    <!-- Information related to QR code usage -->
+                    <label id="lblQRcodedetails">
+                        If paid by QR Code then Prompt Pay Discount/Delay Payment Charges will be adjusted in subsequent bill.
+                    </label>
+                </td>
+	</tr>
+</tbody></table>
+
+    </td>
+</tr>
+
+
+                                            </tbody></table>
+                                           
+                                        </td>
+                                       
+                                    </tr>
+                   
+                                </tbody></table>
+                            </div>
+                            <div>
+                
+                
+            </div>
+            
+            <div>
+                <table id="tblRTGSAccNo" width="98%" align="center" cellpadding="0" cellspacing="0" border="0">
+	<tbody><tr>
+		<td style="background-color: #FFCC99;">
+                            For making Energy Bill Payment through RTGS/NEFT mode, use following details<br>
+                       
+                     
+                            <ul type="circle" style="list-style:inside">
+                                <li>Beneficiary Name: <b>MSEDCL </b></li>
+                                <li>Beneficiary Account Number: <b><span id="lblConsumerNoRTGS">MSEDCL01410011972806</span></b>
+                                </li>
+                                <li>IFS Code: <b>SBIN0008965 </b></li>
+                                <li>Name of Bank: <b>STATE BANK OF INDIA</b></li>
+                                <li>Name of Branch: <b>IFB BKC</b></li>
+                                <li>Bill Amount:<b><span id="lblBillAmountRTGS">510.00</span></b></li>
+                            </ul>
+                   
+                            Disclaimer: Please use above bank details only for payment against consumer number mentioned in beneficiary account number.
+                        </td>
+	</tr>
+</tbody></table>
+
+              
+                 
+
+            </div>
+                                    
+                            
+                           
+                            <br>
+                            <div>
+                                <table width="98%" cellpadding="0" cellspacing="0" align="center" style="border: 1px solid black;">
+                                    <tbody><tr>
+                                        <td width="100%" align="center" style="border-bottom: 1px solid black; background-color: #990000;
+                                            color: #FFFFFF; font-weight: bold; font-size: medium;">
+                                            CURRENT CONSUMPTION DETAILS
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td width="100%">
+                                            <table width="100%" cellpadding="0" cellspacing="0" align="center" border="1px">
+                                                <tbody><tr>
+                                                    <th width="16%">
+                                                        Reading Date
+                                                    </th>
+                                                    <th width="14%">
+                                                        KWH
+                                                    </th>
+                                                    <th width="14%">
+                                                        KVAH
+                                                    </th>
+                                                    <th width="14%">
+                                                        RKVAH (LAG)
+                                                    </th>
+                                                    <th width="16%">
+                                                        RKVAH (LEAD)
+                                                    </th>
+                                                    <th width="13%">
+                                                        KW (MD)
+                                                    </th>
+                                                    <th width="13%">
+                                                        KVA (MD)
+                                                    </th>
+                                                </tr>
+                                                <tr>
+                                                    <td width="16%">
+                                                        Current
+                                                        <span id="ReadingDate">01-01-2026</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="KWC_UNIT_KWH">6430.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="KVAC_UNIT_KVAH">0.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="RKVAC_UNIT_RKVAH">0.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                     <span id="RKVAC_UNIT_RKVAH_LEAD">0.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="KWC_DEMAND_KW">0.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="KVAC_DEMAND_KVA">0.000</span>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td width="16%">
+                                                        Previous
+                                                        <span id="lblpreviousReadingDate">01-12-2025</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="PMKWC_UNIT_KWH">6263.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="PMKVAC_UNIT_KVAH">0.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="PMRKVAC_UNIT_RKVAH">0.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                     <span id="PMRKVAC_UNIT_RKVAH_LEAD">0.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="PMKWC_DEMAND_KW"></span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="PMKVAC_DEMAND_KVA"></span>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td width="16%">
+                                                        Difference
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="DIFF_KWHC">167.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="DIFF_KVAHC">0.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="DIFF_RKVAC">0.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                    <span id="DIFF_RKVAC_LEAD">0.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                    </td>
+                                                    <td width="14%">
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td width="16%">
+                                                        Multiplying Factor
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="MF_KWH">1.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="MF_KVAH">1.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="MF_RKVAH">1.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                    <span id="MF_RKVAH_LEAD">1.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="MF_KW">1.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="MF_KVA">1.000</span>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td width="16%">
+                                                        Consumption
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="CONSUMP_KWH">167.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="CONSUMP_KVAH">0.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="CONSUMP_RKVAH">0.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                    <span id="CONSUMP_RKVAH_LEAD">0.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="CONSUMP_KW">0.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="CONSUMP_KVA">0.000</span>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td width="16%">
+                                                        LT Metering
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="ADD5P_KWH">0.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="ADD5P_KVAH">0.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="ADD5P_RKVAH">0.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                     <span id="ADD5P_RKVAH_LEAD">0.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="ADD5P_KW">0.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="ADD5P_KVA">0.000</span>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td width="16%">
+                                                        Adjustment
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="ADJ_KWH">-116.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="ADJ_KVAH">0.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="ADJ_RKVAH">0.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                    <span id="ADJ_RKVAH_LEAD">0.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td width="16%">
+                                                        Assessed Consump
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="ASSESSED_KWH">0.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="ASSESSED_KVAH">0.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="ASSESSED_RKVAH">0.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                     <span id="ASSESSED_RKVAH_LEAD">0.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="ASSESSED_KW">0.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="ASSESSED_KVA">0.000</span>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td width="16%">
+                                                        Total Consumption
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="totalKWHConsumption">51.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="totalKVAHConsumption">0.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="totalRKVAHConsumption">0.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                     <span id="totalRKVAHConsumption_LEAD">0.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="totalKWConsumption">0.000</span>
+                                                    </td>
+                                                    <td width="14%" align="right">
+                                                        <span id="totalKVAConsumption">0.000</span>
+                                                    </td>
+                                                </tr>
+                                            </tbody></table>
+                                        </td>
+                                    </tr>
+                                </tbody></table>
+                            </div>
+                            <br>
+                            <div>
+                                <table width="98%" cellpadding="0" cellspacing="0" align="center" style="border: 1px solid black;">
+                                    <tbody><tr>
+                                        <td width="100%" align="center" style="border-bottom: 1px solid black; background-color: #990000;
+                                            color: #FFFFFF; font-weight: bold; font-size: medium;">
+                                            BILLING DETAILS
+                                        </td>
+                                    </tr>
+                                </tbody></table>
+                            </div>
+                            <div>
+                                <table width="98%" cellpadding="0" cellspacing="0" align="center" style="border: 1px solid black;">
+                                    <tbody><tr>
+                                        <td width="58%" align="center">
+                                            <table width="100%" cellpadding="0" cellspacing="0" align="center" style="border: 1px solid black;">
+                                                <tbody><tr>
+                                                    <td>
+                                                        <table width="100%" cellpadding="0" cellspacing="0" align="center" style="border: 1px solid black;">
+                                                            <tbody><tr>
+                                                                <td width="40%" style="border-bottom: 1px solid black;">
+                                                                    Billed Demand (KVA)
+                                                                </td>
+                                                                <td width="15%" style="border-bottom: 1px solid black;">
+                                                                    <span id="lblBilledDemandKVA">0</span>
+                                                                </td>
+                                                                <td width="20%" style="border-bottom: 1px solid black; border-right: 1px solid black;">
+                                                                    @ Rs.
+                                                                </td>
+                                                                <td width="25%" style="border-bottom: 1px solid black; text-align: right;">
+                                                                    <span id="lblDemandRate">140.0</span>
+                                                                </td>
+                                                            </tr>
+                                                            <tr>
+                                                                <td width="40%" style="border-bottom: 1px solid black;">
+                                                                    Assessed P.F.
+                                                                </td>
+                                                                <td width="15%" style="border-bottom: 1px solid black;">
+                                                                    <span id="lblAssessedPF_KW_KVA"></span>
+                                                                </td>
+                                                                <td width="20%" style="border-bottom: 1px solid black; border-right: 1px solid black;">
+                                                                    Avg. P.F.
+                                                                </td>
+                                                                <td width="25%" style="border-bottom: 1px solid black; text-align: right;">
+                                                                    <span id="lblPF_CALCULATED_METHOD2">0.000</span>
+                                                                </td>
+                                                            </tr>
+                                                            <tr>
+                                                                <td width="40%" style="">
+                                                                    Billed P.F.
+                                                                </td>
+                                                                <td width="15%" style="">
+                                                                    <span id="BILLING_PF">0.000</span>
+                                                                </td>
+                                                                <td width="20%" style="border-right: 1px solid black;">
+                                                                    L.F.
+                                                                </td>
+                                                                <td width="25%" style="border-bottom: 1px solid black; text-align: right;">
+                                                                    <span id="LOAD_FACTOR"></span>
+                                                                </td>
+                                                            </tr>
+                                                        </tbody></table>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td>
+                                                        <table width="100%" cellpadding="0" cellspacing="0" align="center" style="border: 1px solid black;">
+                                                            <tbody><tr>
+                                                                <td width="32%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    font-weight: bold; font-size: small; color: #000000; background-color: #FFCC99;
+                                                                    text-align: center">
+                                                                    Consumption Type
+                                                                </td>
+                                                                <td width="25%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    font-weight: bold; font-size: small; color: #000000; background-color: #FFCC99;
+                                                                    text-align: center">
+                                                                    Units
+                                                                </td>
+                                                                <td width="18%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    font-weight: bold; font-size: small; color: #000000; background-color: #FFCC99;
+                                                                    text-align: center">
+                                                                    Rate
+                                                                </td>
+                                                                <td width="25%" style="border-bottom: 1px solid black; font-weight: bold; font-size: small;
+                                                                    color: #000000; background-color: #FFCC99; text-align: center">
+                                                                    Charges Rs.
+                                                                </td>
+                                                            </tr>
+                                                            <tr>
+                                                                <td width="32%" style="border-right: 1px solid black; border-bottom: 1px solid black;">
+                                                                    Industrial
+                                                                </td>
+                                                                <td width="25%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    text-align: right">
+                                                                    <span id="industrialUnits"></span>
+                                                                </td>
+                                                                <td width="18%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    text-align: right">
+                                                                    <span id="industrialRates"></span>
+                                                                </td>
+                                                                <td width="25%" style="border-bottom: 1px solid black; text-align: right">
+                                                                    <span id="industrialCharges"></span>
+                                                                </td>
+                                                            </tr>
+                                                            <tr>
+                                                                <td width="32%" style="border-right: 1px solid black; border-bottom: 1px solid black;">
+                                                                    Residential
+                                                                </td>
+                                                                <td width="25%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    text-align: right">
+                                                                    <span id="residentialUnits">51</span>
+                                                                </td>
+                                                                <td width="18%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    text-align: right">
+                                                                    <span id="residentialRate">0.00</span>
+                                                                </td>
+                                                                <td width="25%" style="border-bottom: 1px solid black; text-align: right">
+                                                                    <span id="residentialcharges">218.28</span>
+                                                                </td>
+                                                            </tr>
+                                                            <tr>
+                                                                <td width="32%" style="border-right: 1px solid black;">
+                                                                    Commercial
+                                                                </td>
+                                                                <td width="25%" style="border-right: 1px solid black; text-align: right">
+                                                                    <span id="CommercialUnits"></span>
+                                                                </td>
+                                                                <td width="18%" style="border-right: 1px solid black; text-align: right">
+                                                                    <span id="CommercialRates"></span>
+                                                                </td>
+                                                                <td width="25%" style="text-align: right">
+                                                                    <span id="CommercialCharges"></span>
+                                                                </td>
+                                                            </tr>
+                                                        </tbody></table>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td>
+                                                        <table width="100%" cellpadding="0" cellspacing="0" align="center" style="border: 1px solid black;">
+                                                            <tbody><tr>
+                                                                <td width="32%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    font-weight: bold; font-size: small; color: #000000; background-color: #FFCC99;
+                                                                    text-align: center">
+                                                                    E.D. on(Rs)
+                                                                </td>
+                                                                <td width="25%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    font-weight: bold; font-size: small; color: #000000; background-color: #FFCC99;
+                                                                    text-align: center">
+                                                                    Rate %
+                                                                </td>
+                                                                <td style="border-bottom: 1px solid black; font-weight: bold; font-size: small; color: #000000;
+                                                                    background-color: #FFCC99; text-align: center">
+                                                                    Amount Rs.
+                                                                </td>
+                                                            </tr>
+                                                            <tr>
+                                                                <td width="32%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    text-align: right">
+                                                                    <span id="ED_CHRGBLE_AMOUNTI">0.00</span>
+                                                                </td>
+                                                                <td width="25%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    text-align: right">
+                                                                    <span id="ED_RATEI">0</span>
+                                                                </td>
+                                                                <td style="border-bottom: 1px solid black; text-align: right">
+                                                                    <span id="ED_AMOUNTI">0.00</span>
+                                                                </td>
+                                                            </tr>
+                                                            <tr>
+                                                                <td width="32%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    text-align: right">
+                                                                    <span id="ED_CHRGBLE_AMOUNTR">438.35</span>
+                                                                </td>
+                                                                <td width="25%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    text-align: right">
+                                                                    <span id="ED_RATER">16</span>
+                                                                </td>
+                                                                <td style="border-bottom: 1px solid black; text-align: right">
+                                                                    <span id="ED_AMOUNTR">70.14</span>
+                                                                </td>
+                                                            </tr>
+                                                            <tr>
+                                                                <td width="32%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    text-align: right">
+                                                                    <span id="ED_CHRGBLE_AMOUNTC">0.00</span>
+                                                                </td>
+                                                                <td width="25%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    text-align: right">
+                                                                    <span id="ED_RATEC">0</span>
+                                                                </td>
+                                                                <td style="border-bottom: 1px solid black; text-align: right">
+                                                                    <span id="ED_AMOUNTC">0.00</span>
+                                                                </td>
+                                                            </tr>
+                                                        </tbody></table>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td>
+                                                        <table width="100%" cellpadding="0" cellspacing="0" align="center" style="border: 1px solid black;">
+                                                            <tbody><tr>
+                                                                <td width="32%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    font-weight: bold; font-size: small; color: #000000; background-color: #FFCC99;
+                                                                    text-align: center">
+                                                                    TOD Zone
+                                                                </td>
+                                                                <td width="10%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    font-weight: bold; font-size: small; color: #000000; background-color: #FFCC99;
+                                                                    text-align: center">
+                                                                    Rate
+                                                                </td>
+                                                                <td width="18%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    font-weight: bold; font-size: small; color: #000000; background-color: #FFCC99;
+                                                                    text-align: center">
+                                                                    Units
+                                                                </td>
+                                                                <td width="18%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    font-weight: bold; font-size: small; color: #000000; background-color: #FFCC99;
+                                                                    text-align: center">
+                                                                    Demand
+                                                                </td>
+                                                                <td width="22%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    font-weight: bold; font-size: small; color: #000000; background-color: #FFCC99;
+                                                                    text-align: center">
+                                                                    Charges Rs.
+                                                                </td>
+                                                            </tr>
+                                                            <tr>
+                                                                <td width="32%" style="border-right: 1px solid black; border-bottom: 1px solid black;" class="tdLabel">
+                                                                   
+                                                                    2200 Hrs-0600 Hrs
+                                                                </td>
+                                                                <td width="10%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    text-align: right">
+                                                                    <span id="SLOT1_RATE">0</span>
+                                                                </td>
+                                                                <td width="18%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    text-align: right">
+                                                                    <span id="NC_UNIT_CONSUMED">0</span>
+                                                                </td>
+                                                                <td width="18%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    text-align: right">
+                                                                    <span id="NIGHT_DEMAND_KVA">0.00</span>
+                                                                </td>
+                                                                <td width="22%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    text-align: right">
+                                                                    <span id="ZONEA_CHARGES">00.00</span>
+                                                                    &nbsp;
+                                                                </td>
+                                                            </tr>
+                                                            <tr>
+                                                                <td width="32%" style="border-right: 1px solid black; border-bottom: 1px solid black;" class="tdLabel">
+                                                                  
+                                                                  0600 Hrs-0900hrs &amp; 1200 Hrs-1800 Hrs
+                                                                </td>
+                                                                <td width="10%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    text-align: right">
+                                                                    <span id="SLOT2_RATE">0</span>
+                                                                </td>
+                                                                <td width="18%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    text-align: right">
+                                                                    <span id="SLOT2_UNIT">0</span>
+                                                                </td>
+                                                                <td width="18%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    text-align: right">
+                                                                    <span id="SLOT2_DEMAND">0.00</span>
+                                                                </td>
+                                                                <td width="22%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    text-align: right">
+                                                                    <span id="ZONEB_CHARGES">00.00</span>
+                                                                </td>
+                                                            </tr>
+                                                            <tr>
+                                                                <td width="32%" style="border-right: 1px solid black; border-bottom: 1px solid black;" class="tdLabel">
+                                                                    0900 Hrs - 1200 Hrs
+                                                                </td>
+                                                                <td width="10%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    text-align: right">
+                                                                    <span id="SLOT3_RATE">0</span>
+                                                                </td>
+                                                                <td width="18%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    text-align: right">
+                                                                    <span id="SLOT3_UNIT">0</span>
+                                                                </td>
+                                                                <td width="18%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    text-align: right">
+                                                                    <span id="SLOT3_DEMAND">0.00</span>
+                                                                </td>
+                                                                <td width="22%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    text-align: right">
+                                                                    <span id="ZONEC_CHARGES">00.00</span>
+                                                                </td>
+                                                            </tr>
+                                                            <tr>
+                                                                <td width="32%" style="border-right: 1px solid black; border-bottom: 1px solid black;" class="tdLabel">
+                                                                    1800 Hrs-2200 Hrs
+                                                                </td>
+                                                                <td width="10%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    text-align: right">
+                                                                    <span id="SLOT4_RATE">0</span>
+                                                                </td>
+                                                                <td width="18%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    text-align: right">
+                                                                    <span id="SLOT4_UNIT">0</span>
+                                                                </td>
+                                                                <td width="18%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    text-align: right">
+                                                                    <span id="SLOT4_DEMAND">0.00</span>
+                                                                </td>
+                                                                <td width="22%" style="border-right: 1px solid black; border-bottom: 1px solid black;
+                                                                    text-align: right">
+                                                                    <span id="ZONED_CHARGES">00.00</span>
+                                                                </td>
+                                                            </tr>
+                                                        </tbody></table>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td>
+                                                        <table width="100%" cellpadding="0" cellspacing="0" align="center" style="border: 1px solid black;">
+                                                            <tbody><tr>
+                                                                <td width="32%">
+                                                                    Amount in Words
+                                                                </td>
+                                                                <td>
+                                                                    <span id="TOT_BL_AMT_ROUND_SP">FIVE HUNDRED TEN ONLY</span>
+                                                                </td>
+                                                            </tr>
+                                                        </tbody></table>
+                                                    </td>
+                                                </tr>
+                                            </tbody></table>
+                                        </td>
+                                        <td width="42%" align="center">
+                                            <table width="100%" cellpadding="0" cellspacing="0" align="center" style="border: 1px solid black;">
+                                                <tbody><tr>
+                                                    <td width="%" style="border-bottom: 1px solid black;">
+                                                        Demand Charges
+                                                    </td>
+                                                    <td width="40%" style="border-bottom: 1px solid black; text-align: right">
+                                                        <span id="DemandCharges">140.00</span>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td width="60%" style="border-bottom: 1px solid black;">
+                                                        Wheeling Charge @
+                                                        <span id="lblWCrate">01.47</span>
+                                                         &nbsp;
+                                                    </td>
+                                                    <td width="40%" style="border-bottom: 1px solid black; text-align: right">
+                                                        <span id="Wheeling_Charge">74.97</span>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td width="60%" style="border-bottom: 1px solid black;">
+                                                        Energy Charges
+                                                    </td>
+                                                    <td width="40%" style="border-bottom: 1px solid black; text-align: right">
+                                                        <span id="EnergyCharges_AdditionalCharges">218.28</span>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td width="60%" style="border-bottom: 1px solid black;">
+                                                        TOD Tariff EC
+                                                    </td>
+                                                    <td width="40%" style="border-bottom: 1px solid black; text-align: right;">
+                                                        <span id="REBATE_OFFERED">00.00</span>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td width="60%" style="border-bottom: 1px solid black;">
+                                                        FAC @
+                                                         <span id="lblFcaRate">20.00</span>
+                                                          &nbsp;Ps/U
+                                                    </td>
+                                                    <td width="40%" style="border-bottom: 1px solid black; text-align: right">
+                                                        <span id="FCA_AMOUNT">05.10</span>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td width="60%" style="border-bottom: 1px solid black;">
+                                                        Electricity Duty (
+                                                          <span id="lblEDRate">16.00</span>
+                                                          %)
+                                                            &nbsp;
+                                                    </td>
+                                                    <td width="40%" style="border-bottom: 1px solid black; text-align: right">
+                                                        <span id="ED_AMOUNT">70.14</span>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td width="60%" style="border-bottom: 1px solid black;">
+                                                        <span id="lblOther_Charges">other charges</span>
+                                                    </td>
+                                                    <td width="40%" style="border-bottom: 1px solid black; text-align: right">
+                                                        <span id="otherCharges_gencoAdditionalcharges">00.00</span>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td width="60%" style="border-bottom: 1px solid black;">
+                                                        Tax on Sale @
+                                                        <span id="lblTOS">0</span>
+                                                        &nbsp;Ps/U
+                                                    </td>
+                                                    <td width="40%" style="border-bottom: 1px solid black; text-align: right">
+                                                        <span id="TOS_CHARGE">00.00</span>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td width="60%" style="border-bottom: 1px solid black;">
+                                                        P.F. Penal Charges/P.F. Inc.
+                                                    </td>
+                                                    <td width="40%" style="border-bottom: 1px solid black; text-align: right">
+                                                        <span id="PF_PENALTY">00.00</span>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td width="60%" style="border-bottom: 1px solid black;">
+                                                        Charges For Excess Demand
+                                                    </td>
+                                                    <td width="40%" style="border-bottom: 1px solid black; text-align: right">
+                                                        <span id="chargesforExcessDemand">00.00</span>
+                                                    </td>
+                                                </tr>
+                                                   
+                                                
+                                                 
+                                                <tr>
+                                                    <td width="60%" style="border-bottom: 1px solid black;">
+                                                        &nbsp;
+                                                    </td>
+                                                    <td width="40%" style="border-bottom: 1px solid black;">
+                                                        &nbsp;
+                                                    </td>
+                                                </tr>
+                                                    
+                                                <tr>
+                                                    <td width="60%" style="border-bottom: 1px solid black;">
+                                                        Debit Bill Adjustment
+                                                    </td>
+                                                    <td width="40%" style="border-bottom: 1px solid black; text-align: right">
+                                                        <span id="debitBillAdjustments">00.00</span>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td width="60%" style="border-bottom: 1px solid black;">
+                                                        <strong>TOTAL CURRENT BILL 
+                                                            <span id="lblregionecsubsidy"></span></strong>
+                                                    </td>
+                                                    <td width="40%" style="border-bottom: 1px solid black; text-align: right">
+                                                        <b><span id="totalCurrentBill">510.00</span></b>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td width="60%" style="border-bottom: 1px solid black;">
+                                                        Current Interest&nbsp;
+                                                        <span id="interestDate">01-01-2026</span>
+                                                    </td>
+                                                    <td width="40%" style="border-bottom: 1px solid black; text-align: right">
+                                                        <span id="interestDue">00.00</span>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td width="60%" style="border-bottom: 1px solid black;">
+                                                        Principle Arrears
+                                                    </td>
+                                                    <td width="40%" style="border-bottom: 1px solid black; text-align: right">
+                                                        <span id="principleArrears">02.35</span>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td width="60%" style="border-bottom: 1px solid black;">
+                                                        Interest Arrears
+                                                    </td>
+                                                    <td width="40%" style="border-bottom: 1px solid black; text-align: right">
+                                                        <span id="inetrestArrears">00.00</span>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td width="60%" style="border-bottom: 1px solid black;">
+                                                        Total Bill (Rounded) Rs.
+                                                    </td>
+                                                    <td width="40%" style="border-bottom: 1px solid black; text-align: right">
+                                                        <span id="totalBillRounded">510.00</span>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td width="60%" style="border-bottom: 1px solid black;">
+                                                        Delayed Payment Charges Rs.
+                                                    </td>
+                                                    <td width="40%" style="border-bottom: 1px solid black; text-align: right">
+                                                        <span id="delayedPaymentCharges">06.36</span>
+                                                    </td>
+                                                </tr>
+                                                <tr>
+                                                    <td width="70%" style="border-bottom: 1px solid black;">
+                                                        Amount Payable<span id="lblBillDueDate3">27-01-2026</span>
+                                                        &nbsp;After
+                                                        <br>
+                                                        <span style="font-size: x-small">Amount Rounded to Nearest Rs.(10/-) </span>
+                                                    </td>
+                                                    <td width="30%" style="border-bottom: 1px solid black; text-align: right">
+                                                        <strong>
+                                                            <span id="totalBillAmountDPC">520.00</span></strong>
+                                                    </td>
+                                                </tr>
+                                            </tbody></table>
+                                        </td>
+                                    </tr>
+                                </tbody></table>
+                                 
+                                <div id="divSolarConsDetails">
+                <table width="98%" cellpadding="0" cellspacing="0" align="center" style="border: 1px solid black;">
+                    <tbody><tr>
+                        <td width="100%" align="center" style="border-bottom: 1px solid black; background-color: #990000;
+                            color: #FFFFFF; font-weight: bold; font-size: medium;">
+                            SOLAR NET METER CONSUMPTION DETAILS
+                        </td>
+                    </tr>
+                    <tr>
+                        <td width="100%">
+                            <table width="100%" cellpadding="0" cellspacing="0" align="center" border="1px">
+                                <tbody><tr>
+                                    <th width="20%">
+                                        SOLAR TARIFF
+                                    </th>
+                                    <td colspan="3" align="center">
+                                       <b>IMPORT</b>
+                                    </td>
+                                    <td colspan="3" align="center">
+                                      <b>EXPORT</b> 
+                                    </td>
+                                    <td colspan="3" align="center">
+                                         <b>GENERATION</b>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td width="19%">
+                                       
+                                    </td>
+                                    <td width="9%" align="center">
+                                      CURRENT READING
+                                    </td>
+                                     <td width="9%" align="center">
+                                       PREVIOUS READING
+                                    </td>
+                                     <td width="9%" align="center">
+                                       Units
+                                    </td>
+                                     <td width="9%" align="center">
+                                       CURRENT READING
+                                    </td>
+                                     <td width="9%" align="center">
+                                       PREVIOUS READING
+                                    </td>
+                                     <td width="9%" align="center">
+                                        Units
+                                    </td>
+                                     <td width="9%" align="center">
+                                       CURRENT READING
+                                    </td>
+                                     <td width="9%" align="center">
+                                         PREVIOUS READING
+                                    </td>
+                                     <td width="9%" align="center">
+                                        Units
+                                    </td>
+                                </tr>
+                                <tr>
+                                      <td width="19%" style="border-right: 1px solid black; border-bottom: 1px solid black;" class="tdLabel">
+                                                    0000 Hrs-0600 Hrs&amp; 2200 Hrs-2400 Hrs
+                                                </td>
+                                    <td width="9%" align="right">
+                                        <span id="lblImpCurS1">00.00</span>
+                                    </td>
+                                   <td width="9%" align="right">
+                                        <span id="lblImpPrevS1">00.00</span>
+                                    </td>
+                                    <td width="9%" align="right">
+                                        <span id="lblImpUnS1">00.00</span>
+                                    </td>
+                                    <td width="9%" align="right">
+                                        <span id="lbExpCurS1">00.00</span>
+                                    </td>
+                                    <td width="9%" align="right">
+                                        <span id="lblExpPrevS1">00.00</span>
+                                    </td>
+                                    <td width="9%" align="right">
+                                        <span id="lblExpUnS1">00.00</span>
+                                    </td>
+                                    <td width="9%" align="right">
+                                        <span id="lbGenCurS1">00.00</span>
+                                    </td>
+                                    <td width="9%" align="right">
+                                        <span id="lblGenPrevS1">00.00</span>
+                                    </td>
+                                    <td width="9%" align="right">
+                                        <span id="lblGenUnS1">00.00</span>
+                                    </td>
+                                </tr>
+                                <tr>
+                                   <td width="19%" style="border-right: 1px solid black; border-bottom: 1px solid black;" class="tdLabel">
+                                                    0600 Hrs-0900 Hrs&amp; 1200 Hrs-1800 Hrs
+                                                </td>
+                                    <td width="9%" align="right">
+                                        <span id="lblImpCurS2">00.00</span>
+                                    </td>
+                                  <td width="9%" align="right">
+                                        <span id="lblImpPrevS2">00.00</span>
+                                    </td>
+                                     <td width="9%" align="right">
+                                        <span id="lblImpUnS2">00.00</span>
+                                    </td>
+                                     <td width="9%" align="right">
+                                        <span id="lbExpCurS2">00.00</span>
+                                    </td>
+                                     <td width="9%" align="right">
+                                        <span id="lblExpPrevS2">00.00</span>
+                                    </td>
+                                     <td width="9%" align="right">
+                                        <span id="lblExpUnS2">00.00</span>
+                                    </td>
+                                     <td width="9%" align="right">
+                                        <span id="lbGenCurS2">00.00</span>
+                                    </td>
+                                     <td width="9%" align="right">
+                                        <span id="lblGenPrevS2">00.00</span>
+                                    </td>
+                                     <td width="9%" align="right">
+                                        <span id="lblGenUnS2">00.00</span>
+                                    </td>
+                                   
+                                </tr>
+                                <tr>
+                                     <td width="19%" style="border-right: 1px solid black; border-bottom: 1px solid black;" class="tdLabel">
+                                                    0900 Hrs - 1200 Hrs
+                                                </td>
+                                   <td width="9%" align="right">
+                                        <span id="lblImpCurS3">00.00</span>
+                                    </td>
+                                   <td width="9%" align="right">
+                                        <span id="lblImpPrevS3">00.00</span>
+                                    </td>
+                                      <td width="9%" align="right">
+                                        <span id="lblImpUnS3">00.00</span>
+                                    </td>
+                                      <td width="9%" align="right">
+                                        <span id="lbExpCurS3">00.00</span>
+                                    </td>
+                                      <td width="9%" align="right">
+                                        <span id="lblExpPrevS3">00.00</span>
+                                    </td>
+                                      <td width="9%" align="right">
+                                        <span id="lblExpUnS3">00.00</span>
+                                    </td>
+                                      <td width="9%" align="right">
+                                        <span id="lbGenCurS3">00.00</span>
+                                    </td>
+                                      <td width="9%" align="right">
+                                        <span id="lblGenPrevS3">00.00</span>
+                                    </td>
+                                      <td width="9%" align="right">
+                                        <span id="lblGenUnS3">00.00</span>
+                                    </td>
+                                 
+                                </tr>
+                                <tr>
+                                    <td width="19%" style="border-right: 1px solid black; border-bottom: 1px solid black;" class="tdLabel">
+                                                    1800 Hrs-2200 Hrs
+                                                </td>
+                                     <td width="9%" align="right">
+                                        <span id="lblImpCurS4">00.00</span>
+                                    </td>
+                                     <td width="9%" align="right">
+                                        <span id="lblImpPrevS4">00.00</span>
+                                    </td>
+                                     <td width="9%" align="right">
+                                        <span id="lblImpUnS4">00.00</span>
+                                    </td>
+                                     <td width="9%" align="right">
+                                        <span id="lbExpCurS4">00.00</span>
+                                    </td>
+                                     <td width="9%" align="right">
+                                        <span id="lblExpPrevS4">00.00</span>
+                                    </td>
+                                     <td width="9%" align="right">
+                                        <span id="lblExpUnS4">00.00</span>
+                                    </td>
+                                     <td width="9%" align="right">
+                                        <span id="lbGenCurS4">00.00</span>
+                                    </td>
+                                     <td width="9%" align="right">
+                                        <span id="lblGenPrevS4">00.00</span>
+                                    </td>
+                                     <td width="9%" align="right">
+                                        <span id="lblGenUnS4">00.00</span>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td width="19%">
+                                     <b>TOTAL</b>  
+                                    </td>
+                                      <td width="9%" align="right">
+                                        <span id="lblImpCurTotal">6,430.00</span>
+                                    </td>
+                                      <td width="9%" align="right">
+                                        <span id="lblImpPrevTotal">6,263.00</span>
+                                    </td>
+                                      <td width="9%" align="right">
+                                        <span id="lblImpUnTotal">167.00</span>
+                                    </td>
+                                      <td width="9%" align="right">
+                                        <span id="lbExpCurTotal">3,807.00</span>
+                                    </td>
+                                      <td width="9%" align="right">
+                                        <span id="lblExpPrevTotal">3,723.00</span>
+                                    </td>
+                                      <td width="9%" align="right">
+                                        <span id="lblExpUnTotal">84.00</span>
+                                    </td>
+                                      <td width="9%" align="right">
+                                        <span id="lbGenCurTotal">7,521.00</span>
+                                    </td>
+                                      <td width="9%" align="right">
+                                        <span id="lblGenPrevTotal">7,342.00</span>
+                                    </td>
+                                      <td width="9%" align="right">
+                                        <span id="lblGenUnTotal">179.00</span>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td colspan="1">
+                                        Offset:
+                                        <span id="lblOffset">116.00</span>
+                                    </td>
+                                    <td colspan="2">
+                                        Prvious Banked:
+                                        <span id="lblPrevBanked">32.00</span>
+                                    </td>
+                                     <td colspan="2">
+                                        Current Banked:
+                                        <span id="lblCurbanked">00.00</span>
+                                    </td>
+                                    <td colspan="3">
+                                        Banking Charge Unit:
+                                        <span id="lblBankChargeUnit">00.00</span>
+                                    </td> 
+                                     <td colspan="2">
+                                        Billed:
+                                        <span id="lblBilled">51.00</span>
+                                    </td>
+                                                      
+                                </tr>
+                            </tbody></table>
+                        </td>
+                    </tr>
+                    
+                </tbody></table>
+            </div>
+              <br>
+                                
+<br>
+                                <div>
+                                    <table width="98%" align="center">
+                                        <tbody><tr>
+                                            <td width="55%">
+                                                <table width="100%" align="center" style="border: 1px solid black;"> 
+                                                     <tbody><tr id="trTOSmsg" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblTOSmsg"></label></b>
+                                                          </td>
+</tr>
+
+                                                    <tr id="trSdadjmsg" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblSdadjmsg"></label></b>
+                                                          </td>
+</tr>
+
+                                                     <tr id="trOneMthMsg" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblOneMthMsg"></label></b>
+                                                          </td>
+</tr>
+
+                                               
+                                                       <tr id="trTariffPet" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b> 
+                                                         
+                                                     </b>
+                                                          </td>
+</tr>
+
+                                                        <tr id="trlblBalirajaMsg" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblBalirajaMsg"></label></b>
+                                                          </td>
+</tr>
+
+                                                      <tr id="trlbllSolarRooftopRegisMSG" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lbllSolarRooftopRegisMSG"></label></b>
+                                                          </td>
+</tr>
+
+                      <tr id="trlbllSolarRooftopProcessMSG" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lbllSolarRooftopProcessMSG"></label></b>
+                                                          </td>
+</tr>
+
+                                                         <tr id="trChqDDMsg" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblChqDDMsg"># If the amount is paid by cheque/DD, the date on which the amount gets cleared, or a maximum of 3 days from the date of depositing the cheque will be considered as the bill payment date.</label></b>
+                                                          </td>
+</tr>
+
+                                                                 <tr id="trAdjEdAmtCred" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblAdjEdAmtCred"></label></b>
+                                                          </td>
+</tr>
+
+                                                        <tr id="trPloomConsmsg" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                           
+                                                            <b><label id="lblPloomConsmsg"> </label> 
+                                                            </b>
+                                                        </td>
+</tr>
+
+                                                    <tr id="trVday" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblVdayMsg"></label></b>
+                                                          </td>
+</tr>
+
+                                                         <tr id="trReconGSTChargesMsg" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                           
+                                                            <b><label id="lblReconGSTChargesMsg"> </label> 
+                                                            </b>
+                                                        </td>
+</tr>
+
+                                                     <tr id="trlblAddTextSubsidy_msg" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                           
+                                                            <b><label id="lblAddTextSubsidy_msg"> </label> 
+                                                            </b>
+                                                        </td>
+</tr>
+
+                                                       <tr id="trlblText_Policy" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                           
+                                                            <b><label id="lblText_Policy"> </label> 
+                                                            </b>
+                                                        </td>
+</tr>
+
+                                                      <tr id="trlblVM_EDExemption" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                           
+                                                            <b><label id="lblVM_EDExemption"> </label> 
+                                                            </b>
+                                                        </td>
+</tr>
+
+                                                     <tr id="trReconcilationMsg" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                           
+                                                            <b><label id="lbltrReconcilationMsg"> </label> 
+                                                            </b>
+                                                        </td>
+</tr>
+
+                                                      <tr id="trMercDir" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                           
+                                                            <b><label id="lbltrMercDir">  #As per MERC Directive dtd.24/02/2021,cash payment of Rs.5000.00 and above will not be accepted by MSEDCL.</label> 
+                                                            </b>
+                                                        </td>
+</tr>
+
+                                                       <tr id="trSDheldAdjMsg" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                           
+                                                            <b><label id="lblSDheldAdjMsg"></label> 
+                                                            </b>
+                                                        </td>
+</tr>
+
+                                                    <tr id="trVmNon" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                           
+                                                            <b><label id="lblVmNonMsg"></label> 
+                                                            </b>
+                                                        </td>
+</tr>
+
+                                                    <tr id="trOnPayFacMsg" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                           
+                                                            <b><label id="lblOnPayFacMsg"># Online payment Facility - adopt for safe , easy and free online payment facility through https://wss.mahadiscom.in/wss OR Mobile app - Mahavitaran &amp; get discount of 0.25% (max Rs.500). For queries please contact helpdesk_pg@mahadiscom.in. </label> 
+                                                            </b>
+                                                        </td>
+</tr>
+
+                                                      <tr id="trTariffRevDiff" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblTariffRevDiffMsg"></label></b>
+                                                          </td>
+</tr>
+
+                                                    <tr id="trIncrConsumReb" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblIncrConsumRebMsg"></label></b>
+                                                          </td>
+</tr>
+
+                                                    <tr id="trConsPayReb" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblConsPayRebMsg"></label></b>
+                                                          </td>
+</tr>
+
+                                                    <tr id="trGreenPowPer" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblGreenPowPerMsg"></label></b>
+                                                          </td>
+</tr>
+
+                                                       <tr id="trNameChnage" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblNameChangeMsg"></label></b>
+                                                          </td>
+</tr>
+
+                                                      
+                                                     <tr id="trEDDutyMsg" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblEDDutyMsg"></label></b>
+                                                          </td>
+</tr>
+
+                                                     <tr id="trPloom" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblPloomMsg"></label></b>
+                                                          </td>
+</tr>
+
+                                                 <tr id="trTDS" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblTDSmsg"></label></b>
+                                                          </td>
+</tr>
+
+                                                    <tr id="trReconChargesmsg" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblReconCharges"></label></b>
+                                                          </td>
+</tr>
+
+                                                     <tr id="trSDIntMsg" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblSDIntMessage"></label></b>
+                                                          </td>
+</tr>
+
+                                                   <tr id="trAgpolicy1" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblAgpolicy1"></label></b>
+                                                          </td>
+</tr>
+
+                                                         <tr id="trAgpolicy2" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblAgpolicy2"></label></b>
+                                                          </td>
+</tr>
+
+                                                         <tr id="trAgpolicy3" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblAgpolicy3"></label></b>
+                                                          </td>
+</tr>
+
+                                                 <tr id="trInstmsg" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblInstmsg"></label></b>
+                                                          </td>
+</tr>
+
+                                                          <tr id="trRegSub" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblRegSub"></label></b>
+                                                          </td>
+</tr>
+
+                                                    <tr id="trTCS1" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblTCS1"></label></b>
+                                                          </td>
+</tr>
+
+                                                          <tr id="trTCS2" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblTCS2"></label></b>
+                                                          </td>
+</tr>
+
+                                                  <tr id="TrPFInst" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblPfInst"></label></b>
+                                                          </td>
+</tr>
+
+                                                        <tr id="TrEDratemsg" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblEDRateMsg"></label></b>
+                                                          </td>
+</tr>
+
+                                                  <tr id="TrMercPrac" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblMercPrac"></label></b>
+                                                          </td>
+</tr>
+
+                                                        <tr id="TrSolarCredAdj" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblSolarCredAdj"></label></b>
+                                                          </td>
+</tr>
+
+                                                          <tr id="TrSolarDebAdj" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblSolarDebAdj"></label></b>
+                                                          </td>
+</tr>
+
+                                                         <tr id="TrFIMorAmt" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblFIMorAmt"></label></b>
+                                                          </td>
+</tr>
+
+                                                         <tr id="TrRebate1Amt" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblRebate1Amt"></label></b>
+                                                          </td>
+</tr>
+
+                                                        <tr id="TrPPDDatemsg" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblPPDDatemsg"></label></b>
+                                                          </td>
+</tr>
+
+                                                        <tr id="TrUDD" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblUDD"></label></b>
+                                                          </td>
+</tr>
+
+                                                        <tr id="TrBilCal" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblBilCal"></label></b>
+                                                          </td>
+</tr>
+
+                                                   <tr id="TrpowFac" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b></b>
+                                                          </td>
+</tr>
+
+                                                      <tr id="trCrAdjAmt" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblCrAdjAmt"></label></b>
+                                                          </td>
+</tr>
+
+                                                       <tr id="trCVDdisc" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblCVDDisc"></label></b>
+                                                          </td>
+</tr>
+
+                                                    <tr id="Tr5" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                     <b><label id="lblCoronamsg"></label></b>
+                                                          </td>
+</tr>
+
+                                                         
+                                                    <tr id="Tr4" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                            <b><label id="lblVM_SUBSIDY"></label></b>
+                                                        </td>
+</tr>
+
+                                          <tr id="Tr10" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                            <b><label id="lblTextile_SUBSIDY"></label></b>
+                                                        </td>
+</tr>
+
+                                                      <tr id="TrSLC" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                            <b><label id="lblSLC_Charges"></label></b>
+                                                        </td>
+</tr>
+
+                                                     <tr id="TrAcSubsidy" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                            <b><label id="lblActCodeSub_msg"></label></b>
+                                                        </td>
+</tr>
+
+                                                    <tr id="Tr2" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                            <b><label id="lblPF_LEAD_INST_AMT"></label></b>
+                                                        </td>
+</tr>
+
+                                                    
+                                                 
+                                                        <tr id="tr6" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+
+                                                     <b><label id="lblCashLimitMsg"># As per MERC order dt.24/02/2021, Monthly energy bill receipt in cash is limited to Rs.5000/- w.e.f 01/11/2021.</label></b>
+                                                         </td>
+</tr>
+
+
+                                                    
+
+                                                     <tr id="Tr1" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                            <b><label id="lbllDIGITAL_PAYMENT_DISCOUNT">DIGITAL PAYMENT DISCOUNT OF Rs. 01.10 WILL BE CREDITED IN SUBSEQUENT BILL,IF PAID BY DIGITAL MODE ON OR BEFORE 27-01-2026</label></b>
+                                                        </td>
+</tr>
+
+                                                        <tr id="trNeftRtgsmsg" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                         <b><label id="lblNeftRtgsmsg">In case of energy bill paid through NEFT / RTGS, date of amount credited in MSEDCL bank account will be considered as bill payment date.</label></b>
+                                                         </td>
+</tr>
+
+                                                       <tr id="trDisputemsg" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                         <b><label id="lblDisputemsg"></label></b>
+                                                         </td>
+</tr>
+
+                                                       
+                                                    <tr id="TrGom_Grand" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                            <b><label id="lblGOM_Grand"></label></b>
+                                                        </td>
+</tr>
+
+                                                       
+                                                    
+                                                      
+                                                     
+                                                    <tr id="TrPDFinalBill" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                            <b><label id="lblPDFinalBil"></label></b>
+                                                        </td>
+</tr>
+
+                                                    <tr id="TrTARIFF_REV_ADJ" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                            <b><label id="lblTARIFF_REV_ADJ"></label></b>
+                                                        </td>
+</tr>
+
+                                                    <tr id="TrHT_Cheque_Bounce" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                            <b><label id="lblCheque_Bounce_Message">As per MERC order for Case No 322 of 2019 revised Cheque Bounce charges of Rs. 750 or Bank charges whichever is higher will be applicable from 01 April 2020.</label></b>
+                                                        </td>
+</tr>
+
+                                                    <tr id="TrPowerloom" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                            <b><label id="lblPowerloom_Message"></label></b>
+                                                        </td>
+</tr>
+
+                                                     <tr id="trCMessage">
+	<td align="left" style="background-color: pink;">
+                                                            <b>Message:
+                                                            <span id="lblReg_EC_Subsidy" style="display: none; font-weight: bold;
+                                                                color: Red;"></span>
+                                                            <span id="lblmessagec1">Rooftop Solar Units:-Export:84,Import:167,Adjusted:116,Bank:0/</span></b>
+                                                        </td>
+</tr>
+
+                                                     <tr id="trOldTariffMessage" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                            <b><label id="lblOldTariffMessage">For Any Payment to MSEDCL , ENSURE &amp; INSIST for computerised receipt with unique system generated receipt number. Do not accept handwritten receipts. Pay online to avoid any inconvenience.</label></b>
+                                                        </td>
+</tr>
+
+                                                     
+                                                    
+                                                     
+                                                    <tr id="trIncomeTax" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                            <b><label id="lblIncomeTax">As per Income Tax provision vide section 269 ST cash receipt of Rs.2.00 lakhs and above will not be accepted by MSEDCL against any type of Payment.</label></b>
+                                                        </td>
+</tr>
+
+                                                     <tr id="trLtipCreditmsg" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                             <b><label id="lblLtipCreditmsg"></label></b>
+                                                                   </td>
+</tr>
+
+                                                    <tr id="trEDExemption" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                            <b><label id="lblEDExemption">
+                                                           
+                                                            </label></b>
+                                                        </td>
+</tr>
+
+                                                      
+                                                          <tr id="trCredBillAdjAmt" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                            <b><label id="lblCredBillAdjAmt">
+                                                         
+                                                            </label></b>
+                                                        </td>
+</tr>
+
+                                                     <tr id="trOldUnitsupto" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                            <b><label id="lblOldUnitsupto">
+                                                         
+                                                            </label></b>
+                                                        </td>
+</tr>
+
+                                                       <tr id="trPrevProm" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                            <b><label id="lblPrevProm">
+                                                         
+                                                            </label></b>
+                                                        </td>
+</tr>
+
+                                                       <tr id="trPrevDigi" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                            <b><label id="lblPrevDigi">
+                                                          
+                                                            </label></b>
+                                                        </td>
+</tr>
+
+                                                        <tr id="trMTRmsg" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                            <b><label id="lblMTRmsg"># Tariff Revised w.e.f. 01.07.2025 as per MYT order in Case No. 217 of 2024 dated 28.03.2025 and addendum order in Case No. 75 of 2025 dated 25.06.2025. Tariff Order is available at Mahavitaran Portal: https://www.mahadiscom.in/consumer/en/tariff-details/</label></b>
+                                                        </td>
+</tr>
+
+                                                         
+                      <tr id="trRegulationMsg" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                            <b><label id="lblRegulationMsg">
+                                                         # This bill for power supply cannot be treated or utilised as proof that the premises for which the power supply has been granted is an authorised structure nor would the issuance of the bill amount to proof of ownership of the premises.
+                                                            </label></b>
+                                                        </td>
+</tr>
+
+                                                    
+                                                    <tr id="tr3" align="left" style="background-color: pink;">
+	<td align="left" class="grey_bg_new">
+                                                            <b><label id="lblSNDLMessage">
+                                                           
+                                                            </label></b>
+                                                        </td>
+</tr>
+
+                                                </tbody></table>
+                                                </td>
+                                                <td width="45%">
+                                                <table id="tbgrey_box" align="right">
+	<tbody><tr>
+		<td>
+                                                            <div class="gey_box">
+                                                               <div id="divPayNowDpc">
+                                                                DPC:<label id="DPC">06.36</label><br>
+                                                                After this date:
+                                                                <label id="billDueDate3">27-01-2026</label>
+                                                                <br>
+                                                                   </div>
+                                                                Pay <span class="red">Rs.
+                                                                    <label id="cnetBillDPC">520.00</label>
+                                                                </span>
+                                                                <br>
+                                                                <input src="images/payNow.gif" name="paynowbutton" type="image" id="paynowbutton" value="submit" onclick="payNowClick()">
+                                                                <strong><font color="#ff0000" size="2">
+                                                                    
+                                                                </font></strong>
+                                                                <br>
+                                                                <strong><font color="#ff0000" size="2">
+                                                                    
+                                                                </font></strong>
+                                                                <br>
+                                                                <strong><font color="#ff0000" size="2"><b>
+                                                                    
+                                                                </b></font></strong>
+                                                                <br>
+                                                               
+                                                            </div>
+                                                        </td>
+	</tr>
+</tbody></table>
+
+                                            </td>
+                                        </tr>
+                                     
+                                        </tbody></table>
+                                       
+                                         </div>
+                            </div>
+                                    
+                               
+                            
+                            <br>
+                                
+                                 
+                <br><br><br><br> <br><br><br><br> <br><br><br><br> <br> <br> 
+                 
+      
+                           </form>
+                        </div>
+                    </td>
+                </tr>
+            </tbody></table>
+            <div class="clear">
+            </div>
+        </div>
+        <!-- wrapper ends here -->
+        <!-- this div to push footer bottom -->
+    </div>
+    
+<script type="text/javascript">
+</script>
+
+
+<div class="footer">
+	<div class="left">
+	  	<div>
+	  		
+	  	 <a href="http://www.mahadiscom.in" id="footer_lnkAbtUS" target="_blank"><span id="footer_aboutUS">आमच्या विषयी</span></a> 
+		| <a href="https://www.mahadiscom.in/all-contacts/" id="footer_lnkContactUS" target="_blank"><span id="footer_contactUs">संपर्क करा</span></a>
+		| <a href="https://www.mahadiscom.in/faq-2/" id="footer_lnkFAQ" target="_blank"><span id="footer_faq">मनातले प्रश्न</span></a>
+		| <a href="images/WssHelp/index.htm" id="footer_lnkhelp" target="_blank"><span id="footer_help">मदत</span></a> |
+	  	   
+	     <a href="wss?uiActionName=getDesclamer"><span id="footer_lblDisclaimer">सूचना व अटी</span></a> 
+	    | <a href="images/MSEDCL_Privacy_Policy_Terms_Service.pdf" id="footer_lnkPrivacyPolicyFooter" target="_blank"><span id="footer_lblPrivacyPolicy">गुप्तता धोरण</span></a>
+        |<a href="wss_SiteMap.aspx"><span id="footer_lblSitemap">साइट मॅप</span></a>
+        | <span id="footer_lblfollowus" style="font-weight:bold;">आम्हाला फॉलो करा :</span><a href="https://www.facebook.com/MSEDCL/" id="footer_lnkfacebook" target="_blank"><img src="images/facebook-social-media-icon-design-template-vector-png_127003.jpg" alt="Facebook Page Link"></a>
+        <a href="https://twitter.com/@MSEDCL" id="footer_lnltweeter" target="_blank"><img src="images/tweeter_logo.png" alt="Tweeter Page Link"></a>
+        <a href="https://m.youtube.com/@mahavitaranofficial" id="footer_lnkYT" target="_blank"><img src="images/youtube_social_circle_red2.png" alt="Youtube Channel Link"></a>
+        <a href="https://instagram.com/msedclofficial" id="footer_lnkIG" target="_blank"><img src="images/Instagram_Glyph_Gradient_RGB_resize.png" alt="Instagram Page Link"></a>
+	    <br>
+        <b><span id="footer_F1">ऑनलाइन अर्जाशी संबंधित कोणत्याही प्रश्नांसाठी, कृपया </span><a href="mailto:customercare@mahadiscom.in" id="footer_lnkwssHelpdesk"><font color="#AD1524"><b> customercare@mahadiscom.in</b></font></a> <span id="footer_F2">वर मेल करा किंवा आमच्या ग्राहक सेवा केंद्र १९१२, १८००-२३३-३४३५, १८००-२१२-३४३५ वर संपर्क साधा.</span> </b>
+         <br>
+        
+	    <b><span id="footer_F3">ऑनलाइन पेमेंटशी संबंधित कोणत्याही शंका/ तक्रारीसाठी, ग्राहक महावितरण मोबाइल ॲपद्वारे तक्रार करू शकतात किंवा तक्रार करण्यासाठी खालील लिंकचा वापर करू शकतात.</span></b> <a href="https://wss.mahadiscom.in/wss/wss?uiActionName=getServiceRequestConsumerDetailsLink" id="footer_lnkhelpDesk" target="_blank"><b><font color="#AD1524">https://wss.mahadiscom.in/wss/wss?uiActionName=getServiceRequestConsumerDetailsLink</font></b></a><b><span id="footer_F4"></span></b>
+	     	<br><br>
+	  </div>
+	</div>
+	<div class="right">&nbsp;</div>
+	<div class="clear"></div>
+	<div id="footer_responseSection">
+	<table id="footer_HeaderReponseTable">
+</table>
+
+	 </div>
+</div>
+
+
+</body></html>

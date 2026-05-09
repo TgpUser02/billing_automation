@@ -1,0 +1,66 @@
+﻿Total PDFs found: 7
+
+========== FILE: downloads\EB26033905412730022596.pdf ==========
+Consumer Numbers in PDF: ['412730022596', '412730022596', '000003250999']
+Total lines: 105
+  [ANCHOR] Line 39: 'Export offset Bank Solar Units Prev Bank Units ñε²⌐╢■ε·╔ε╧- 168 424 428 ╦εε░ε∞ - 2025 120'
+  [+1]   Line 40: 'Solar ╓ε╟╢·ⁿ■╔ε╧-2025 172 354 359 ╦εε░ε∞ - 2026 0'
+  [+2]   Line 41: '55 1119 874 ñε²¼ε╓╢-2025 105 285 288'
+  [+3]   Line 42: '▓ε⌡╤ε√-2025 197 384 387'
+  [+4]   Line 43: '▓ε⌡╞ε-2025 223 439 446'
+
+========== FILE: downloads\EB26033906410013085637.pdf ==========
+Consumer Numbers in PDF: ['410013085637', '410013085637', '000003251007']
+Total lines: 103
+  [ANCHOR] Line 37: 'Export offset Bank Solar Units Prev Bank Units ñε²⌐╢■ε·╔ε╧- 425 463 613 ╦εε░ε∞ - 2025 0'
+  [+1]   Line 38: 'Solar ╓ε╟╢·ⁿ■╔ε╧-2025 478 345 525 ╦εε░ε∞ - 2026 0'
+  [+2]   Line 39: '182 1416 1158 ñε²¼ε╓╢-2025 342 265 401'
+  [+3]   Line 40: '▓ε⌡╤ε√-2025 443 397 571'
+  [+4]   Line 41: '▓ε⌡╞ε-2025 575 465 699'
+
+========== FILE: downloads\EB26034682410010221866.pdf ==========
+Consumer Numbers in PDF: ['410010221866', '410010221866', '000003251613']
+Total lines: 102
+  [ANCHOR] Line 37: 'Export offset Bank Solar Units Prev Bank Units ñε²⌐╢■ε·╔ε╧- 252 316 326 ╦εε░ε∞ - 2025 0'
+  [+1]   Line 38: 'Solar ╓ε╟╢·ⁿ■╔ε╧-2025 326 263 268 ╦εε░ε∞ - 2026 0'
+  [+2]   Line 39: '194 567 487 ñε²¼ε╓╢-2025 297 190 200'
+  [+3]   Line 40: '▓ε⌡╤ε√-2025 219 286 316'
+  [+4]   Line 41: '▓ε⌡╞ε-2025 183 353 367'
+
+========== FILE: downloads\EB26034682410011972806.pdf ==========
+Consumer Numbers in PDF: ['410011972806', '410011972806', '000003251615']
+Total lines: 108
+  [ANCHOR] Line 39: 'Export offset Bank Solar Units Prev Bank Units ñε²⌐╢■ε·╔ε╧- 189 125 274 ╦εε░ε∞ - 2025 0'
+  [+1]   Line 40: 'Solar ╓ε╟╢·ⁿ■╔ε╧-2025 184 99 993 ╦εε░ε∞ - 2026 85'
+  [+2]   Line 41: '86 0 0 ñε²¼ε╓╢-2025 236 60 60'
+  [+3]   Line 42: '▓ε⌡╤ε√-2025 472 67 67'
+  [+4]   Line 43: '▓ε⌡╞ε-2025 442 106 106'
+
+========== FILE: downloads\EB26034682410012306656.pdf ==========
+Consumer Numbers in PDF: ['410012306656', '410012306656', '000003251615']
+Total lines: 105
+  [ANCHOR] Line 39: 'Export offset Bank Solar Units Prev Bank Units ñε²⌐╢■ε·╔ε╧- 149 295 385 ╦εε░ε∞ - 2025 0'
+  [+1]   Line 40: 'Solar ╓ε╟╢·ⁿ■╔ε╧-2025 139 231 317 ╦εε░ε∞ - 2026 0'
+  [+2]   Line 41: '131 1370 1196 ñε²¼ε╓╢-2025 127 186 263'
+  [+3]   Line 42: '▓ε⌡╤ε√-2025 175 252 371'
+  [+4]   Line 43: '▓ε⌡╞ε-2025 203 292 423'
+
+========== FILE: downloads\EB26034684410010308261.pdf ==========
+Consumer Numbers in PDF: ['410010308261', '410010308261', '000003251597']
+Total lines: 105
+  [ANCHOR] Line 39: 'Export offset Bank Solar Units Prev Bank Units ñε²⌐╢■ε·╔ε╧- 324 315 424 ╦εε░ε∞ - 2025 0'
+  [+1]   Line 40: 'Solar ╓ε╟╢·ⁿ■╔ε╧-2025 315 236 349 ╦εε░ε∞ - 2026 0'
+  [+2]   Line 41: '181 320 284 ñε²¼ε╓╢-2025 235 197 282'
+  [+3]   Line 42: '▓ε⌡╤ε√-2025 366 286 413'
+  [+4]   Line 43: '▓ε⌡╞ε-2025 445 337 471'
+
+========== FILE: downloads\EB26034685410020034151.pdf ==========
+Consumer Numbers in PDF: ['410020034151', '410020034151', '000003251575']
+Total lines: 102
+  [ANCHOR] Line 36: 'Export offset Bank Solar Units Prev Bank Units ñε²⌐╢■ε·╔ε╧- ╦εε░ε∞ - 2025 224'
+  [+1]   Line 37: 'Solar ╓ε╟╢·ⁿ■╔ε╧-2025 ╦εε░ε∞ - 2026 0'
+  [+2]   Line 38: '225 298 233 ñε²¼ε╓╢-2025'
+  [+3]   Line 39: '▓ε⌡╤ε√-2025'
+  [+4]   Line 40: '▓ε⌡╞ε-2025'
+
+=== DONE ===

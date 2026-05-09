@@ -1,0 +1,40 @@
+Testing 7 PDFs with FIXED extraction
+============================================================
+Consumer : 412730022596
+  Import=55.0  Export=300.0  Gen=580.0
+  bank_solar_units (BSU): 1119.0
+  prev_bank_units  (PBU): 874.0
+
+Consumer : 410013085637
+  Import=182.0  Export=440.0  Gen=542.0
+  bank_solar_units (BSU): 1416.0
+  prev_bank_units  (PBU): 1158.0
+
+Consumer : 410010221866
+  Import=194.0  Export=274.0  Gen=288.0
+  bank_solar_units (BSU): 567.0
+  prev_bank_units  (PBU): 487.0
+
+Consumer : 410011972806
+  Import=171.0  Export=86.0  Gen=218.0
+  bank_solar_units (BSU): 0.0
+  prev_bank_units  (PBU): 0.0
+  *** WARN: Both bank units are ZERO ***
+
+Consumer : 410012306656
+  Import=131.0  Export=305.0  Gen=347.0
+  bank_solar_units (BSU): 1370.0
+  prev_bank_units  (PBU): 1196.0
+
+Consumer : 410010308261
+  Import=181.0  Export=217.0  Gen=287.0
+  bank_solar_units (BSU): 320.0
+  prev_bank_units  (PBU): 284.0
+
+Consumer : 410020034151
+  Import=225.0  Export=290.0  Gen=428.0
+  bank_solar_units (BSU): 298.0
+  prev_bank_units  (PBU): 233.0
+
+============================================================
+Consumers with 0 bank units: ['410011972806']

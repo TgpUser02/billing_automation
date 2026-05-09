@@ -1,0 +1,14 @@
+{
+  "consumer_number": "412730022596",
+  "consumer_name": "Vinod Tilgule ",
+  "import_units": 55.0,
+  "export_units": 300.0,
+  "generation_units": 580.0,
+  "billing_amount": 420.0,
+  "reading_date": null,
+  "bill_month_date": "2026-03-06",
+  "previous_banked_units": 0.0,
+  "current_banked_units": 1119.0,
+  "capacity": 0.0,
+  "area": "Other"
+}

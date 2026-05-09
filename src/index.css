@@ -1,0 +1,206 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Roboto+Condensed:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 20% 98%;
+    --foreground: 215 25% 17%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 215 25% 17%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 25% 17%;
+
+    --primary: 142 76% 36%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 215 20% 95%;
+    --secondary-foreground: 215 25% 27%;
+
+    --muted: 215 20% 96%;
+    --muted-foreground: 215 16% 30%;
+
+    --accent: 217 91% 60%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 215 20% 88%;
+    --input: 215 20% 88%;
+    --ring: 142 76% 36%;
+
+    --radius: 0.5rem;
+
+    /* Custom tokens */
+    --terminal-bg: 220 15% 13%;
+    --terminal-text: 142 76% 50%;
+    --terminal-dim: 142 40% 35%;
+
+    --process-active: 217 91% 60%;
+    --process-complete: 142 76% 36%;
+    --process-pending: 215 20% 75%;
+
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    /* Arin Energy Brand Colors */
+    --arin-red: 0 79% 50%;
+    --arin-green: 145 63% 42%;
+    --arin-orange: 45 100% 51%;
+    --arin-dark: 200 25% 15%;
+    --arin-teal: 180 40% 45%;
+
+    /* Sidebar - Updated to match Arin Bill Buddy */
+    --sidebar-background: 200 25% 15%;
+    --sidebar-foreground: 210 20% 80%;
+    --sidebar-primary: 145 63% 42%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 200 20% 22%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 200 20% 25%;
+    --sidebar-ring: 145 63% 42%;
+  }
+
+  .dark {
+    --background: 220 15% 10%;
+    --foreground: 210 20% 95%;
+
+    --card: 220 15% 13%;
+    --card-foreground: 210 20% 95%;
+
+    --popover: 220 15% 13%;
+    --popover-foreground: 210 20% 95%;
+
+    --primary: 142 76% 42%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 215 20% 20%;
+    --secondary-foreground: 210 20% 90%;
+
+    --muted: 215 20% 18%;
+    --muted-foreground: 215 16% 60%;
+
+    --accent: 217 91% 55%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 62% 45%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 215 20% 22%;
+    --input: 215 20% 22%;
+    --ring: 142 76% 42%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+@layer components {
+  .terminal-window {
+    @apply bg-[hsl(var(--terminal-bg))] rounded-lg border border-[hsl(var(--terminal-bg))];
+  }
+
+  .terminal-text {
+    @apply text-[hsl(var(--terminal-text))] font-mono text-sm;
+  }
+
+  .terminal-dim {
+    @apply text-[hsl(var(--terminal-dim))] font-mono text-sm;
+  }
+
+  .process-step {
+    @apply flex items-center gap-2;
+  }
+
+  .process-dot {
+    @apply w-3 h-3 rounded-full transition-colors duration-300;
+  }
+
+  .process-dot-pending {
+    @apply bg-[hsl(var(--process-pending))];
+  }
+
+  .process-dot-active {
+    @apply bg-[hsl(var(--process-active))] animate-pulse;
+  }
+
+  .process-dot-complete {
+    @apply bg-[hsl(var(--process-complete))];
+  }
+
+  .glass-card {
+    @apply bg-card/80 backdrop-blur-sm border border-border shadow-sm;
+  }
+
+  .bill-table {
+    @apply w-full border-collapse text-sm;
+    font-family: 'Roboto Condensed', sans-serif;
+  }
+
+  .bill-table th {
+    @apply bg-arin-orange text-white font-semibold py-2 px-3 text-left;
+  }
+
+  .bill-table td {
+    @apply border border-gray-400 py-1.5 px-3;
+  }
+
+  .bill-header-title {
+    font-family: 'Roboto Condensed', sans-serif;
+  }
+
+  .sidebar-nav-item {
+    @apply flex items-center gap-3 px-4 py-3 rounded-lg text-sidebar-foreground transition-all duration-200;
+  }
+
+  .sidebar-nav-item:hover {
+    @apply bg-sidebar-accent text-sidebar-accent-foreground;
+  }
+
+  .sidebar-nav-item.active {
+    @apply bg-arin-green text-white font-medium;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #e2e8f0;
+    border-radius: 10px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #cbd5e1;
+  }
+}

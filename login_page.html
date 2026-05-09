@@ -1,0 +1,695 @@
+<html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="icon" type="image/x-icon" href="../wss/images/favicon.ico"><meta http-equiv="Content-Type" content="text/html; charset=utf-8"><meta name="google" content="notranslate"><meta name="Referrer-Policy" content="no-referrer | same-origin"><meta name="keywords" content="Mahavitaran - Registered User Login"><title>
+	नोंदणीकृत प्रवेश ग्राहक
+</title><script type="text/javascript" src="/ruxitagentjs_ICA7NQVfghqrux_10327251022105625.js" data-dtconfig="rid=RID_1566463758|rpid=192654811|domain=mahadiscom.in|reportUrl=/rb_bf47874yok|app=b6759b136071145c|owasp=1|featureHash=ICA7NQVfghqrux|msl=153600|srsr=5000|rdnt=1|uxrgce=1|cuc=i9ki9ku7|srms=2,1,0,0%2Ftextarea%2Cinput%2Cselect%2Coption;0%2Fdatalist;0%2Fform%20button;0%2F%5Bdata-dtrum-input%5D;0%2F.data-dtrum-input;1%2F%5Edata%28%28%5C-.%2B%24%29%7C%24%29|mel=100000|expw=1|dpvc=1|md=mdcc1=a#topnav_LoggedInUserName@menuanchorclass,mdcc2=a#form2 ^rb div.container ^rb div.header ^rb div.language_div|lastModification=1769051186775|postfix=i9ki9ku7|tp=500,50,0|srbbv=2|agentUri=/ruxitagentjs_ICA7NQVfghqrux_10327251022105625.js"></script><link href="css/wss.css" rel="stylesheet" type="text/css"><script src="/common/js?v=06Cxctu6c9_N9b5rtTYN08FFDqpXkL4-sEX2bXsDwfA1"></script>
+  
+    <script src="js/aes.js"></script>
+
+
+
+<script type="text/javascript">
+<!--
+    function isQuoteLogin(s) {
+        var i;
+        for (i = 0; i < s.length; i++) {
+            var c = s.charCodeAt(i);
+            if (c == 39 || c == 34) // single quote and double quote ASCII values
+                return true;
+        }
+        return false;
+    }
+
+
+
+function validateLoginForm()
+{
+	var loginId = document.getElementById("loginId").value.replace(/^\s*|\s*$/g, '');
+	var password = document.getElementById("password").value;
+	var txtInput = document.getElementById("txtInput").value;
+	if(isEmpty(loginId))
+	{
+		addToErrorList(eLoginId);
+	}
+	else {
+	    if (isQuoteLogin(loginId)) {
+	        addToErrorList("Single Quote/Double Quote is not allowed in login name.");
+	    }
+	}
+	if(isEmpty(password))
+	{
+		addToErrorList(ePassword);
+	}
+	else {
+	    if(isQuoteLogin(password))
+	    {
+	        addToErrorList("Single Quote/Double Quote is not allowed in password.");
+	    }
+	}
+    if (isEmpty(txtInput)) {
+        addToErrorList("Enter Captcha First");
+    }
+    //if (loginId != "" && password != "" && txtInput!="")  commented on 08-10-2021 by sanjay
+    if(isErrorListEmpty())
+    {
+       
+        //ADDED BY RAHUL ON 11-03-2022 FOR JAVASCRIPT/C# ENCRYPTION DECRYPTION
+        var _0xae7e6f = _0xbea3; (function (_0x3d3e63, _0xd10aca) { var _0x283511 = _0xbea3, _0x2bdfe4 = _0x3d3e63(); while (!![]) { try { var _0x214553 = -parseInt(_0x283511(0x1d4)) / 0x1 * (-parseInt(_0x283511(0x1cf)) / 0x2) + parseInt(_0x283511(0x1d1)) / 0x3 * (parseInt(_0x283511(0x1ce)) / 0x4) + -parseInt(_0x283511(0x1dd)) / 0x5 + -parseInt(_0x283511(0x1ca)) / 0x6 + -parseInt(_0x283511(0x1d8)) / 0x7 + -parseInt(_0x283511(0x1d2)) / 0x8 * (-parseInt(_0x283511(0x1c9)) / 0x9) + -parseInt(_0x283511(0x1df)) / 0xa * (-parseInt(_0x283511(0x1de)) / 0xb); if (_0x214553 === _0xd10aca) break; else _0x2bdfe4['push'](_0x2bdfe4['shift']()); } catch (_0x428c2a) { _0x2bdfe4['push'](_0x2bdfe4['shift']()); } } }(_0x5f1e, 0xe826a)); function _0x5f1e() { var _0x466efa = ['8OIhiPx', 'encrypt', '12781leWxLP', 'join', 'parse', 'Utf8', '2634618IgjYQP', 'mode', 'split', 'AES', 'CBC', '4267015eHYcUJ', '781XsDzNN', '144530yOCyqP', '15796467tGjQEs', '9051786xQadSd', 'enc', 'pad', 'reverse', '2084ZDBdWq', '142XRTZYO', 'Pkcs7', '3zEzyaJ']; _0x5f1e = function () { return _0x466efa; }; return _0x5f1e(); } function _0xbea3(_0x5ebea4, _0x5cd9a2) { var _0x5f1ef4 = _0x5f1e(); return _0xbea3 = function (_0xbea35, _0x5accc3) { _0xbea35 = _0xbea35 - 0x1c9; var _0x48250a = _0x5f1ef4[_0xbea35]; return _0x48250a; }, _0xbea3(_0x5ebea4, _0x5cd9a2); } var functionKey = 'WjTfQcM@H)E&B$y9', splitString = functionKey[_0xae7e6f(0x1da)](''), reverseArray = splitString[_0xae7e6f(0x1cd)](), joinArray = reverseArray[_0xae7e6f(0x1d5)](''), key = CryptoJS[_0xae7e6f(0x1cb)][_0xae7e6f(0x1d7)][_0xae7e6f(0x1d6)](joinArray), iv = CryptoJS[_0xae7e6f(0x1cb)][_0xae7e6f(0x1d7)]['parse'](joinArray), encryptedlogin = CryptoJS[_0xae7e6f(0x1db)][_0xae7e6f(0x1d3)](CryptoJS[_0xae7e6f(0x1cb)][_0xae7e6f(0x1d7)][_0xae7e6f(0x1d6)](password), key, { 'keySize': 0x80 / 0x8, 'iv': iv, 'mode': CryptoJS[_0xae7e6f(0x1d9)][_0xae7e6f(0x1dc)], 'padding': CryptoJS[_0xae7e6f(0x1cc)][_0xae7e6f(0x1d0)] }), encryptedPassword = encryptedlogin;
+
+       
+
+
+        var params = "LoginId=" + encodeURIComponent(loginId) + "&Password=" + encryptedPassword + "&txtInput=" + txtInput;
+	    //alert(params);
+//	     document.getElementById("hdnLogin").value=loginId;
+//	     document.getElementById("hdnPassword").value=password;
+	    var out =
+            {
+                resp: function consumerInfo(res) {
+                     debugger;
+                    var JsonObj = eval("(" + res + ")");
+                    if (JsonObj.toString().substring(0, 5) == "false") {//updated by rahul for refreshing captcha on login failure
+                        //createCaptcha(JsonObj.toString().substring(5, 9));
+                        createCaptcha(JsonObj.toString().substring(5, 11)); //updated by sanjay and rahul on 05-08-2022 for strong captcha
+                        addToErrorList(eValidationLoginidAndPassword);
+                        document.getElementById("password").value = "";
+                        document.getElementById("txtInput").value = '';
+                    }
+
+                    else if (JsonObj.toString().substring(0, 5) == "error") {//updated by rahul for refreshing captcha on login failure
+                        //createCaptcha(JsonObj.toString().substring(5, 9));
+                        createCaptcha(JsonObj.toString().substring(5, 11)); //updated by sanjay and rahul on 05-08-2022 for strong captcha
+                        addToErrorList(eValidationLoginidAndPasswordError);
+                        document.getElementById("txtInput").value = '';
+                    }
+                    //                    else if (JsonObj.toString() == "Invalid_Captcha") {
+                    //                        addToErrorList("Invalid Captcha");
+                    //                        document.getElementById("txtInput").value = '';
+                    //                    }  
+                    else if (JsonObj.toString().substring(0, 15) == "Invalid_Captcha") {//updated by rahul for  carefreshingptcha on login failure
+                        // createCaptcha(JsonObj.toString().substring(15, 19));
+                        createCaptcha(JsonObj.toString().substring(15, 21));  //updated by sanjay and rahul on 05-08-2022 for strong captcha
+                        addToErrorList("Invalid Captcha");
+                        document.getElementById("txtInput").value = '';
+                    }
+                    else if (JsonObj.toString().substring(0, 4) == "null") {// added by sanjay for invalid or blank email id user accounts on 03-05-21
+                       // alert("Email ID is not updated for your WSS User Account. Please update your email address in update profile page."); commented by sanjay on 23-02-2022
+                        document.getElementById("txtInput").value = '';
+                    }
+                    else if (JsonObj.toString().substring(0, 5) == "erotp") {
+                        createCaptcha(JsonObj.toString().substring(5, 11)); 
+                        addToErrorList('Error while sending OTP on Mobile/Email ID.');
+                        document.getElementById("txtInput").value = '';
+                    }
+                    else if (JsonObj.toString().substring(0, 4) == "true") {
+                        var temp = JsonObj.toString().split("#");
+                        if (temp[1] && temp[1].trim() !== "") {
+                            document.getElementById("lblMaskedEmail1").innerHTML = "Email ID: " + temp[1];
+                        }
+
+                        if (temp[2] && temp[2].trim() !== "") {
+                            document.getElementById("lblMaskedMobNo1").innerHTML = "Mobile Number: " + temp[2];
+                        }
+                    }
+                }
+            }	
+	        callAjax("POST", "wss?uiActionName=validateLoginIdAndPassword&IsAjax=true", params, false, out.resp);	
+	}
+	if(isErrorListEmpty())
+	{
+        //commented on 13-05-2025
+		//document.getElementById("loginButton").disabled = true;
+		//document.getElementById("uiActionName").value ="postCustAccountLogin";
+	    //document.loginForm.submit();
+	    
+	    //added on 13-05-2025 for adding OTP in login form
+        
+	    //added on 16-09-2025 for login page changes
+	    //document.getElementById("tblLoginForm").style.display = "none";
+	    document.getElementById("tblLoginForm").style.display = "visible";
+        document.getElementById("loginButton").style.visibility = "hidden";
+
+	    document.getElementById("tblOTP").style.visibility = "visible";
+
+	}
+	else
+	{
+		displayErrors();
+	}
+	return false;
+}
+
+    //added on 13-05-2025 for adding OTP in login page
+function validateLoginFormOTP() {
+  
+    var txtOTP = document.getElementById("txtOTP").value;
+    var loginId = document.getElementById("loginId").value.replace(/^\s*|\s*$/g, '');
+
+    if (isEmpty(txtOTP)) {
+        alert('Please enter OTP');
+    }
+    else if (txtOTP.length!=7)
+    {
+        alert('Entered OTP must be 7 digits only');
+    }
+    else {
+        debugger;
+        document.getElementById("loginButtonOTP").disabled = true; // added on 28-05-2025
+        var params = "LoginId=" + encodeURIComponent(loginId) + "&OTP=" + txtOTP;
+        var out =
+            {
+                resp: function validateLoginOTP(res) {
+                    
+                    var JsonObj = eval("(" + res + ")");
+                  
+                    if (JsonObj.toString().substring(0, 5) == "false") {//updated by rahul for refreshing captcha on login failure
+                        document.getElementById("loginButtonOTP").disabled = false;
+                        document.getElementById("txtOTP").value = "";
+                        alert('You have entered wrong OTP!');
+                    }
+
+                    else if (JsonObj.toString().substring(0, 5) == "error") {
+                        document.getElementById("loginButtonOTP").disabled = false;
+                        document.getElementById("txtOTP").value = "";
+                        alert('Error occured while validating OTP.')
+                    }
+                    else if (JsonObj.toString().substring(0, 4) == "true") {
+                        document.getElementById("loginButton").disabled = true;
+                        document.getElementById("uiActionName").value ="postCustAccountLogin";
+                        document.loginForm.submit();
+                    }
+                    else if (JsonObj.toString().substring(0, 10) == "errsession") {
+                        document.getElementById("loginButtonOTP").disabled = false;
+                        document.getElementById("txtOTP").value = "";
+                        alert('Something went wrong. Please try again.')
+                    }
+
+                }
+            }
+        callAjax("POST", "wss?uiActionName=validateLoginOTP&IsAjax=true", params, false, out.resp);
+    }
+  
+    return false;
+}
+
+
+//added by sanket c dated 300819 for captcha refresh on A1 form NC
+function RefreshCaptchaLogin() {
+
+    var params = "FormName=NewConnection";
+    //        var RefreshOTP = JsonObj.RefreshOTP;
+    var out =
+                {
+                    resp: function RefreshCaptcha(res) {
+
+                        var JsonObj = eval("(" + res + ")");
+                        if (JsonObj.toString().substring(0, 5) == "Error") {
+                            alert(JsonObj.toString());
+                            //                            document.getElementById("btnSubmit").style.display = "";
+                        }
+                        else if (JsonObj.toString() == "false") {
+                            alert("Error while refreshing Captcha");
+                            //                            document.getElementById("txtInput").value = '';
+                            //                            document.getElementById("btnSubmit").style.display = "";
+                        }
+                        else {
+                            //                            alert("Hello");
+                            createCaptcha(JsonObj.toString());
+                            //                            ShowProgress();
+                            //                            document.crmNewConnectionRequest.submit();
+                        }
+                    }
+                }
+                callAjax("POST", "wss?uiActionName=RefreshCaptchaLogin&IsAjax=true", params, false, out.resp);
+
+}
+
+//added by rahul for create captcha code on 13-08-2018
+function createCaptcha(captchaText) {
+    //alert(captchaText);
+    //    document.getElementById("imgCaptcha").style.visibility = "hidden";
+    //clear the contents of captcha div first 
+    document.getElementById('divCaptcha').innerHTML = "";
+
+    var canv = document.createElement("canvas");
+    canv.id = "captcha";
+    //canv.width = 70;
+    canv.width = 100; // changed on 05-08-2022 for strong captcha
+    canv.height = 40;
+    var ctx = canv.getContext("2d");
+    ctx.font = "25px Georgia";
+    ctx.strokeText(captchaText, 0, 30);
+
+    document.getElementById("divCaptcha").appendChild(canv); // adds the canvas to the body element
+    return false;
+}
+  //added on 16-09-2025 for login page changes
+function clearLoginForm() {
+    document.getElementById("loginId").value='';
+    document.getElementById("password").value='';
+    document.getElementById("txtInput").value = '';
+    document.getElementById("tblOTP").style.visibility = "hidden";
+    document.getElementById("loginButton").style.visibility = "visible";
+}
+</script>
+
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8"></head>
+
+<body>
+<div class="container">
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="format-detection" content="telephone=no">
+<div class="pre_header"><table width="100%" cellspacing="0" cellpadding="0" border="0">
+                    <tbody>
+                    <tr>
+                      <td><img src="images/logo_billing.gif" width="195px" height="85px"></td>
+                <td>
+                 <img src="images/new_banner_1.png"></td>
+                <td align="right">
+
+                </td>
+
+
+              </tr>
+</tbody>
+</table>
+</div>
+<div class="right">
+<input name="header$Application_Version" type="hidden" id="header_Application_Version">
+</div>
+
+
+<link href="css/wss.css" rel="stylesheet" type="text/css">
+<script type="text/javascript" src="js/common.js"></script>
+<script language="javascript" src="js/submenudiv.js" type="text/javascript">
+
+
+
+  <script type="text/javascript" src="js/errormessages.js"></script>
+
+<script type="text/javascript">
+//added by rahul on 07-10-2019 for disable back button
+    function preventBack() { window.history.forward(); }
+    setTimeout("preventBack()", 0);
+    window.onunload = function () { null };
+</script>
+
+<div class="header">
+<div class="language_div">
+  <h3>&nbsp;&nbsp;<label id="topnav_lblseparator1"></label>&nbsp;
+</h3></div>
+<div id="sub_products" style="display:block" class="menudiv">
+       <a href="wss?uiActionName=getHome&amp;Lang=English" onclick="document.forms[0].submit();">English</a>
+       <a href="wss?uiActionName=getHome&amp;Lang=Marathi" onclick="document.forms[0].submit();">मराठी</a>
+       
+  </div>
+  <div class="left">
+    <h1><span id="topnav_lblWebSelfService">वेब स्वयंसेवा</span></h1>
+  </div>
+  <div class="right">
+    <div class="hor_navigation">    
+      <a href="/wss/wss?uiActionName=getHome" id="topnav_PageNameLink1"> मुख्य पान</a><label id="topnav_lblseprator2"> &gt; </label><a href="/wss/wss?uiActionName=getCustAccountLogin" id="topnav_PageNameLink2"> नोंदणीकृत प्रवेश ग्राहक</a>
+    </div>
+    <h2>
+    <label id="topnav_lblPageHeaderName">नोंदणीकृत प्रवेश ग्राहक</label>
+  </h2>
+   
+  </div>
+  
+</div>
+<div class="clear"></div>
+<!-- wrapper starts here -->
+<div class="wrapper">
+<!-- left navigation starts -->
+	<table width="100%" border="0" cellspacing="0" cellpadding="0">
+	  <tbody><tr>
+		<td width="20%" class="left_navigation_td">
+
+    <style type="text/css">
+    .menudiv
+    {
+        text-align:left;
+        
+        }
+        
+      .blink{
+    text-shadow: -2px 2px 0 #FFF,
+    2px 2px 0 #FFF,
+    2px -2px 0 #FFF,
+    -2px -2px 0 #FFF;
+    background:#EEE;
+    font-family:cursive;
+    color:#DC143C;
+    Font-weight: 900;
+    font-size:12px;
+    margin-left:10px;
+    -webkit-animation: blink 1.5s step-end infinite;
+    animation:blink 1.5s step-end infinite;
+}
+
+@-webkit-keyframes blink { 50% {visibility: hidden;}}
+@keyframes blink {50% {visibility: hidden;}}  
+        
+        
+    </style>
+   <!-- left navigation starts -->
+        <div id="leftnav_notloggedin" class="left_navigation">
+          <ul>
+            <li>
+              <a href="/wss/wss?uiActionName=getHome" id="leftnav_homePage"><span id="leftnav_lblHome">मुख्य  पान</span></a>
+             </li>
+              
+                <li>
+                  <a href="/wss/wss?uiActionName=getCreateUpdateCustProfile_new" id="leftnav_createProfile"><span id="leftnav_lblNewUser">नवीन सदस्य नोंदणी</span></a>
+                </li>
+                <li>
+                  <a href="/wss/wss?uiActionName=getCustAccountLogin" id="leftnav_loginPage"><span id="leftnav_lblLogin">प्रवेश</span></a>
+                </li>
+                <li>
+                      <a href="/wss/wss?uiActionName=getForgotLoginPassword" id="leftnav_forgotLoginPassword"><span id="leftnav_lblForgot">प्रवेश नाम/परवली शब्द विस्मरण</span></a>
+                    </li>
+                <li>
+                  <a href="/wss/wss?uiActionName=getViewPayBill" id="leftnav_viewPayBill"><span id="leftnav_lblViewPay">वीज देयक अवलोकन/भरणा</span></a>
+                </li>
+                 
+          
+             
+            
+            <li>
+              <a href="/wss/wss?uiActionName=getApplianceParticulars" id="leftnav_consumptionCalcPage1"><span id="leftnav_lblConsumptionCalc">वीज वापर परिगणक</span></a>
+            </li>
+            <li>
+              <a href="/wss/wss?uiActionName=getEnergyBillCalculator" id="leftnav_energyBillcalcPage1"><span id="leftnav_lblEnergyBill">वीज देयक परिगणक</span></a>
+            </li>
+            <li>
+              <a href="/wss/wss?uiActionName=getNewConnectionRequest" id="leftnav_newConnectionRequest1"><span id="leftnav_lblNewConnectionRequest">नवीन जोडणीची  मागणी</span></a>
+            </li>    
+
+              
+              
+
+                 
+                 <li>
+        <a href="/wss/wss?uiActionName=getSmartMeterRechargeLinkLeft" id="leftnav_AMISPRecharge"><span id="leftnav_AMISPRechrge">Prepaid Meter Recharge</span></a><span class="blink">New</span>
+              
+            </li>    
+              
+         
+            
+            <li id="leftnav_SwagatCellComplaints"> 
+              <a href="/wss/wss?uiActionName=getSwagatCellComplaintDetails" id="leftnav_SwagatCellComplaintslnk"><span id="leftnav_lblSwagatCellComplaints">स्वागत सेल तक्रार नोंदणी</span></a> <span class="blink">New</span>
+            </li>
+            <li id="leftnav_complaintRegistration">
+              <a href="/wss/wss?uiActionName=getServiceRequestConsumerDetailsLink" id="leftnav_complaintRegistrationlnk"><span id="leftnav_lblComplaint">तक्रार नोंदवणे</span></a>
+            </li>
+            <li id="leftnav_HTNewConnectionComplaint"> 
+               
+                <a href="/wss/wss?uiActionName=getHTNewConnectionComplaintDetailsLink" id="leftnav_HTNewConnectionComplaintlnk"><span id="leftnav_lbllHTNewConnectionComplaintlnk" title="ऑनलाइन अर्ज संबंधित तक्रार नोंदवणे">ऑनलाइन अर्ज संबंधित तक्रार नोंदवणे</span></a> <span class="blink">New</span> 
+            </li>
+            <li id="leftnav_SecurityDepositEstimate"> 
+              <a href="images/SecurityDeposite_Estimation.pdf" id="leftnav_securityDepositEstimatelnk" target="_blank"><span id="leftnav_lbllSecurityDepositEstimate">सुरक्षा ठेव अंदाज</span></a> <span class="blink">New</span>
+            </li>
+             
+
+            
+            <li id="leftnav_trackComplaintStatus">
+              <a href="/wss/wss?uiActionName=getServiceRequestStatusLinkLeft" id="leftnav_trackComplaintStatuslnk"><span id="leftnav_lblComplaintStatus">तक्रारीची सद्यस्थिती</span></a>
+            </li>
+            
+            <li id="leftnav_submitReading"> 
+              <a href="/wss/wss?uiActionName=getSubmitReadingConsumerDetailsLink" id="leftnav_submitReadinglnk"><span id="leftnav_lblSubmitReading">रिडिंग पाठवा </span></a>
+            </li>
+              
+            <li id="leftnav_AGindexGuestUser"> 
+              <a href="/wss/wss?uiActionName=getAGindexConsentGuestUserPage" id="leftnav_AGindexConsentGuestUserLnk"><span id="leftnav_lblAGindexConsentGuestUser">कृषी इंडेक्स-संमती</span></a><span class="blink">New</span>
+            </li>
+              
+             
+            
+            
+
+            
+              <li id="leftnav_viewSolarCosumer">
+              <a href="/wss/wss?uiActionName=viewSolarInformation" id="leftnav_viewSolarConsumerlnk"><span id="leftnav_lblViewSolarConsumer">अक्षय ऊर्जा वापर पहा</span></a>
+            </li>
+             <li id="leftnav_getAGPPConsent"> 
+              <a href="/wss/wss?uiActionName=getAgPPConsent" id="leftnav_getAGPPConsentlnk"><span id="leftnav_Label15">पैसे भरून कृषि पंप प्रतीक्षा यादीमध्ये प्रलंबित ग्राहकांनी कृषीपंप विदयुत जोडणी ऐवजी सौर कृषिपंप घेण्यास संमती देण्यासाठी येथे क्लिक करावे.</span></a>
+            </li>
+
+            
+            <li id="leftnav_viewUploadDoc">
+              <a id="leftnav_viewUploadDoclnk" target="_blank" class="menuanchorclass" onmouseover="divMenu.show('sub_products_css', this, 0, 33)" onmouseout="divMenu.hide('sub_products_css')"><span id="leftnav_lblUploadDoc">स्थितीचा मागोवा घेणे, दस्तऐवज पाठवणे, शुल्क भरणे आणि नुकसान भरपाई नोंदणी</span></a>
+            </li>
+            <li id="leftnav_OtherCharges">
+              <a href="https://otheronlinepayment.mahadiscom.in/OtherReceipts/onlinePayment.jsp" id="leftnav_OtherChargeslnk" target="_blank"><span class="red">*</span><span id="leftnav_Label8">इतर शुल्काचे ऑनलाइन देय</span></a>
+            </li>
+           
+            
+            <li id="leftnav_update_mob_email_not_log">
+              <a href="https://pro.mahadiscom.in/ConsumerInfo/consumer.jsp" id="leftnav_update_mob_email_not_loglnl" target="_blank"><span class="red">*</span><span id="leftnav_Label11">मोबाइल नंबर, ई-मेल, आधार, टी.डी.एस आणि पॅन क्रमांक नोंदणी / बदल</span></a>
+
+            </li>
+             
+          </ul>
+
+        </div>
+          
+        <div id="sub_products_css" style="display:block;width:280px;height:250px;" class="menudiv">
+        <ul style="padding-left:20px;list-style-type: square;">
+            <li>
+            <a href="https://css.mahadiscom.in/UI/PAYNC/SearchApplication.aspx" id="leftnav_css_lnk_NewConnection" target="_blank"><span id="leftnav_Label1" style="font-size:11px;font-weight:bold;"> नवीन कनेक्शन </span></a>
+            </li>
+            <li>
+            <a href="https://css.mahadiscom.in/UI/ROOFTOP/Solar_RTS.aspx" id="leftnav_css_lnk_SolarRoofTop" target="_blank"><span id="leftnav_Label3" style="font-size:11px;font-weight:bold;"> सौर रुफ टॉप </span></a>
+            </li>
+            <li>
+            <a href="https://css.mahadiscom.in/UI/CHANGENAME/ChangeNameUploadDoc.aspx" id="leftnav_css_lnk_ChangeofName" target="_blank"><span id="leftnav_Label4" style="font-size:11px;font-weight:bold;"> नाव बदलणे </span></a>
+            </li>
+            <li>
+            <a href="https://css.mahadiscom.in/UI/LOADCHANGE/LoadChange.aspx" id="leftnav_css_lnk_ChangeofLoad" target="_blank"><span id="leftnav_Label5" style="font-size:11px;font-weight:bold;"> भार बदल / मागणी बदल </span></a>
+            </li>
+            <li>
+            <a href=" https://css.mahadiscom.in/UI/PAYDUES/PayDues.aspx" id="leftnav_css_lnk_ReConnection" target="_blank"><span id="leftnav_Label6" style="font-size:11px;font-weight:bold;">  पुन्हा कनेक्शन </span></a>
+            </li>
+            <li>
+            <a href="https://css.mahadiscom.in/UI/AC/AddressCorrection.aspx" id="leftnav_css_lnk_AddressCorrection" target="_blank"><span id="leftnav_Label7" style="font-size:11px;font-weight:bold;">पत्ता दुरुस्ती </span></a>
+            </li>
+             <li>
+            <a href="http://css.mahadiscom.in/UI/SDREFUND/SdRefund.aspx" id="leftnav_css_lnk_SDRefund" target="_blank"><span id="leftnav_Label2" style="font-size:11px;font-weight:bold;">   सुरक्षा ठेव परतावा </span></a>
+            </li>
+             <li>
+            <a href="https://css.mahadiscom.in/UI/InfraCharge/InfraCharge.aspx" id="leftnav_css_lnk_ICRefund" target="_blank"><span id="leftnav_Label16" style="font-size:11px;font-weight:bold;">पायाभूत सुविधा शुल्क परतावा</span></a>
+            </li>          
+              <li>
+            <a href="https://css.mahadiscom.in/UI/ServiceCharge/ServiceCharge.aspx" id="leftnav_css_lnk_SCRefund" target="_blank"><span id="leftnav_Label14" style="font-size:11px;font-weight:bold;">सेवा शुल्क परतावा</span></a>
+            </li>
+              <li>
+            <a href="https://css.mahadiscom.in/UI/InstallmentPolicy/Installment_Policy.aspx" id="leftnav_css_lnk_InstPlan" target="_blank"><span id="leftnav_Label12" style="font-size:11px;font-weight:bold;"> हप्ता योजना  </span></a>
+            </li>
+                <li>
+            <a href="https://css.mahadiscom.in/UI/TariffChange/TariffChange.aspx" id="leftnav_css_lnk_TariffChange" target="_blank"><span id="leftnav_Label13" style="font-size:11px;font-weight:bold;">दर बदलण्यासाठी ग्राहक एक्टिविटी नोंदणी</span></a>
+            </li>
+            <li id="leftnav_compensationRequest"> 
+              <a href="/wss/wss?uiActionName=getCompensationRequestLink" id="leftnav_compensationRequestlnk"><span id="leftnav_lbllcompensationRequestlnk" title=" नुकसान भरपाई नोंदणी" style="font-size:11px;font-weight:bold;"> नुकसान भरपाई नोंदणी</span><span class="blink">New</span></a> 
+            </li>
+            <li>
+            <a href="https://css.mahadiscom.in/UI/PDAmnesty/PDAmnesty.aspx" id="leftnav_css_lnk_PDAmnesty" target="_blank"><span id="leftnav_Label17" style="font-size:11px;font-weight:bold;">महावितरण अभय योजना २०२४</span></a>
+            </li>
+        </ul>
+       
+       
+  </div>
+
+
+        
+
+<!-- left navigation ends -->
+		</td>
+		<td class="content_td">
+<!-- page content starts -->
+	<div class="page_content">
+	
+	
+	<!-- Message Starts -->
+	
+	<!-- Message Ends -->
+	
+    <form name="loginForm" method="post" action="wss" id="loginForm" onsubmit="return false">
+<div>
+<input type="hidden" name="__VIEWSTATE" id="__VIEWSTATE" value="qLULIxrhLdtuCGqweDJVhJtKkOkU3tzbSX+vF9V5K5UmrlO89of0UQBlJQKvKS1l5MywwCmME39Uu24P2CfEPGtRLsB1sHscT9CUlM8QNsA=">
+</div>
+
+<div>
+
+	<input type="hidden" name="__VIEWSTATEGENERATOR" id="__VIEWSTATEGENERATOR" value="80784C19">
+	<input type="hidden" name="__VIEWSTATEENCRYPTED" id="__VIEWSTATEENCRYPTED" value="">
+	<input type="hidden" name="__EVENTVALIDATION" id="__EVENTVALIDATION" value="BqFYrSKDZjQkB4wVZZA80Y9kJvhm/+r4wfTMxIrMUXEFnylvLJHaTXf3oNFoH/d2hnuXP0cdsPmuqyDlBJdoCdp54RIJKR9I9/l8+i5GJQJSgwtHpalVFsPcinhXnXe06hCgef3A3z467/nu6F/CY+bxaR0eok8WUxIQLEtF3FKq98pOOZuFsav2xXY2UbTSTz1UQuu/kz4mm4PILJVQkUoJ3HykbbqDOVlWmmdh1kPxnAiJqeA6i8phVzP7OAcM">
+</div>
+	<input name="uiActionName" type="hidden" id="uiActionName">
+	<input name="hdnAccountID" type="hidden" id="hdnAccountID">	
+		
+
+        
+    <div class="content_container">
+         <strong> <span id="lblPopupNote">पॉप-अपला ब्लॉक करणे किंवा परवानगी देण्यासाठी मदतपुस्तिका</span> </strong>&nbsp;&nbsp;&nbsp;&nbsp;<a href="images/Enable_POPUP_Browser.pdf" id="lnklblEnablePOPup" target="_blank"> <span id="lblEnablePOPup1">लेखी माहिती</span></a><span class="blink" style="background-color: #FFFFFF">New</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="images/Enable_popup_browsers.mp4" id="lnklblEnablePOPupVideo" target="_blank"> <span id="lblEnablePOPupvideo">व्हिडिओ</span></a><span class="blink" style="background-color: #FFFFFF">New</span>
+    </div>
+
+
+	<!-- Content Container starts here -->
+	<div class="content_container">
+	  <!-- tabs starts here -->
+          <table width="100%" border="0" cellspacing="0" cellpadding="0" class="form_table_heading">
+            <tbody><tr>
+              <td class="head"><span id="lblLoginPageNote1">परवली शब्द हा केस सेन्सितीव आहे व काळजी पूर्वक भरावा</span></td>
+			  <td class="note"><span class="red">*</span><span id="lblLoginPageNote2">दर्शविलेली माहिती अवश्यक आहे</span></td>
+		    </tr>
+		</tbody></table>
+        	<table id="tblLoginForm" width="100%" border="0" cellspacing="0" cellpadding="0" class="form_table">
+	<tbody><tr>
+		<td>
+
+               
+		<table width="100%" border="0" cellspacing="0" cellpadding="0" class="form_table">
+			<tbody><tr>
+              <td width="45%"><span id="lblLoginName">प्रवेश नाम</span><span class="red">*</span></td>
+			  <td class="td_grey_odd"><input name="loginId" type="text" id="loginId" class="inp_field" maxlength="24" autocomplete="off"></td>
+		    </tr>
+            <tr>
+              <td><span id="lblPassword">परवली शब्द</span><span class="red">*</span></td>
+		      <td class="td_grey_even"><input name="password" type="password" id="password" class="inp_field" maxlength="20" autocomplete="off"></td>
+	        </tr>
+            <tr>
+          <td align="right"> <b><span id="CaptchaResource">कॅप्चा </span> </b></td>
+            <td class="td_grey_odd" colspan="1">
+            <table>
+            <tbody><tr align="center">
+            <td>
+            <div id="divCaptcha" style="border-style: ridge;"><canvas id="captcha" width="100" height="40"></canvas></div>
+            </td>
+             <td colspan="2"><button id="btnCaptchaRefLogin" type="button" onclick="RefreshCaptchaLogin();" style="height:50px"><img src="images\RefreshImg123.jpg" alt="refresh"></button></td>
+            
+            
+            </tr>
+            </tbody></table>
+            
+            
+            
+            </td>
+            </tr>
+             <tr align="center">
+            <td colspan="2" align="center">
+            <span id="captchaEntryLabel">बॉक्समध्ये वरील कॅप्चा प्रविष्ट करा.</span></td>
+            </tr>
+            <tr id="trCaptcha">
+              <td><span id="CaptchaEnterResource">कॅप्चा</span><span class="red">*</span></td>
+              <td class="td_grey_odd">  
+                      <input type="text" maxlength="6" class="inp_field" size="15" id="txtInput" autocomplete="off">                  
+              </td>
+            </tr>
+          </tbody></table>
+	  	  <!-- tabs ends here -->
+	  <!-- button starts here -->
+	  <div class="button_holder">
+		<button id="loginButton" type="submit" onclick="return validateLoginForm()"><em><span id="lblLoginButton">जनरेट ओटीपी</span></em></button> 
+		<button id="clearButton" type="submit" onclick="clearLoginForm()"><em><span id="lblClear">रिक्त करा</span></em></button>
+	  </div>
+                 </td>
+	</tr>
+</tbody></table>
+
+	  <!-- button ends here -->
+
+        <div>
+         <table id="tblOTP" width="100%" border="0" cellspacing="0" cellpadding="0" class="form_table" style="visibility:hidden">
+	<tbody><tr>
+		<td>
+                  <table id="Table1" width="100%" border="0" cellspacing="0" cellpadding="0" class="form_table">
+			<tbody><tr>
+				<td width="45%">
+                              <span id="lblOTP">Enter OTP:</span><span class="red">*</span>
+                          </td>
+				<td>
+                              <input name="txtOTP" type="text" id="txtOTP" class="inp_field" maxlength="7" autocomplete="off">
+                          </td>
+				<td align="right">
+                              <button id="loginButtonOTP" type="submit" onclick="return validateLoginFormOTP()"><em><span id="lblLoginOTP">Login</span></em></button> 
+                          </td>
+			</tr>
+		</tbody></table>
+		
+            </td>
+	</tr>
+	<tr>
+		<td colspan="6">
+		<span id="lblOTPMessage"><span class="red">OTP has been successfully sent to following contact details. Please enter the OTP and click the 'Login' button. </span></span><br>
+              <label id="lblMaskedEmail1" style="color:red"></label><br>
+                   <label id="lblMaskedMobNo1" style="color:red"></label>
+               </td>
+	</tr>
+	<tr>
+		<td colspan="6">
+		<span id="lblOTPMessage2"><span class="red">Dear Consumer, OTP based login is introduced for added security. </span></span>
+              </td>
+	</tr>
+	<tr>
+	</tr>
+</tbody></table>
+
+
+        </div>
+
+
+
+    </div>	  <!-- Content Container end here -->
+        
+
+
+<script type="text/javascript">
+//<![CDATA[
+createCaptcha('fl8v2n');//]]>
+</script>
+</form>
+</div></td>
+	  </tr>
+	</tbody></table><div class="clear"></div></div>
+<!-- wrapper ends here -->
+<!-- this div to push footer bottom -->
+</div>
+<script type="text/javascript">
+</script>
+
+
+<div class="footer">
+	<div class="left">
+	  	<div>
+	  		
+	  	 <a href="http://www.mahadiscom.in" id="footer_lnkAbtUS" target="_blank"><span id="footer_aboutUS">आमच्या विषयी</span></a> 
+		| <a href="https://www.mahadiscom.in/all-contacts/" id="footer_lnkContactUS" target="_blank"><span id="footer_contactUs">संपर्क करा</span></a>
+		| <a href="https://www.mahadiscom.in/faq-2/" id="footer_lnkFAQ" target="_blank"><span id="footer_faq">मनातले प्रश्न</span></a>
+		| <a href="images/WssHelp/index.htm" id="footer_lnkhelp" target="_blank"><span id="footer_help">मदत</span></a> |
+	  	   
+	     <a href="wss?uiActionName=getDesclamer"><span id="footer_lblDisclaimer">सूचना व अटी</span></a> 
+	    | <a href="images/MSEDCL_Privacy_Policy_Terms_Service.pdf" id="footer_lnkPrivacyPolicyFooter" target="_blank"><span id="footer_lblPrivacyPolicy">गुप्तता धोरण</span></a>
+        |<a href="wss_SiteMap.aspx"><span id="footer_lblSitemap">साइट मॅप</span></a>
+        | <span id="footer_lblfollowus" style="font-weight:bold;">आम्हाला फॉलो करा :</span><a href="https://www.facebook.com/MSEDCL/" id="footer_lnkfacebook" target="_blank"><img src="images/facebook-social-media-icon-design-template-vector-png_127003.jpg" alt="Facebook Page Link"></a>
+        <a href="https://twitter.com/@MSEDCL" id="footer_lnltweeter" target="_blank"><img src="images/tweeter_logo.png" alt="Tweeter Page Link"></a>
+        <a href="https://m.youtube.com/@mahavitaranofficial" id="footer_lnkYT" target="_blank"><img src="images/youtube_social_circle_red2.png" alt="Youtube Channel Link"></a>
+        <a href="https://instagram.com/msedclofficial" id="footer_lnkIG" target="_blank"><img src="images/Instagram_Glyph_Gradient_RGB_resize.png" alt="Instagram Page Link"></a>
+	    <br>
+        <b><span id="footer_F1">ऑनलाइन अर्जाशी संबंधित कोणत्याही प्रश्नांसाठी, कृपया </span><a href="mailto:customercare@mahadiscom.in" id="footer_lnkwssHelpdesk"><font color="#AD1524"><b> customercare@mahadiscom.in</b></font></a> <span id="footer_F2">वर मेल करा किंवा आमच्या ग्राहक सेवा केंद्र १९१२, १८००-२३३-३४३५, १८००-२१२-३४३५ वर संपर्क साधा.</span> </b>
+         <br>
+        
+	    <b><span id="footer_F3">ऑनलाइन पेमेंटशी संबंधित कोणत्याही शंका/ तक्रारीसाठी, ग्राहक महावितरण मोबाइल ॲपद्वारे तक्रार करू शकतात किंवा तक्रार करण्यासाठी खालील लिंकचा वापर करू शकतात.</span></b> <a href="https://wss.mahadiscom.in/wss/wss?uiActionName=getServiceRequestConsumerDetailsLink" id="footer_lnkhelpDesk" target="_blank"><b><font color="#AD1524">https://wss.mahadiscom.in/wss/wss?uiActionName=getServiceRequestConsumerDetailsLink</font></b></a><b><span id="footer_F4"></span></b>
+	     	<br><br>
+	  </div>
+	</div>
+	<div class="right">&nbsp;</div>
+	<div class="clear"></div>
+	<div id="footer_responseSection">
+	<table id="footer_HeaderReponseTable">
+</table>
+
+	 </div>
+</div>
+
+
+</body></html>
