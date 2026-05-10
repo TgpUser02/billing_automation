@@ -41,10 +41,16 @@ class BillAutomation:
             candidates.append(env_path)
 
         if os.name == "nt":
+            program_files = os.environ.get("PROGRAMFILES", r"C:\Program Files")
+            program_files_x86 = os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)")
+            local_app_data = os.environ.get("LOCALAPPDATA", os.path.expanduser(r"~\AppData\Local"))
             candidates.extend([
-                r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-                r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-                r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+                os.path.join(program_files, "Google", "Chrome", "Application", "chrome.exe"),
+                os.path.join(program_files_x86, "Google", "Chrome", "Application", "chrome.exe"),
+                os.path.join(local_app_data, "Google", "Chrome", "Application", "chrome.exe"),
+                os.path.join(program_files, "Microsoft", "Edge", "Application", "msedge.exe"),
+                os.path.join(program_files_x86, "Microsoft", "Edge", "Application", "msedge.exe"),
+                os.path.join(local_app_data, "Microsoft", "Edge", "Application", "msedge.exe"),
             ])
         else:
             candidates.extend([
@@ -137,8 +143,15 @@ class BillAutomation:
             options = webdriver.ChromeOptions()
             
             chrome_path = self.resolve_chrome_path()
-            if chrome_path:
-                options.binary_location = chrome_path
+            if not chrome_path:
+                message = (
+                    "Cannot find Chrome/Chromium binary. Install Google Chrome/Chromium "
+                    "or set CHROME_PATH / CHROME_BIN / CHROME_EXECUTABLE / GOOGLE_CHROME_PATH."
+                )
+                logger.error(message)
+                return False, message
+
+            options.binary_location = chrome_path
             
             # minimal prefs for download
             prefs = {
