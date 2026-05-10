@@ -35,10 +35,13 @@ class BillAutomation:
 
     def resolve_chrome_path(self):
         """Try to locate a Chrome / Chromium executable on the host."""
-        candidates = []
-        env_path = os.environ.get("CHROME_PATH") or os.environ.get("CHROME_BIN") or os.environ.get("CHROME_EXECUTABLE") or os.environ.get("GOOGLE_CHROME_PATH")
-        if env_path:
-            candidates.append(env_path)
+        env_candidates = {
+            "CHROME_PATH": os.environ.get("CHROME_PATH"),
+            "CHROME_BIN": os.environ.get("CHROME_BIN"),
+            "CHROME_EXECUTABLE": os.environ.get("CHROME_EXECUTABLE"),
+            "GOOGLE_CHROME_PATH": os.environ.get("GOOGLE_CHROME_PATH"),
+        }
+        candidates = [path for path in env_candidates.values() if path]
 
         if os.name == "nt":
             program_files = os.environ.get("PROGRAMFILES", r"C:\Program Files")
@@ -48,6 +51,10 @@ class BillAutomation:
                 os.path.join(program_files, "Google", "Chrome", "Application", "chrome.exe"),
                 os.path.join(program_files_x86, "Google", "Chrome", "Application", "chrome.exe"),
                 os.path.join(local_app_data, "Google", "Chrome", "Application", "chrome.exe"),
+                os.path.join(program_files, "Google", "Chrome Beta", "Application", "chrome.exe"),
+                os.path.join(program_files, "Google", "Chrome Dev", "Application", "chrome.exe"),
+                os.path.join(program_files, "BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
+                os.path.join(program_files_x86, "BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
                 os.path.join(program_files, "Microsoft", "Edge", "Application", "msedge.exe"),
                 os.path.join(program_files_x86, "Microsoft", "Edge", "Application", "msedge.exe"),
                 os.path.join(local_app_data, "Microsoft", "Edge", "Application", "msedge.exe"),
@@ -61,19 +68,22 @@ class BillAutomation:
                 "/snap/bin/chromium",
             ])
 
-        for binary_name in ("chrome", "google-chrome", "chromium-browser", "chromium"):
+        for binary_name in ("chrome.exe", "chrome", "google-chrome", "chromium-browser", "chromium", "brave", "msedge"):
             path = shutil.which(binary_name)
             if path:
                 candidates.append(path)
 
+        logger.info("Chrome/Chromium candidate binaries: %s", candidates)
+
         for path in candidates:
-            if path and os.path.exists(path):
+            if path and os.path.isfile(path):
                 logger.info(f"Chrome binary found: {path}")
                 return path
 
-        logger.warning(
-            "Could not locate Chrome binary. Install Google Chrome or Chromium, "
-            "or set CHROME_PATH / CHROME_BIN / CHROME_EXECUTABLE to the browser executable."
+        logger.error(
+            "Could not locate Chrome binary. Checked: %s. "
+            "Install Chrome/Chromium or set CHROME_PATH / CHROME_BIN / CHROME_EXECUTABLE / GOOGLE_CHROME_PATH.",
+            candidates
         )
         return None
 
