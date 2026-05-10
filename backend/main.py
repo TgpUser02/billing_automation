@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Depends, Request
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
@@ -52,6 +53,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# STATIC FILES — Serve React build
+# ═══════════════════════════════════════════════════════════════════════════════
+dist_path = os.path.join(os.path.dirname(__file__), "..", "dist")
+app.mount("/assets", StaticFiles(directory=os.path.join(dist_path, "assets")), name="assets")
+app.mount("/", StaticFiles(directory=dist_path, html=True), name="static")
 
 @app.get("/api/health")
 def health_check():
