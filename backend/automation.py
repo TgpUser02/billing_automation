@@ -33,6 +33,44 @@ class BillAutomation:
         
         self.url = "https://wss.mahadiscom.in/wss/wss?uiActionName=getCustAccountLogin"
 
+    def resolve_chrome_path(self):
+        """Try to locate a Chrome / Chromium executable on the host."""
+        candidates = []
+        env_path = os.environ.get("CHROME_PATH") or os.environ.get("CHROME_BIN") or os.environ.get("CHROME_EXECUTABLE") or os.environ.get("GOOGLE_CHROME_PATH")
+        if env_path:
+            candidates.append(env_path)
+
+        if os.name == "nt":
+            candidates.extend([
+                r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+                r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+            ])
+        else:
+            candidates.extend([
+                "/usr/bin/google-chrome",
+                "/usr/bin/google-chrome-stable",
+                "/usr/bin/chromium-browser",
+                "/usr/bin/chromium",
+                "/snap/bin/chromium",
+            ])
+
+        for binary_name in ("chrome", "google-chrome", "chromium-browser", "chromium"):
+            path = shutil.which(binary_name)
+            if path:
+                candidates.append(path)
+
+        for path in candidates:
+            if path and os.path.exists(path):
+                logger.info(f"Chrome binary found: {path}")
+                return path
+
+        logger.warning(
+            "Could not locate Chrome binary. Install Google Chrome or Chromium, "
+            "or set CHROME_PATH / CHROME_BIN / CHROME_EXECUTABLE to the browser executable."
+        )
+        return None
+
     def launch_browser(self, date_str=None):
         """Launches the Chrome browser or reuses an existing session."""
         if date_str:
@@ -97,6 +135,10 @@ class BillAutomation:
                     logger.warning(f"Could not remove SingletonLock: {lock_err}")
 
             options = webdriver.ChromeOptions()
+            
+            chrome_path = self.resolve_chrome_path()
+            if chrome_path:
+                options.binary_location = chrome_path
             
             # minimal prefs for download
             prefs = {
