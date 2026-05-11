@@ -172,9 +172,18 @@ class BillAutomation:
             }
             options.add_experimental_option("prefs", prefs)
             options.add_argument("--start-maximized")
-            # Keep browser visible locally; run headless on Render.
-            if os.environ.get("RENDER"):
+
+            # Explicit override: BROWSER_HEADLESS=true/false. Defaults to headless on Render.
+            headless_env = os.environ.get("BROWSER_HEADLESS")
+            use_headless = os.environ.get("RENDER") is not None
+            if headless_env is not None:
+                use_headless = headless_env.strip().lower() in ("1", "true", "yes", "on")
+
+            if use_headless:
                 options.add_argument("--headless")
+                logger.info("Chrome launch mode: headless")
+            else:
+                logger.info("Chrome launch mode: headed (visible window)")
             
             # Minimal crucial args
             options.add_argument("--no-sandbox")
