@@ -110,6 +110,12 @@ class BillAutomation:
         if not os.path.exists(self.download_dir):
             os.makedirs(self.download_dir)
 
+        def _is_headless_mode():
+            headless_env = os.environ.get("BROWSER_HEADLESS")
+            if headless_env is not None:
+                return headless_env.strip().lower() in ("1", "true", "yes", "on")
+            return os.environ.get("RENDER") is not None
+
         def _navigate_to_portal():
             """Navigate to Mahavitaran portal with retries and alternate URLs."""
             portal_urls = [
@@ -119,10 +125,17 @@ class BillAutomation:
                 "https://wss.mahadiscom.in/wss/wss",
             ]
             last_error = None
+            headless_mode = _is_headless_mode()
+            main_window = self.driver.current_window_handle
 
             for portal_url in portal_urls:
                 try:
-                    self.driver.get(portal_url)
+                    if headless_mode:
+                        self.driver.get(portal_url)
+                    else:
+                        # Open in a visible new tab so launch action is obvious to operator.
+                        self.driver.execute_script("window.open(arguments[0], '_blank');", portal_url)
+                        self.driver.switch_to.window(self.driver.window_handles[-1])
                     time.sleep(0.8)
                     current_url = (self.driver.current_url or "").lower()
                     if "mahadiscom.in" in current_url:
@@ -135,6 +148,12 @@ class BillAutomation:
                             logger.warning(f"Could not force window focus: {focus_err}")
                         logger.info(f"Navigated to portal URL: {current_url}")
                         return True, None
+
+                    # If this attempt opened a wrong tab in headed mode, close it and return to main tab.
+                    if not headless_mode and self.driver.current_window_handle != main_window:
+                        self.driver.close()
+                        self.driver.switch_to.window(main_window)
+
                     logger.warning(f"Navigation landed on unexpected URL: {current_url}")
                 except Exception as nav_err:
                     last_error = nav_err
