@@ -13,7 +13,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 from dotenv import load_dotenv
-load_dotenv()
+if not os.environ.get("RENDER"):
+    load_dotenv()
 
 import shutil
 # Import ActionChains and Keys globally if needed, or locally in methods
@@ -111,10 +112,12 @@ class BillAutomation:
             os.makedirs(self.download_dir)
 
         def _is_headless_mode():
+            if os.environ.get("RENDER"):
+                return True
             headless_env = os.environ.get("BROWSER_HEADLESS")
             if headless_env is not None:
                 return headless_env.strip().lower() in ("1", "true", "yes", "on")
-            return os.environ.get("RENDER") is not None
+            return False
 
         def _navigate_to_portal():
             """Navigate to Mahavitaran portal with retries and alternate URLs."""
@@ -225,14 +228,11 @@ class BillAutomation:
             options.add_experimental_option("prefs", prefs)
             options.add_argument("--start-maximized")
 
-            # Explicit override: BROWSER_HEADLESS=true/false. Defaults to headless on Render.
-            headless_env = os.environ.get("BROWSER_HEADLESS")
-            use_headless = os.environ.get("RENDER") is not None
-            if headless_env is not None:
-                use_headless = headless_env.strip().lower() in ("1", "true", "yes", "on")
+            # Render must always run headless; local can be controlled via BROWSER_HEADLESS.
+            use_headless = _is_headless_mode()
 
             if use_headless:
-                options.add_argument("--headless")
+                options.add_argument("--headless=new")
                 logger.info("Chrome launch mode: headless")
             else:
                 options.add_argument("--new-window")
