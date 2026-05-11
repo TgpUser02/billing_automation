@@ -35,6 +35,34 @@ class BillAutomation:
         
         self.url = "https://wss.mahadiscom.in/wss/wss?uiActionName=getCustAccountLogin"
 
+    def diagnose_environment(self):
+        """Diagnose browser launch environment to help troubleshoot."""
+        logger.info("=" * 80)
+        logger.info("🔍 ENVIRONMENT DIAGNOSIS")
+        logger.info("=" * 80)
+        
+        is_render = os.environ.get("RENDER")
+        browser_headless_env = os.environ.get("BROWSER_HEADLESS")
+        
+        logger.info(f"OS: {os.name} ({'Windows' if os.name == 'nt' else 'Linux/Mac'})")
+        logger.info(f"RENDER environment: {is_render if is_render else 'NOT SET (local mode)'}")
+        logger.info(f"BROWSER_HEADLESS env var: {browser_headless_env if browser_headless_env else 'NOT SET (will default to headed mode)'}")
+        
+        if browser_headless_env:
+            headless_value = browser_headless_env.strip().lower() in ("1", "true", "yes", "on")
+            logger.info(f"  → Interpreted as: {'HEADLESS' if headless_value else 'HEADED'}")
+        else:
+            logger.info(f"  → Will launch in: HEADED mode (window will be visible)")
+        
+        chrome_path = self.resolve_chrome_path()
+        if chrome_path:
+            logger.info(f"✅ Chrome found at: {chrome_path}")
+        else:
+            logger.error(f"❌ Chrome NOT found!")
+        
+        logger.info("=" * 80)
+        return chrome_path is not None
+
     def resolve_chrome_path(self):
         """Try to locate a Chrome / Chromium executable on the host."""
         env_candidates = {
@@ -91,6 +119,9 @@ class BillAutomation:
 
     def launch_browser(self, date_str=None):
         """Launches the Chrome browser or reuses an existing session."""
+        # Diagnose environment first
+        self.diagnose_environment()
+        
         if date_str:
             self.process_date = date_str
             from datetime import datetime, timedelta
@@ -130,27 +161,28 @@ class BillAutomation:
             ]
             last_error = None
             headless_mode = _is_headless_mode()
-            main_window = self.driver.current_window_handle
 
             for portal_url in portal_urls:
                 try:
-                    if headless_mode:
-                        self.driver.get(portal_url)
-                    else:
-                        # Open a real new tab so the portal navigation is visibly separate.
-                        self.driver.switch_to.new_window("tab")
-                        self.driver.get(portal_url)
-                    time.sleep(0.8)
+                    logger.info(f"🌐 Attempting to navigate to: {portal_url}")
+                    self.driver.get(portal_url)
+                    logger.info(f"📄 Page loaded, waiting for stability...")
+                    time.sleep(2)  # Give page time to fully load
+                    
                     current_url = (self.driver.current_url or "").lower()
+                    logger.info(f"✅ Current URL: {current_url}")
+                    
                     if "mahadiscom.in" in current_url:
                         try:
-                            # Best effort: bring controlled portal window/tab to foreground.
-                            self.driver.switch_to.window(self.driver.current_window_handle)
+                            # Maximize and focus window
                             self.driver.maximize_window()
+                            time.sleep(0.5)
                             self.driver.execute_script("window.focus();")
-                            if os.name == "nt":
+                            
+                            if os.name == "nt" and not headless_mode:
+                                logger.info("🪟 Bringing Chrome window to foreground on Windows...")
                                 try:
-                                    # Try to focus the Chrome window on Windows so the new tab is visible.
+                                    # Method 1: Using WScript.Shell
                                     subprocess.run(
                                         [
                                             "powershell",
@@ -161,23 +193,35 @@ class BillAutomation:
                                         check=False,
                                         capture_output=True,
                                         text=True,
+                                        timeout=5
                                     )
-                                except Exception as focus_os_err:
-                                    logger.warning(f"Could not force OS focus: {focus_os_err}")
+                                except Exception as e:
+                                    logger.warning(f"WScript method failed: {e}")
+                                
+                                # Method 2: Using nircmd (if available)
+                                try:
+                                    subprocess.run(
+                                        ["nircmd", "win", "activate", "google chrome"],
+                                        check=False,
+                                        capture_output=True,
+                                        timeout=5
+                                    )
+                                except:
+                                    pass
+                                
+                                time.sleep(0.5)
+                            
+                            logger.info(f"✅ Successfully navigated to Mahavitaran portal!")
+                            logger.info(f"🔗 Portal URL: {current_url}")
+                            return True, None
                         except Exception as focus_err:
-                            logger.warning(f"Could not force window focus: {focus_err}")
-                        logger.info(f"Navigated to portal URL: {current_url}")
-                        return True, None
-
-                    # If this attempt opened a wrong tab in headed mode, close it and return to main tab.
-                    if not headless_mode and self.driver.current_window_handle != main_window:
-                        self.driver.close()
-                        self.driver.switch_to.window(main_window)
+                            logger.warning(f"Could not fully prepare window: {focus_err}")
+                            return True, None
 
                     logger.warning(f"Navigation landed on unexpected URL: {current_url}")
                 except Exception as nav_err:
                     last_error = nav_err
-                    logger.warning(f"Navigation attempt failed for {portal_url}: {nav_err}")
+                    logger.error(f"❌ Navigation attempt failed for {portal_url}: {nav_err}")
 
             return False, last_error
 
@@ -250,12 +294,11 @@ class BillAutomation:
 
             if use_headless:
                 options.add_argument("--headless=new")
-                logger.info("Chrome launch mode: headless")
+                logger.info("🔴 Chrome launch mode: HEADLESS")
             else:
-                options.add_argument("--new-window")
-                options.add_argument("--window-position=0,0")
-                options.add_argument("--window-size=1400,900")
-                logger.info("Chrome launch mode: headed (visible window)")
+                # In headed mode, don't use --new-window flag; let driver manage windows
+                options.add_argument("--disable-popup-blocking")
+                logger.info("🟢 Chrome launch mode: HEADED (window will be visible)")
             
             # Minimal crucial args
             options.add_argument("--no-sandbox")
@@ -274,23 +317,60 @@ class BillAutomation:
             options.add_argument("--disable-features=IsolateOrigins,site-per-process")
             options.add_argument("--disable-gpu")
             options.add_argument("--disable-software-rasterizer")
-            options.add_argument("--disable-popup-blocking")
             options.add_argument("--allow-popups-during-page-unload")
             options.page_load_strategy = 'eager' # Balanced speed and stability
 
             # Initialize driver
-            logger.info(f"Initializing Chrome Driver on port {self.port}")
+            logger.info(f"🚀 Initializing Chrome Driver on port {self.port}")
             service = Service(ChromeDriverManager().install())
             self.driver = webdriver.Chrome(service=service, options=options)
+            logger.info("✅ Chrome Driver initialized successfully!")
             
             # Set aggressive timeouts to prevent hanging
             self.driver.set_page_load_timeout(15)  # Max 15 seconds per page
             self.driver.set_script_timeout(10)     # Max 10 seconds for JS execution
             
+            # If not headless, position and focus window aggressively
+            if not use_headless:
+                try:
+                    logger.info("📐 Positioning window to top-left corner...")
+                    self.driver.set_window_position(0, 0)
+                    self.driver.set_window_size(1400, 900)
+                    time.sleep(0.5)
+                    
+                    # Extra focus attempts
+                    self.driver.maximize_window()
+                    time.sleep(0.3)
+                    self.driver.execute_script("window.focus();")
+                    
+                    # Try OS-level window focus on Windows
+                    if os.name == "nt":
+                        try:
+                            logger.info("🪟 Bringing Chrome window to foreground...")
+                            subprocess.run(
+                                [
+                                    "powershell",
+                                    "-NoProfile",
+                                    "-Command",
+                                    "Add-Type @\" using System; using System.Runtime.InteropServices; public class Win { [DllImport(\\\"user32.dll\\\")] public static extern bool SetForegroundWindow(IntPtr hWnd); } \"; $ps = Get-Process chrome | Select-Object -First 1; if ($ps) { [Win]::SetForegroundWindow($ps.MainWindowHandle) }"
+                                ],
+                                check=False,
+                                capture_output=True,
+                                text=True,
+                                timeout=5
+                            )
+                        except Exception as focus_err:
+                            logger.warning(f"OS-level focus attempt failed: {focus_err}")
+                    
+                    time.sleep(0.5)
+                    logger.info("✅ Window positioned, sized, and focused")
+                except Exception as pos_err:
+                    logger.warning(f"Could not position/focus window: {pos_err}")
+            
             # Enable basic network but remove blocks so website looks correct
             self.driver.execute_cdp_cmd("Network.enable", {})
             
-            logger.info("Driver initialized with full visual support. Navigating...")
+            logger.info("🌐 Navigation to Mahavitaran portal starting...")
             
             nav_ok, nav_err = _navigate_to_portal()
             if not nav_ok:
