@@ -126,6 +126,13 @@ class BillAutomation:
                     time.sleep(0.8)
                     current_url = (self.driver.current_url or "").lower()
                     if "mahadiscom.in" in current_url:
+                        try:
+                            # Best effort: bring controlled portal window/tab to foreground.
+                            self.driver.switch_to.window(self.driver.current_window_handle)
+                            self.driver.maximize_window()
+                            self.driver.execute_script("window.focus();")
+                        except Exception as focus_err:
+                            logger.warning(f"Could not force window focus: {focus_err}")
                         logger.info(f"Navigated to portal URL: {current_url}")
                         return True, None
                     logger.warning(f"Navigation landed on unexpected URL: {current_url}")
@@ -209,6 +216,7 @@ class BillAutomation:
                 options.add_argument("--headless")
                 logger.info("Chrome launch mode: headless")
             else:
+                options.add_argument("--new-window")
                 logger.info("Chrome launch mode: headed (visible window)")
             
             # Minimal crucial args
