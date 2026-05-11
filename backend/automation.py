@@ -136,9 +136,9 @@ class BillAutomation:
                     if headless_mode:
                         self.driver.get(portal_url)
                     else:
-                        # Open in a visible new tab so launch action is obvious to operator.
-                        self.driver.execute_script("window.open(arguments[0], '_blank');", portal_url)
-                        self.driver.switch_to.window(self.driver.window_handles[-1])
+                        # Open a real new tab so the portal navigation is visibly separate.
+                        self.driver.switch_to.new_window("tab")
+                        self.driver.get(portal_url)
                     time.sleep(0.8)
                     current_url = (self.driver.current_url or "").lower()
                     if "mahadiscom.in" in current_url:
