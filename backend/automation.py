@@ -166,53 +166,63 @@ class BillAutomation:
                 try:
                     logger.info(f"🌐 Attempting to navigate to: {portal_url}")
                     self.driver.get(portal_url)
-                    logger.info(f"📄 Page loaded, waiting for stability...")
-                    time.sleep(2)  # Give page time to fully load
+                    logger.info(f"📄 Page requested, waiting for full load...")
+                    
+                    # EXTENDED WAIT for page to fully load and render
+                    time.sleep(5)  # Give page substantial time to load
                     
                     current_url = (self.driver.current_url or "").lower()
                     logger.info(f"✅ Current URL: {current_url}")
                     
                     if "mahadiscom.in" in current_url:
                         try:
-                            # Maximize and focus window
+                            # Get window info for debugging
+                            window_handle = self.driver.current_window_handle
+                            window_size = self.driver.get_window_size()
+                            window_pos = self.driver.get_window_position()
+                            logger.info(f"🪟 Window Handle: {window_handle}")
+                            logger.info(f"🪟 Window Position: {window_pos}")
+                            logger.info(f"🪟 Window Size: {window_size}")
+                            
+                            # Maximize window
                             self.driver.maximize_window()
+                            logger.info(f"🪟 Window maximized")
                             time.sleep(0.5)
+                            
+                            # Multiple focus attempts
                             self.driver.execute_script("window.focus();")
+                            logger.info(f"🔵 JavaScript focus executed")
                             
                             if os.name == "nt" and not headless_mode:
-                                logger.info("🪟 Bringing Chrome window to foreground on Windows...")
+                                logger.info("🪟 Attempting OS-level window focus on Windows...")
                                 try:
-                                    # Method 1: Using WScript.Shell
-                                    subprocess.run(
+                                    # Method 1: WScript Shell
+                                    result = subprocess.run(
                                         [
                                             "powershell",
                                             "-NoProfile",
                                             "-Command",
-                                            "$wshell = New-Object -ComObject WScript.Shell; $wshell.AppActivate((Get-Process chrome | Select-Object -First 1).Id)"
+                                            "Add-Type @\" using System; using System.Runtime.InteropServices; public class Win { [DllImport(\\\"user32.dll\\\")] public static extern bool SetForegroundWindow(IntPtr hWnd); } \"; $ps = Get-Process chrome | Select-Object -First 1; if ($ps) { [Win]::SetForegroundWindow($ps.MainWindowHandle); Write-Output 'Focused' }"
                                         ],
                                         check=False,
                                         capture_output=True,
                                         text=True,
                                         timeout=5
                                     )
+                                    logger.info(f"🔵 PowerShell focus result: {result.stdout.strip()}")
                                 except Exception as e:
-                                    logger.warning(f"WScript method failed: {e}")
-                                
-                                # Method 2: Using nircmd (if available)
-                                try:
-                                    subprocess.run(
-                                        ["nircmd", "win", "activate", "google chrome"],
-                                        check=False,
-                                        capture_output=True,
-                                        timeout=5
-                                    )
-                                except:
-                                    pass
+                                    logger.warning(f"🔵 PowerShell focus attempt failed: {e}")
                                 
                                 time.sleep(0.5)
                             
+                            # Verify page is actually visible
+                            page_title = self.driver.title
+                            logger.info(f"📄 Page Title: {page_title}")
+                            
                             logger.info(f"✅ Successfully navigated to Mahavitaran portal!")
                             logger.info(f"🔗 Portal URL: {current_url}")
+                            logger.info(f"🟢 WINDOW SHOULD NOW BE VISIBLE ON YOUR SCREEN!")
+                            
                             return True, None
                         except Exception as focus_err:
                             logger.warning(f"Could not fully prepare window: {focus_err}")
@@ -296,9 +306,10 @@ class BillAutomation:
                 options.add_argument("--headless=new")
                 logger.info("🔴 Chrome launch mode: HEADLESS")
             else:
-                # In headed mode, don't use --new-window flag; let driver manage windows
+                # In headed mode, ensure window is FULLY VISIBLE
                 options.add_argument("--disable-popup-blocking")
-                logger.info("🟢 Chrome launch mode: HEADED (window will be visible)")
+                options.add_argument("--force-visible-content")  # Force page content to be visible
+                logger.info("🟢 Chrome launch mode: HEADED (window will be MAXIMIZED and VISIBLE)")
             
             # Minimal crucial args
             options.add_argument("--no-sandbox")
@@ -315,8 +326,7 @@ class BillAutomation:
             options.add_argument("--disable-blink-features=AutomationControlled")
             options.add_argument("--disable-site-isolation-trials")
             options.add_argument("--disable-features=IsolateOrigins,site-per-process")
-            options.add_argument("--disable-gpu")
-            options.add_argument("--disable-software-rasterizer")
+            options.add_argument("--disable-software-rasterizer")  # Keep but remove --disable-gpu to allow rendering
             options.add_argument("--allow-popups-during-page-unload")
             options.page_load_strategy = 'eager' # Balanced speed and stability
 
@@ -371,6 +381,7 @@ class BillAutomation:
             self.driver.execute_cdp_cmd("Network.enable", {})
             
             logger.info("🌐 Navigation to Mahavitaran portal starting...")
+            logger.info("=" * 80)
             
             nav_ok, nav_err = _navigate_to_portal()
             if not nav_ok:
@@ -378,6 +389,24 @@ class BillAutomation:
                 logger.error(message)
                 return False, message
 
+            # VERIFY PAGE IS FULLY LOADED BEFORE PROCEEDING
+            logger.info("=" * 80)
+            logger.info("✅ PAGE LOADED AND VISIBLE!")
+            logger.info("=" * 80)
+            
+            # Check page readiness
+            try:
+                wait = WebDriverWait(self.driver, 10)
+                wait.until(lambda driver: driver.execute_script("return document.readyState") == "complete")
+                logger.info("✅ Page DOM fully loaded and ready")
+            except:
+                logger.warning("⚠️  Page might still be loading, continuing anyway...")
+            
+            # Final diagnostic info
+            logger.info(f"📄 Final Page Title: {self.driver.title}")
+            logger.info(f"🔗 Final URL: {self.driver.current_url}")
+            logger.info("=" * 80)
+            
             return True, "Browser launched and navigated to Mahavitaran portal."
             
         except Exception as e:
@@ -458,6 +487,17 @@ class BillAutomation:
             # Store date for download step
             self.process_date = date_str
             
+            # LET USER SEE THE PAGE FIRST - Add a generous pause
+            logger.info("=" * 80)
+            logger.info("🟢 PAGE IS NOW VISIBLE IN YOUR BROWSER WINDOW")
+            logger.info("=" * 80)
+            logger.info("⏳ Waiting 3 seconds for you to see the page...")
+            for i in range(3, 0, -1):
+                logger.info(f"   {i} seconds remaining...")
+                time.sleep(1)
+            logger.info("✅ Continuing with automation...")
+            logger.info("=" * 80)
+            
             # Check if already logged in (look for dashboard element)
             try:
                 if self.driver.find_elements(By.ID, "grdCustList"):
@@ -483,6 +523,20 @@ class BillAutomation:
                 # Generate credential: e.g., Arin$007 for day 7
                 credential = f"Arin${day_num:03d}"
                 logger.info(f"Generated credential from date: {credential} for date {date_str}")
+            
+            # DEBUG: Save page state to files for troubleshooting
+            try:
+                # Save page HTML
+                page_html = self.driver.page_source
+                with open("debug_page_state.html", "w", encoding="utf-8") as f:
+                    f.write(page_html)
+                logger.info(f"✅ Page HTML saved to debug_page_state.html ({len(page_html)} bytes)")
+                
+                # Save screenshot
+                self.driver.save_screenshot("debug_page_screenshot.png")
+                logger.info(f"✅ Screenshot saved to debug_page_screenshot.png")
+            except Exception as debug_err:
+                logger.warning(f"Could not save debug files: {debug_err}")
             
             # WAIT FOR CAPTCHA ALERT TO BE DISMISSED BY USER
             self._wait_for_captcha_dismiss(timeout=180)  # Give user up to 3 minutes
