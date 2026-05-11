@@ -110,6 +110,31 @@ class BillAutomation:
         if not os.path.exists(self.download_dir):
             os.makedirs(self.download_dir)
 
+        def _navigate_to_portal():
+            """Navigate to Mahavitaran portal with retries and alternate URLs."""
+            portal_urls = [
+                self.url,
+                "https://wss.mahadiscom.in/wss/wss?uiActionName=getCustAccountLogin",
+                "https://wss.mahadiscom.in/wss/wss?uiActionName=getMyAccount",
+                "https://wss.mahadiscom.in/wss/wss",
+            ]
+            last_error = None
+
+            for portal_url in portal_urls:
+                try:
+                    self.driver.get(portal_url)
+                    time.sleep(0.8)
+                    current_url = (self.driver.current_url or "").lower()
+                    if "mahadiscom.in" in current_url:
+                        logger.info(f"Navigated to portal URL: {current_url}")
+                        return True, None
+                    logger.warning(f"Navigation landed on unexpected URL: {current_url}")
+                except Exception as nav_err:
+                    last_error = nav_err
+                    logger.warning(f"Navigation attempt failed for {portal_url}: {nav_err}")
+
+            return False, last_error
+
         # CHECK FOR EXISTING SESSION (Fix for Issue 1)
         if self.driver:
             try:
@@ -127,12 +152,13 @@ class BillAutomation:
                 except Exception as cdp_err:
                     logger.warning(f"Could not update download directory via CDP: {cdp_err}")
                 
-                # Navigate to the portal URL only if not already on dashboard
-                if not self.driver.find_elements(By.ID, "grdCustList"):
-                    self.driver.get(self.url)
-                else:
-                    logger.info("Already on dashboard, skipping navigation.")
-                return True, "Existing portal session reused."
+                nav_ok, nav_err = _navigate_to_portal()
+                if not nav_ok:
+                    message = f"Existing browser reused but could not navigate to Mahavitaran portal: {nav_err}"
+                    logger.error(message)
+                    return False, message
+
+                return True, "Existing portal session reused and navigated to Mahavitaran."
             except Exception as e:
                 logger.info(f"Existing driver not responsive, launching new one: {e}")
                 try: self.driver.quit()
@@ -220,13 +246,13 @@ class BillAutomation:
             
             logger.info("Driver initialized with full visual support. Navigating...")
             
-            try:
-                self.driver.get(self.url)
-            except Exception as nav_e:
-                logger.error(f"Navigation failed: {nav_e}")
-                return True, f"Launched with warning: {nav_e}"
+            nav_ok, nav_err = _navigate_to_portal()
+            if not nav_ok:
+                message = f"Browser launched but could not navigate to Mahavitaran portal: {nav_err}"
+                logger.error(message)
+                return False, message
 
-            return True, "Browser launched with Turbo Speed enabled."
+            return True, "Browser launched and navigated to Mahavitaran portal."
             
         except Exception as e:
             logger.error(f"Error launching browser: {e}")
