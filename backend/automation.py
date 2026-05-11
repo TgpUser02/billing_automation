@@ -172,7 +172,9 @@ class BillAutomation:
             }
             options.add_experimental_option("prefs", prefs)
             options.add_argument("--start-maximized")
-            options.add_argument("--headless")
+            # Keep browser visible locally; run headless on Render.
+            if os.environ.get("RENDER"):
+                options.add_argument("--headless")
             
             # Minimal crucial args
             options.add_argument("--no-sandbox")
