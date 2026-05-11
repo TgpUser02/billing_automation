@@ -338,6 +338,37 @@ class BillAutomation:
             logger.error(f"Error setting cookies: {e}")
             return False
 
+    def _wait_for_captcha_dismiss(self, timeout=120):
+        """
+        Detects if a Captcha alert is open and waits for user to manually dismiss it.
+        Polls for alert existence. Returns True when alert is gone or timeout.
+        """
+        start_time = time.time()
+        alert_detected = False
+        
+        while time.time() - start_time < timeout:
+            try:
+                # Try to detect if alert is present
+                alert = self.driver.switch_to.alert
+                alert_text = alert.text
+                if "captcha" in alert_text.lower():
+                    if not alert_detected:
+                        logger.warning(f"⚠️ CAPTCHA ALERT DETECTED: '{alert_text}'")
+                        logger.warning("🔴 MANUAL INTERVENTION NEEDED: Please complete the Captcha in the browser window.")
+                        logger.warning(f"⏱️  Waiting up to {timeout} seconds for you to dismiss it...")
+                        alert_detected = True
+                    time.sleep(2)  # Check every 2 seconds
+                    continue
+            except:
+                # No alert present
+                if alert_detected:
+                    logger.info("✅ Captcha alert dismissed by user. Resuming automation...")
+                    time.sleep(1)
+                    return True
+                time.sleep(1)
+        
+        return True
+
     def fill_login_credentials(self, date_str, custom_id=None):
         """Generates credentials based on date or uses custom_id and fills the login form."""
         if not self.driver:
@@ -372,6 +403,9 @@ class BillAutomation:
                 # Generate credential: e.g., Arin$007 for day 7
                 credential = f"Arin${day_num:03d}"
                 logger.info(f"Generated credential from date: {credential} for date {date_str}")
+            
+            # WAIT FOR CAPTCHA ALERT TO BE DISMISSED BY USER
+            self._wait_for_captcha_dismiss(timeout=180)  # Give user up to 3 minutes
             
             # Wait for elements
             wait = WebDriverWait(self.driver, 30)
