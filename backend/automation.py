@@ -17,6 +17,7 @@ if not os.environ.get("RENDER"):
     load_dotenv()
 
 import shutil
+import subprocess
 # Import ActionChains and Keys globally if needed, or locally in methods
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
@@ -147,6 +148,22 @@ class BillAutomation:
                             self.driver.switch_to.window(self.driver.current_window_handle)
                             self.driver.maximize_window()
                             self.driver.execute_script("window.focus();")
+                            if os.name == "nt":
+                                try:
+                                    # Try to focus the Chrome window on Windows so the new tab is visible.
+                                    subprocess.run(
+                                        [
+                                            "powershell",
+                                            "-NoProfile",
+                                            "-Command",
+                                            "$wshell = New-Object -ComObject WScript.Shell; $wshell.AppActivate((Get-Process chrome | Select-Object -First 1).Id)"
+                                        ],
+                                        check=False,
+                                        capture_output=True,
+                                        text=True,
+                                    )
+                                except Exception as focus_os_err:
+                                    logger.warning(f"Could not force OS focus: {focus_os_err}")
                         except Exception as focus_err:
                             logger.warning(f"Could not force window focus: {focus_err}")
                         logger.info(f"Navigated to portal URL: {current_url}")
@@ -236,6 +253,8 @@ class BillAutomation:
                 logger.info("Chrome launch mode: headless")
             else:
                 options.add_argument("--new-window")
+                options.add_argument("--window-position=0,0")
+                options.add_argument("--window-size=1400,900")
                 logger.info("Chrome launch mode: headed (visible window)")
             
             # Minimal crucial args
@@ -374,16 +393,53 @@ class BillAutomation:
             
             # Click Submit button
             try:
-                # Common IDs for Mahadiscom login button
-                submit_btn = self.driver.find_element(By.ID, "Submit")
-                submit_btn.click()
-                logger.info("Login form submitted.")
+                # Common Mahavitaran login button variants
+                submit_selectors = [
+                    (By.ID, "Submit"),
+                    (By.NAME, "Submit"),
+                    (By.CSS_SELECTOR, "button[type='submit']"),
+                    (By.CSS_SELECTOR, "input[type='submit']"),
+                    (By.XPATH, "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'submit') or contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'login') or contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'sign in')]")
+                ]
+
+                clicked = False
+                for by, selector in submit_selectors:
+                    try:
+                        submit_btn = self.driver.find_element(by, selector)
+                        self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", submit_btn)
+                        time.sleep(0.2)
+                        try:
+                            submit_btn.click()
+                        except Exception:
+                            self.driver.execute_script("arguments[0].click();", submit_btn)
+                        logger.info(f"Login form submitted using {by}={selector}.")
+                        clicked = True
+                        break
+                    except Exception:
+                        continue
+
+                if not clicked:
+                    # Last resort: press Enter on the password field and submit the enclosing form.
+                    try:
+                        password_input.send_keys(Keys.ENTER)
+                        logger.info("Login form submitted via Enter key.")
+                        clicked = True
+                    except Exception:
+                        pass
+
+                if not clicked:
+                    try:
+                        form = login_input.find_element(By.XPATH, "./ancestor::form")
+                        form.submit()
+                        logger.info("Login form submitted via form.submit().")
+                        clicked = True
+                    except Exception as form_err:
+                        logger.warning(f"Could not submit login form by any method: {form_err}")
             except:
                 try:
-                    # Fallback to finding by type if ID fails
-                    submit_btn = self.driver.find_element(By.XPATH, "//input[@type='submit']")
-                    submit_btn.click()
-                    logger.info("Login form submitted via fallback.")
+                    # Secondary fallback if selectors above fail unexpectedly
+                    password_input.send_keys(Keys.ENTER)
+                    logger.info("Login form submitted via secondary Enter fallback.")
                 except Exception as e:
                     logger.warning(f"Could not click submit button: {e}")
 
