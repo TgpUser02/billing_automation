@@ -1,3 +1,12 @@
+# Build frontend assets
+FROM node:20-bullseye-slim AS frontend-builder
+
+WORKDIR /app
+COPY package.json ./
+RUN npm install
+COPY . .
+RUN npm run build
+
 # Use Python 3.11 slim image
 FROM python:3.11-slim
 
@@ -25,6 +34,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application
 COPY . .
+
+# Copy built frontend bundle for FastAPI SPA serving
+COPY --from=frontend-builder /app/dist /app/dist
 
 # Expose port
 EXPOSE 5000

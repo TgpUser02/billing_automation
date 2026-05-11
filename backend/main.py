@@ -1,5 +1,7 @@
 from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Optional
 import logging
@@ -41,6 +43,14 @@ file_handler.setFormatter(logging.Formatter(
 logging.getLogger().addHandler(file_handler)
 
 app = FastAPI(title="BillBot API")
+
+BASE_DIR = os.path.dirname(__file__)
+PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
+FRONTEND_DIST_DIR = os.getenv("FRONTEND_DIST_DIR", os.path.join(PROJECT_ROOT, "dist"))
+FRONTEND_INDEX_FILE = os.path.join(FRONTEND_DIST_DIR, "index.html")
+
+if os.path.isdir(os.path.join(FRONTEND_DIST_DIR, "assets")):
+    app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST_DIR, "assets")), name="spa-assets")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # CORS — Hardened (no wildcard in production)
@@ -620,6 +630,8 @@ def get_all_customers_endpoint(user=Depends(get_current_user)):
 
 @app.get("/")
 def read_root():
+    if os.path.isfile(FRONTEND_INDEX_FILE):
+        return FileResponse(FRONTEND_INDEX_FILE)
     return {"status": "BillBot Backend is running"}
 
 @app.post("/api/launch")
@@ -930,5 +942,15 @@ def upload_zero_gen_report(user=Depends(get_current_user)):
         return {"success": True, "message": message}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/{full_path:path}")
+def spa_fallback(full_path: str):
+    """Return frontend index for client-side routes while keeping API 404s intact."""
+    if full_path.startswith("api"):
+        raise HTTPException(status_code=404, detail="Not Found")
+    if os.path.isfile(FRONTEND_INDEX_FILE):
+        return FileResponse(FRONTEND_INDEX_FILE)
+    raise HTTPException(status_code=404, detail="Not Found")
 
 
