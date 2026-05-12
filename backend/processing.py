@@ -24,13 +24,32 @@ DB_CONFIG = {
     'database': os.getenv('DB_NAME', 'Arin_Energy')
 }
 
-def get_db_connection():
-    try:
-        conn = mysql.connector.connect(**DB_CONFIG)
-        return conn
-    except Exception as e:
-        logger.error(f"Failed to connect to MySQL: {e}")
-        return None
+def get_db_connection(retry_count=3, retry_delay=2):
+    """Connect to MySQL with retry logic and timeout."""
+    config = {
+        **DB_CONFIG,
+        'connection_timeout': 10,  # 10 second timeout
+        'autocommit': False,
+        'use_unicode': True,
+        'charset': 'utf8mb4',
+    }
+    
+    for attempt in range(retry_count):
+        try:
+            logger.info(f"Attempting MySQL connection (attempt {attempt + 1}/{retry_count})...")
+            conn = mysql.connector.connect(**config)
+            logger.info("✓ MySQL connection successful")
+            return conn
+        except mysql.connector.Error as e:
+            if attempt < retry_count - 1:
+                logger.warning(f"Connection attempt {attempt + 1} failed: {e}. Retrying in {retry_delay}s...")
+                time.sleep(retry_delay)
+            else:
+                logger.error(f"Failed to connect to MySQL after {retry_count} attempts: {e}")
+                return None
+        except Exception as e:
+            logger.error(f"Unexpected error connecting to MySQL: {e}")
+            return None
 
 def search_consumers_in_db(identifiers):
     """
