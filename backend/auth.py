@@ -1,7 +1,7 @@
 """
 Authentication Module — Arin Energy Billing Automation
 Handles: bcrypt password hashing, JWT tokens, rate limiting, reCAPTCHA verification.
-No MySQL audit logging — all auth events logged to file only.
+SQL-backed user authentication only.
 """
 
 import os
@@ -97,21 +97,32 @@ def refresh_access_token(token: str) -> str:
         )
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """
-    FastAPI dependency — extracts user from JWT if present, 
-    but defaults to a guest/admin user to 'remove JWT security' as requested.
-    """
+    """FastAPI dependency to extract and validate current user from JWT."""
     if credentials is None:
-        # Return a default user instead of raising 401
-        return {"username": "admin", "role": "admin"}
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     
     try:
         payload = decode_token(credentials.credentials)
-        username = payload.get("sub", "admin")
-        return {"username": username, "role": payload.get("role", "admin")}
-    except Exception:
-        # Fallback to default user instead of raising error
-        return {"username": "admin", "role": "admin"}
+        username = payload.get("sub")
+        if not username:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token payload",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return {"username": username, "role": payload.get("role", "operator")}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # RATE LIMITING (In-Memory)
@@ -187,153 +198,82 @@ async def verify_recaptcha(token: str) -> bool:
         return True
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# LOCAL USER DATABASE (No MySQL dependency)
+# SQL USER DATABASE
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# In-memory user store (replaces MySQL)
-_local_users = {
-    "admin": {
-        "id": 1,
-        "username": "admin",
-        "password_hash": "$2b$12$uC/TCcz4CuM5zw4YIw6dg.GnmKeMlJVMw2R1Tl2cMc/xww6S9YQ3G",  # Arin@2026
-        "role": "admin",
-        "is_active": True,
-        "failed_attempts": 0,
-        "locked_until": None,
-    },
-    "Site Eng Hod": {
-        "id": 2,
-        "username": "Site Eng Hod",
-        "password_hash": "$2b$12$vMnF4y7dHw8kL9pZ5xR2t.5yJ8k9mN0oPqRsT1uVwX2yZ3aB4cD5e",
-        "role": "operator",
-        "is_active": True,
-        "failed_attempts": 0,
-        "locked_until": None,
-    },
-    "admin-fallback": {
-        "id": 999,
-        "username": "admin-fallback",
-        "password_hash": "$2b$12$uC/TCcz4CuM5zw4YIw6dg.GnmKeMlJVMw2R1Tl2cMc/xww6S9YQ3G",  # Arin@2026
-        "role": "admin",
-        "is_active": True,
-        "failed_attempts": 0,
-        "locked_until": None,
-    }
-}
-
-def load_users_from_db():
-    """Try to load users from MySQL, fall back to local store on failure."""
-    global _local_users
-    try:
-        from processing import get_db_connection
-        conn = get_db_connection()
-        if conn:
-            cursor = conn.cursor(dictionary=True)
-            cursor.execute("SELECT id, username, password_hash, role, is_active, failed_attempts, locked_until FROM users")
-            db_users = cursor.fetchall()
-            if db_users:
-                # Update local cache with DB users
-                for user in db_users:
-                    _local_users[user['username']] = user
-                logger.info(f"Loaded {len(db_users)} users from MySQL")
-            cursor.close()
-            conn.close()
-            return True
-    except Exception as e:
-        logger.warning(f"Could not load users from MySQL ({e}), using local fallback")
-    return False
-
 def get_user_from_db(username: str) -> Optional[dict]:
-    """
-    Fetch user from local store (no MySQL dependency).
-    Attempts MySQL first, then falls back to in-memory store.
-    """
-    # Try to get from local cache first (fast path)
-    if username in _local_users:
-        return _local_users[username].copy()
-    
-    # Try MySQL as secondary source
+    """Fetch user from SQL users table."""
     try:
         from processing import get_db_connection
         conn = get_db_connection()
-        if conn:
-            cursor = conn.cursor(dictionary=True)
-            cursor.execute(
-                "SELECT id, username, password_hash, role, is_active, failed_attempts, locked_until FROM users WHERE username = %s",
-                (username,)
-            )
-            user = cursor.fetchone()
-            cursor.close()
-            conn.close()
-            if user:
-                _local_users[username] = user  # Cache it
-                return user
+        if not conn:
+            logger.error("MySQL connection unavailable for user lookup")
+            return None
+
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT id, username, password_hash, role, is_active, failed_attempts, locked_until FROM users WHERE username = %s",
+            (username,)
+        )
+        user = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        return user
     except Exception as e:
-        logger.debug(f"MySQL lookup failed for {username}: {e}")
+        logger.error(f"MySQL lookup failed for {username}: {e}")
     
     return None
 
 def update_user_failed_attempts(username: str, count: int, locked_until=None) -> None:
-    """Update failed attempt counter (local or DB)."""
-    # Update local cache
-    if username in _local_users:
-        _local_users[username]["failed_attempts"] = count
-        _local_users[username]["locked_until"] = locked_until
-    
-    # Try to update MySQL if available
+    """Update failed attempt counter in SQL."""
     try:
         from processing import get_db_connection
         conn = get_db_connection()
-        if conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "UPDATE users SET failed_attempts = %s, locked_until = %s WHERE username = %s",
-                (count, locked_until, username)
-            )
-            conn.commit()
-            cursor.close()
-            conn.close()
+        if not conn:
+            logger.error("MySQL connection unavailable for failed-attempt update")
+            return
+
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE users SET failed_attempts = %s, locked_until = %s WHERE username = %s",
+            (count, locked_until, username)
+        )
+        conn.commit()
+        cursor.close()
+        conn.close()
     except Exception as e:
-        logger.debug(f"Could not update DB for {username}: {e}")
+        logger.error(f"Could not update DB for {username}: {e}")
 
 def reset_user_failed_attempts(username: str) -> None:
     """Reset failed attempts on successful login."""
     update_user_failed_attempts(username, 0, None)
 
 def change_user_password(username: str, new_password: str) -> bool:
-    """Change user password (local or DB)."""
+    """Change user password in SQL."""
     new_hash = hash_password(new_password)
-    
-    # Update local cache
-    if username in _local_users:
-        _local_users[username]["password_hash"] = new_hash
-    
-    # Try to update MySQL
+
     try:
         from processing import get_db_connection
         conn = get_db_connection()
-        if conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "UPDATE users SET password_hash = %s WHERE username = %s",
-                (new_hash, username)
-            )
-            conn.commit()
-            updated = cursor.rowcount > 0
-            cursor.close()
-            conn.close()
-            if updated:
-                logger.info(f"Password changed for user: {username}")
-                return True
+        if not conn:
+            logger.error("MySQL connection unavailable for password change")
+            return False
+
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE users SET password_hash = %s WHERE username = %s",
+            (new_hash, username)
+        )
+        conn.commit()
+        updated = cursor.rowcount > 0
+        cursor.close()
+        conn.close()
+        if updated:
+            logger.info(f"Password changed for user: {username}")
+            return True
+
+        logger.warning(f"Password change failed; user not found: {username}")
     except Exception as e:
-        logger.debug(f"Could not update password in DB: {e}")
-    
-    # If we updated the local cache, consider it a success
-    if username in _local_users:
-        logger.info(f"Password changed for user: {username} (local)")
-        return True
+        logger.error(f"Could not update password in DB: {e}")
     
     return False
-
-# Load users on startup
-load_users_from_db()

@@ -16,7 +16,7 @@ from datetime import datetime
 from automation import BillAutomation
 from processing import process_downloads, get_all_bills, get_dashboard_stats, collection, get_customer_details, _process_rows
 from auth import (
-    get_current_user, create_access_token, verify_password, hash_password,
+    get_current_user, create_access_token, verify_password,
     verify_recaptcha, check_rate_limit, record_failed_attempt,
     record_successful_login, get_remaining_attempts,
     get_user_from_db, reset_user_failed_attempts, change_user_password,
@@ -82,32 +82,27 @@ class ChangePasswordRequest(BaseModel):
 
 @app.post("/api/auth/login")
 async def login(request: LoginRequest, req: Request):
-    """
-    Login with reCAPTCHA and password verification.
-    Fixed the 'await' bug and added relaxed dev rules.
-    """
-    # 1. Verify reCAPTCHA (Fix: Added await)
+    """Login with SQL user validation, reCAPTCHA, and rate limiting."""
+    # 1. Verify reCAPTCHA
     is_valid_captcha = await verify_recaptcha(request.captchaToken)
     if not is_valid_captcha:
         logger.warning(f"reCAPTCHA failed for user: {request.username}")
-        # Only block if they actually provided a token that failed. 
-        # If no token, we still require it unless it's a known bypass.
-        if request.captchaToken or not os.getenv("BYPASS_CAPTCHA"):
-             raise HTTPException(status_code=400, detail="reCAPTCHA verification required/failed")
+        raise HTTPException(status_code=400, detail="reCAPTCHA verification required/failed")
 
     # 2. Check Rate Limits
     client_ip = req.client.host
     if not check_rate_limit(client_ip):
-        # If locked out, we'll allow one more try just for the USER since they are testing
-        pass 
+        raise HTTPException(status_code=429, detail="Too many failed attempts. Try again later.")
 
-    # 3. Verify User & Password
+    # 3. Verify SQL user and password
     user = get_user_from_db(request.username)
-    # Bypass password for 'admin' if requested, but better to just use correct ones
     if not user or not verify_password(request.password, user["password_hash"]):
         record_failed_attempt(client_ip)
         attempts = get_remaining_attempts(client_ip)
         raise HTTPException(status_code=401, detail=f"Invalid username or password. {attempts} attempts left.")
+
+    if not user.get("is_active", True):
+        raise HTTPException(status_code=403, detail="User account is inactive")
 
     # 4. Success
     reset_user_failed_attempts(request.username)
@@ -115,7 +110,7 @@ async def login(request: LoginRequest, req: Request):
     
     token = create_access_token({
         "sub": request.username,
-        "role": user.get("role", "admin")
+        "role": user.get("role", "operator")
     })
     
     logger.info(f"✓ Login successful: {request.username}")
@@ -124,7 +119,7 @@ async def login(request: LoginRequest, req: Request):
         "status": "success",
         "token": token,
         "username": request.username,
-        "role": user.get("role", "admin")
+        "role": user.get("role", "operator")
     }
 
 @app.get("/api/auth/verify")
