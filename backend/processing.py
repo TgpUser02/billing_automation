@@ -8,6 +8,7 @@ import re
 import mysql.connector
 from dotenv import load_dotenv
 import logging
+import time
 
 # Load environment variables
 load_dotenv()
