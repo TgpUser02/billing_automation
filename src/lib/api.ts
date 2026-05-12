@@ -51,6 +51,10 @@ function shouldRefreshToken(): boolean {
 
 let refreshPromise: Promise<any> | null = null;
 
+function redirectToLogin(): void {
+    window.location.hash = "#/login";
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // HTTP HELPERS WITH AUTH
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -70,7 +74,7 @@ async function checkResponse(response: Response) {
     if (response.status === 401) {
         // Token expired or invalid — force logout
         clearToken();
-        window.location.href = "/login";
+        redirectToLogin();
         throw new Error("Session expired. Please login again.");
     }
     if (!response.ok) {
@@ -99,7 +103,7 @@ async function authFetch(url: string, options: RequestInit = {}): Promise<Respon
             // If refresh fails and token is truly expired, logout
             if (isTokenExpired()) {
                 clearToken();
-                window.location.href = "/login";
+                redirectToLogin();
                 throw new Error("Session expired");
             }
         }
@@ -202,7 +206,7 @@ export const api = {
 
     logout: () => {
         clearToken();
-        window.location.href = "/login";
+        redirectToLogin();
     },
 
     // ── PROTECTED ENDPOINTS ──
