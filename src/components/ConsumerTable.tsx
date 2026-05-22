@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Consumer } from "@/types/consumer";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 
@@ -7,7 +8,17 @@ interface ConsumerTableProps {
 }
 
 export function ConsumerTable({ consumers, onRowClick }: ConsumerTableProps) {
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 50;
+  
+  // Reset to page 1 if consumers change
+  const totalPages = Math.ceil(consumers.length / pageSize);
+  const safePage = Math.min(currentPage, Math.max(1, totalPages));
+  
+  const currentData = consumers.slice((safePage - 1) * pageSize, safePage * pageSize);
+
   return (
+    <div className="flex flex-col gap-4">
     <div className="overflow-x-auto rounded-lg border border-table-border panel-shadow">
       <table className="data-table">
         <thead>
@@ -36,13 +47,13 @@ export function ConsumerTable({ consumers, onRowClick }: ConsumerTableProps) {
               </td>
             </tr>
           ) : (
-            consumers.map((consumer, index) => (
+            currentData.map((consumer, index) => (
               <tr
                 key={consumer.id}
                 onClick={() => onRowClick(consumer)}
-                className="transition-colors"
+                className="transition-colors cursor-pointer hover:bg-muted/50"
               >
-                <td className="font-medium text-center">{index + 1}</td>
+                <td className="font-medium text-center">{(safePage - 1) * pageSize + index + 1}</td>
                 <td className="text-arin-teal font-black text-xs">{(consumer as any).arinId}</td>
                 <td>{consumer.month}</td>
                 <td className="font-medium text-primary">{consumer.consumerName}</td>
@@ -61,6 +72,34 @@ export function ConsumerTable({ consumers, onRowClick }: ConsumerTableProps) {
           )}
         </tbody>
       </table>
+    </div>
+    
+    {totalPages > 1 && (
+      <div className="flex justify-between items-center px-4 py-2 bg-muted/20 rounded-lg">
+        <span className="text-sm text-muted-foreground">
+          Showing {(safePage - 1) * pageSize + 1} to {Math.min(safePage * pageSize, consumers.length)} of {consumers.length} entries
+        </span>
+        <div className="flex gap-2">
+          <button 
+            disabled={safePage === 1}
+            onClick={() => setCurrentPage(safePage - 1)}
+            className="px-3 py-1 rounded bg-background border border-border disabled:opacity-50 text-sm"
+          >
+            Previous
+          </button>
+          <span className="px-3 py-1 text-sm flex items-center font-medium">
+            Page {safePage} of {totalPages}
+          </span>
+          <button 
+            disabled={safePage === totalPages}
+            onClick={() => setCurrentPage(safePage + 1)}
+            className="px-3 py-1 rounded bg-background border border-border disabled:opacity-50 text-sm"
+          >
+            Next
+          </button>
+        </div>
+      </div>
+    )}
     </div>
   );
 }

@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  billing_app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: billing_automation
+    ports:
+      - "80:5000"
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./downloads:/app/downloads
+    restart: unless-stopped

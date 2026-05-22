@@ -8,6 +8,14 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 
+# Resolve chromedriver path once at import time so launches never hit the network
+try:
+    _CHROMEDRIVER_PATH = ChromeDriverManager().install()
+except Exception as _e:
+    import logging as _log
+    _log.getLogger(__name__).warning(f"ChromeDriverManager pre-fetch failed: {_e}")
+    _CHROMEDRIVER_PATH = None
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -91,6 +99,8 @@ class BillAutomation:
             ])
         else:
             candidates.extend([
+                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                "/Applications/Chromium.app/Contents/MacOS/Chromium",
                 "/usr/bin/google-chrome",
                 "/usr/bin/google-chrome-stable",
                 "/usr/bin/chromium-browser",
@@ -137,8 +147,8 @@ class BillAutomation:
                     date_str = dt.strftime("%Y-%m-%d")
             except:
                 pass
-            desktop_path = os.path.join(os.environ.get('USERPROFILE', os.path.expanduser("~")), 'Desktop')
-            self.download_dir = os.path.abspath(os.path.join(desktop_path, 'arin', date_str))
+            storage_root = os.environ.get('ARIN_STORAGE_PATH', '/var/arin')
+            self.download_dir = os.path.abspath(os.path.join(storage_root, date_str))
             
         if not os.path.exists(self.download_dir):
             os.makedirs(self.download_dir)
@@ -297,42 +307,46 @@ class BillAutomation:
                 "plugins.always_open_pdf_externally": True
             }
             options.add_experimental_option("prefs", prefs)
-            options.add_argument("--start-maximized")
 
             # Render must always run headless; local can be controlled via BROWSER_HEADLESS.
             use_headless = _is_headless_mode()
 
             if use_headless:
+                # Chrome 112+ headless mode — renderer-safe on macOS ARM
                 options.add_argument("--headless=new")
+                options.add_argument("--window-size=1400,900")
                 logger.info("🔴 Chrome launch mode: HEADLESS")
             else:
-                # In headed mode, ensure window is FULLY VISIBLE
                 options.add_argument("--disable-popup-blocking")
-                options.add_argument("--force-visible-content")  # Force page content to be visible
-                logger.info("🟢 Chrome launch mode: HEADED (window will be MAXIMIZED and VISIBLE)")
-            
-            # Minimal crucial args
+                logger.info("🟢 Chrome launch mode: HEADED")
+
+            # Core stability flags (macOS ARM safe)
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
-            options.add_argument(f"--remote-debugging-port={self.port}") 
+            options.add_argument("--disable-gpu")           # disable GPU process (headless safe)
+            options.add_argument("--use-gl=swiftshader")    # software GL — prevents renderer crash
+            options.add_argument("--disable-gpu-sandbox")
+            options.add_argument(f"--remote-debugging-port={self.port}")
             options.add_argument("--remote-allow-origins=*")
-            # Use a unique profile directory for each port to avoid conflicts
+
+            # Profile dir — unique per port to avoid lock conflicts
             profile_dir = os.path.join(os.getcwd(), f"chrome_profile_{self.port}")
             options.add_argument(f"--user-data-dir={profile_dir}")
-            
+
+            # Anti-bot + compat flags
             options.add_argument("--ignore-certificate-errors")
             options.add_argument("--ignore-ssl-errors")
             options.add_argument("--allow-running-insecure-content")
             options.add_argument("--disable-blink-features=AutomationControlled")
             options.add_argument("--disable-site-isolation-trials")
-            options.add_argument("--disable-features=IsolateOrigins,site-per-process")
-            options.add_argument("--disable-software-rasterizer")  # Keep but remove --disable-gpu to allow rendering
+            options.add_argument("--disable-features=IsolateOrigins,site-per-process,Prewarm")
             options.add_argument("--allow-popups-during-page-unload")
-            options.page_load_strategy = 'eager' # Balanced speed and stability
+            options.page_load_strategy = 'eager'
 
-            # Initialize driver
+            # Initialize driver — use the pre-resolved path (no network call during launch)
             logger.info(f"🚀 Initializing Chrome Driver on port {self.port}")
-            service = Service(ChromeDriverManager().install())
+            driver_path = ChromeDriverManager().install()
+            service = Service(driver_path)
             self.driver = webdriver.Chrome(service=service, options=options)
             logger.info("✅ Chrome Driver initialized successfully!")
             
@@ -479,26 +493,18 @@ class BillAutomation:
         return True
 
     def fill_login_credentials(self, date_str, custom_id=None):
-        """Generates credentials based on date or uses custom_id and fills the login form."""
+        """Generates credentials based on date or uses custom_id and fills the login form via CDP."""
         if not self.driver:
             return False, "Browser not running."
 
         try:
-            # Store date for download step
             self.process_date = date_str
-            
-            # LET USER SEE THE PAGE FIRST - Add a generous pause
+
             logger.info("=" * 80)
-            logger.info("🟢 PAGE IS NOW VISIBLE IN YOUR BROWSER WINDOW")
+            logger.info("🟢 PAGE LOADED — filling login credentials via CDP...")
             logger.info("=" * 80)
-            logger.info("⏳ Waiting 3 seconds for you to see the page...")
-            for i in range(3, 0, -1):
-                logger.info(f"   {i} seconds remaining...")
-                time.sleep(1)
-            logger.info("✅ Continuing with automation...")
-            logger.info("=" * 80)
-            
-            # Check if already logged in (look for dashboard element)
+
+            # Check if already logged in
             try:
                 if self.driver.find_elements(By.ID, "grdCustList"):
                     logger.info("Already logged in, skipping credential filling.")
@@ -506,121 +512,155 @@ class BillAutomation:
             except:
                 pass
 
-            # If custom_id is provided, use it. Otherwise generate from date.
+            # Generate credential
             if custom_id:
                 credential = custom_id
                 logger.info(f"Using custom credential: {credential}")
             else:
-                # Parse date string (handling ISO format from frontend)
                 from datetime import datetime, timedelta
                 if "T" in date_str:
                     dt_obj = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
                     dt_obj = dt_obj + timedelta(hours=5, minutes=30)
                 else:
                     dt_obj = datetime.strptime(date_str, "%Y-%m-%d")
-                
                 day_num = dt_obj.day
-                # Generate credential: e.g., Arin$007 for day 7
                 credential = f"Arin${day_num:03d}"
                 logger.info(f"Generated credential from date: {credential} for date {date_str}")
-            
-            # DEBUG: Save page state to files for troubleshooting
-            try:
-                # Save page HTML
-                page_html = self.driver.page_source
-                with open("debug_page_state.html", "w", encoding="utf-8") as f:
-                    f.write(page_html)
-                logger.info(f"✅ Page HTML saved to debug_page_state.html ({len(page_html)} bytes)")
-                
-                # Save screenshot
-                self.driver.save_screenshot("debug_page_screenshot.png")
-                logger.info(f"✅ Screenshot saved to debug_page_screenshot.png")
-            except Exception as debug_err:
-                logger.warning(f"Could not save debug files: {debug_err}")
-            
-            # WAIT FOR CAPTCHA ALERT TO BE DISMISSED BY USER
-            self._wait_for_captcha_dismiss(timeout=180)  # Give user up to 3 minutes
-            
-            # Wait for elements
+
+            # ── CDP helpers ─────────────────────────────────────────────────────────────────────
+            def cdp_click(x, y):
+                for evt in ('mousePressed', 'mouseReleased'):
+                    self.driver.execute_cdp_cmd('Input.dispatchMouseEvent', {
+                        'type': evt, 'x': x, 'y': y,
+                        'button': 'left', 'clickCount': 1, 'modifiers': 0
+                    })
+
+            def cdp_type(text):
+                SPECIAL_KEYS = {
+                    '\n': ('Return', '\r', 13),
+                    '\t': ('Tab', '\t', 9),
+                }
+                for char in text:
+                    if char in SPECIAL_KEYS:
+                        kn, kc, kcode = SPECIAL_KEYS[char]
+                        for et in ('keyDown', 'keyUp'):
+                            self.driver.execute_cdp_cmd('Input.dispatchKeyEvent', {
+                                'type': et, 'key': kn, 'code': kn,
+                                'nativeVirtualKeyCode': kcode, 'windowsVirtualKeyCode': kcode
+                            })
+                        self.driver.execute_cdp_cmd('Input.dispatchKeyEvent', {'type': 'char', 'key': kc, 'text': kc})
+                    else:
+                        kcode = ord(char)
+                        code = f'Key{char.upper()}' if char.isalpha() else f'Digit{char}' if char.isdigit() else 'Space'
+                        # keyDown with NO text field, char event inserts, keyUp with NO text field
+                        self.driver.execute_cdp_cmd('Input.dispatchKeyEvent', {
+                            'type': 'keyDown', 'key': char, 'code': code,
+                            'nativeVirtualKeyCode': kcode, 'windowsVirtualKeyCode': kcode
+                        })
+                        self.driver.execute_cdp_cmd('Input.dispatchKeyEvent', {
+                            'type': 'char', 'key': char, 'text': char, 'unmodifiedText': char
+                        })
+                        self.driver.execute_cdp_cmd('Input.dispatchKeyEvent', {
+                            'type': 'keyUp', 'key': char, 'code': code,
+                            'nativeVirtualKeyCode': kcode, 'windowsVirtualKeyCode': kcode
+                        })
+
+            def get_element_center(element):
+                """Get the absolute center coordinates of a WebElement."""
+                rect = self.driver.execute_script(
+                    "var r=arguments[0].getBoundingClientRect(); return {x:r.left+r.width/2, y:r.top+r.height/2};",
+                    element
+                )
+                return int(rect['x']), int(rect['y'])
+
+            # ── Wait for captcha alert if any ───────────────────────────────────────────────
+            self._wait_for_captcha_dismiss(timeout=180)
+
+            # ── Locate login fields ────────────────────────────────────────────────────────
             wait = WebDriverWait(self.driver, 30)
             logger.info("Waiting for login page elements...")
             try:
                 login_input = wait.until(EC.visibility_of_element_located((By.ID, "loginId")))
                 password_input = wait.until(EC.visibility_of_element_located((By.ID, "password")))
             except Exception as e:
-                logger.warning(f"Login elements not found within timeout: {e}")
-                # If elements not found, maybe we are already on a post-login page or needs manual intervention
+                logger.warning(f"Login elements not found: {e}")
                 return True, "Form elements not found (timeout), checking if logged in..."
 
-            # Clear and fill
-            login_input.clear()
-            login_input.send_keys(credential)
-            
-            password_input.clear()
-            password_input.send_keys(credential)
-            
-            # Click Submit button
-            try:
-                # Common Mahavitaran login button variants
-                submit_selectors = [
-                    (By.ID, "Submit"),
-                    (By.NAME, "Submit"),
-                    (By.CSS_SELECTOR, "button[type='submit']"),
-                    (By.CSS_SELECTOR, "input[type='submit']"),
-                    (By.XPATH, "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'submit') or contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'login') or contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'sign in')]")
-                ]
+            # ── Fill username via CDP click + type ──────────────────────────────────────
+            # Clear via triple-click (select-all) then type
+            lx, ly = get_element_center(login_input)
+            # Triple-click to select all existing text
+            self.driver.execute_cdp_cmd('Input.dispatchMouseEvent', {
+                'type': 'mousePressed', 'x': lx, 'y': ly,
+                'button': 'left', 'clickCount': 3, 'modifiers': 0
+            })
+            self.driver.execute_cdp_cmd('Input.dispatchMouseEvent', {
+                'type': 'mouseReleased', 'x': lx, 'y': ly,
+                'button': 'left', 'clickCount': 3, 'modifiers': 0
+            })
+            time.sleep(0.1)
+            cdp_type(credential)
+            logger.info(f"Typed username '{credential}' via CDP")
 
-                clicked = False
-                for by, selector in submit_selectors:
-                    try:
-                        submit_btn = self.driver.find_element(by, selector)
-                        self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", submit_btn)
-                        time.sleep(0.2)
-                        try:
-                            submit_btn.click()
-                        except Exception:
-                            self.driver.execute_script("arguments[0].click();", submit_btn)
-                        logger.info(f"Login form submitted using {by}={selector}.")
-                        clicked = True
-                        break
-                    except Exception:
-                        continue
+            time.sleep(0.2)
 
-                if not clicked:
-                    # Last resort: press Enter on the password field and submit the enclosing form.
-                    try:
-                        password_input.send_keys(Keys.ENTER)
-                        logger.info("Login form submitted via Enter key.")
-                        clicked = True
-                    except Exception:
-                        pass
+            # ── Fill password via CDP click + type ───────────────────────────────────
+            px, py = get_element_center(password_input)
+            self.driver.execute_cdp_cmd('Input.dispatchMouseEvent', {
+                'type': 'mousePressed', 'x': px, 'y': py,
+                'button': 'left', 'clickCount': 3, 'modifiers': 0
+            })
+            self.driver.execute_cdp_cmd('Input.dispatchMouseEvent', {
+                'type': 'mouseReleased', 'x': px, 'y': py,
+                'button': 'left', 'clickCount': 3, 'modifiers': 0
+            })
+            time.sleep(0.1)
+            cdp_type(credential)
+            logger.info(f"Typed password via CDP")
 
-                if not clicked:
-                    try:
-                        form = login_input.find_element(By.XPATH, "./ancestor::form")
-                        form.submit()
-                        logger.info("Login form submitted via form.submit().")
-                        clicked = True
-                    except Exception as form_err:
-                        logger.warning(f"Could not submit login form by any method: {form_err}")
-            except:
+            time.sleep(0.2)
+
+            # ── Submit form ────────────────────────────────────────────────────────────────
+            submit_selectors = [
+                (By.ID, "Submit"),
+                (By.NAME, "Submit"),
+                (By.CSS_SELECTOR, "button[type='submit']"),
+                (By.CSS_SELECTOR, "input[type='submit']"),
+                (By.XPATH, "//button[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'submit') or contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'login')]"),
+            ]
+            clicked = False
+            for by, selector in submit_selectors:
                 try:
-                    # Secondary fallback if selectors above fail unexpectedly
-                    password_input.send_keys(Keys.ENTER)
-                    logger.info("Login form submitted via secondary Enter fallback.")
-                except Exception as e:
-                    logger.warning(f"Could not click submit button: {e}")
+                    btn = self.driver.find_element(by, selector)
+                    bx, by_coord = get_element_center(btn)
+                    cdp_click(bx, by_coord)
+                    logger.info(f"Submitted login using CDP click on {by}={selector}")
+                    clicked = True
+                    break
+                except Exception:
+                    continue
 
-            # Verification: Wait to see if we reached the dashboard
+            if not clicked:
+                # Press Enter via CDP as final fallback
+                self.driver.execute_cdp_cmd('Input.dispatchKeyEvent', {
+                    'type': 'keyDown', 'key': 'Return', 'code': 'Return',
+                    'nativeVirtualKeyCode': 13, 'windowsVirtualKeyCode': 13
+                })
+                self.driver.execute_cdp_cmd('Input.dispatchKeyEvent', {
+                    'type': 'keyUp', 'key': 'Return', 'code': 'Return',
+                    'nativeVirtualKeyCode': 13, 'windowsVirtualKeyCode': 13
+                })
+                logger.info("Login submitted via CDP Enter key fallback.")
+
+            # ── Verify login ─────────────────────────────────────────────────────────────────
             try:
-                wait = WebDriverWait(self.driver, 15)
-                wait.until(EC.presence_of_element_located((By.ID, "grdCustList")))
+                WebDriverWait(self.driver, 15).until(EC.presence_of_element_located((By.ID, "grdCustList")))
                 logger.info("Login verified: reached dashboard.")
                 return True, f"Login successful for {credential}"
             except:
-                logger.warning("Could not verify login. Might be stuck on CAPTCHA or invalid credentials.")
-                return True, "Credentials filled, awaiting manual login/verification."
-            
+                logger.warning("Could not verify login. Might need CAPTCHA completion.")
+                return True, "Credentials filled — awaiting CAPTCHA/verification in Remote Browser."
+
         except Exception as e:
             logger.error(f"Error filling credentials: {e}")
             return False, str(e)
@@ -726,8 +766,8 @@ class BillAutomation:
             except:
                 pass
                 
-            desktop_path = os.path.join(os.environ.get('USERPROFILE', os.path.expanduser("~")), 'Desktop')
-            target_dir = os.path.join(desktop_path, 'arin', date_str)
+            storage_root = os.environ.get('ARIN_STORAGE_PATH', '/var/arin')
+            target_dir = os.path.join(storage_root, date_str)
             if not os.path.exists(target_dir):
                 os.makedirs(target_dir)
             logger.info(f"[{self.port}] Target download directory: {target_dir}")

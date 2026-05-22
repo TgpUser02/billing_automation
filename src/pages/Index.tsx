@@ -3,11 +3,12 @@ import { useNavigate } from "react-router-dom";
 import ControlPanel from "@/components/ControlPanel";
 import ConsumerFilter from "@/components/ConsumerFilter";
 import ExecutionConsole from "@/components/ExecutionConsole";
+import { RemoteBrowser } from "@/components/RemoteBrowser";
 import OutputPreview from "@/components/OutputPreview";
-import { api } from "@/lib/api";
+import { api, API_BASE_URL } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { DownloadCloud, FileText, Zap, Database, CheckCircle2, RotateCcw, FolderDown } from "lucide-react";
+import { DownloadCloud, FileText, Zap, Database, CheckCircle2, RotateCcw, FolderDown, Monitor, PanelBottom, Layers, EyeOff } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import {
   Dialog,
@@ -255,46 +256,28 @@ const Index = () => {
         timestamp: new Date().toLocaleTimeString(),
         message: isRunning
           ? `Syncing Portal for new date: ${dateStr}...`
-          : `Initializing Portal (ID: ${customId || 'Auto'})...`,
+          : `Initializing Headless Login (ID: ${customId || 'Auto'})...`,
         type: "info",
       },
     ]);
 
-    try {
-      const res = await api.launch(dateStr, customId);
-      setLogs((prev) => [
-        ...prev,
-        {
-          id: Date.now(),
-          timestamp: new Date().toLocaleTimeString(),
-          message: res.message || "Browser launched. Please login manually.",
-          type: "success",
-        },
-      ]);
-      setCurrentStep(3); // Waiting for input / login
-    } catch (error: any) {
-      console.error(error);
-      setLogs((prev) => [
-        ...prev,
-        {
-          id: Date.now(),
-          timestamp: new Date().toLocaleTimeString(),
-          message: error.message || "Failed to launch automation.",
-          type: "error",
-        },
-      ]);
-      setIsRunning(false);
-    }
+    setCurrentStep(3); // Waiting for input / login
   };
 
-  const handleHardReset = () => {
-    // Preserve authentication and browser state (Fix for Issue 1: Prevent auto-logout)
+
+
+  const handleCompleteReset = async () => {
+    try {
+      await api.resetSystem();
+    } catch (e) {
+      console.error("Reset API failed:", e);
+    }
     const keysToRemove = Object.keys(sessionStorage).filter(key =>
       key.startsWith('arin_') &&
-      !['arin_jwt_token', 'arin_auth', 'arin_current_user', 'arin_isRunning'].includes(key)
+      !['arin_jwt_token', 'arin_auth', 'arin_current_user'].includes(key)
     );
     keysToRemove.forEach(key => sessionStorage.removeItem(key));
-
+    setIsRunning(false);
     setLogs([]);
     setDownloadedFiles([]);
     setDownloadCount(0);
@@ -303,19 +286,10 @@ const Index = () => {
     setConsumers([]);
     setExcelData([]);
     setIsProcessing(false);
-
-    // If browser is already running, we stay in a state that allows quick restart
-    if (!isRunning) {
-      setCurrentStep(1);
-    } else {
-      // If running, we go back to Step 1 to allow date change but we'll allow skipping Step 2 later
-      setCurrentStep(1);
-    }
-
+    setCurrentStep(1);
     toast({
-      title: "Automation Reset",
-      description: "Logs and data cleared. Browser session remains active.",
-      variant: "default"
+      title: "System Reset",
+      description: "All sessions have been cleanly terminated.",
     });
   };
 
@@ -353,7 +327,7 @@ const Index = () => {
       const formData = new FormData();
       formData.append("file", file);
 
-      const response = await fetch("http://localhost:5000/api/upload-excel", {
+      const response = await fetch(`${API_BASE_URL}/upload-excel`, {
         method: "POST",
         body: formData,
       });
@@ -583,11 +557,11 @@ const Index = () => {
             <FolderDown className="w-3.5 h-3.5 mr-2" /> Upload Zero-Gen
           </Button>
           <Button
-            onClick={handleHardReset}
+            onClick={handleCompleteReset}
             variant="outline"
-            className="rounded-xl border-dashed border-2 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-all font-black text-[10px] uppercase tracking-widest h-10 px-4"
+            className="rounded-xl border-dashed border-2 border-red-200 text-red-500 hover:bg-red-50 hover:text-red-600 hover:border-red-300 transition-all font-black text-[10px] uppercase tracking-widest h-10 px-4"
           >
-            <RotateCcw className="w-3 h-3 mr-2" /> Reset Engine
+            <RotateCcw className="w-3 h-3 mr-2" /> Force Reset System
           </Button>
           <div className="flex items-center gap-3 bg-white/50 backdrop-blur-sm border border-white/20 px-4 py-2 rounded-2xl shadow-sm">
             <div className="flex flex-col items-end">
@@ -738,7 +712,8 @@ const Index = () => {
 
         {/* Column 3: Engine (3/12) */}
         <div className="col-span-12 xl:col-span-3 space-y-6">
-
+          <RemoteBrowser isRunning={isRunning} date={selectedDate} customId={currentCustomId} onReset={handleCompleteReset} />
+          
           <Card className="glass-card rounded-[2rem] p-8 shadow-2xl border-white/20 bg-white/70 backdrop-blur-xl">
             <div className="flex items-center gap-4 mb-6">
               <div className="w-12 h-12 rounded-2xl bg-[#FFF8E7] flex items-center justify-center shadow-inner">
@@ -751,7 +726,7 @@ const Index = () => {
               <div className="flex justify-between items-center border-b border-slate-100 pb-3">
                 <span className="text-[10px] font-black text-[#64748B] uppercase tracking-[0.1em]">Engine Status</span>
                 <div className="flex flex-col items-end">
-                  <span className="text-sm font-black text-arin-teal mt-1">Single Window</span>
+                  <span className="text-sm font-black text-arin-teal mt-1">Ready</span>
                 </div>
               </div>
               <div className="pt-2">
@@ -818,7 +793,7 @@ const Index = () => {
                 Downloading PDFs...
               </DialogTitle>
               <p className="text-slate-500 font-medium text-center text-sm">
-                Please keep the browser window open. Parallel workers are fetching your bills from the portal.
+                Parallel workers are fetching your bills from the portal.
               </p>
             </DialogHeader>
 
@@ -849,7 +824,7 @@ const Index = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Success Popup — Download Complete (Issue #15: replaced RefreshCcw with CheckCircle2) */}
+      {/* Success Popup — Download Complete */}
       <Dialog open={showSuccessModal} onOpenChange={setShowSuccessModal}>
         <DialogContent className="rounded-[2.5rem] sm:max-w-[400px] border-none bg-white p-0 overflow-hidden shadow-2xl max-h-[90vh] flex flex-col">
           <div className="h-20 bg-gradient-to-r from-arin-teal to-arin-green flex items-center justify-center shrink-0">

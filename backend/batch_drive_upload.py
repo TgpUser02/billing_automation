@@ -9,8 +9,8 @@ import re
 
 
 def find_latest_arin_folder():
-    desktop = os.path.join(os.environ.get('USERPROFILE', os.path.expanduser('~')), 'Desktop')
-    arin_root = os.path.join(desktop, 'arin')
+    storage_root = os.environ.get('ARIN_STORAGE_PATH', '/var/arin')
+    arin_root = os.path.abspath(storage_root)
     if not os.path.exists(arin_root):
         return None
     # Look for directories under arin that look like dates and pick the latest by name

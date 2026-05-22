@@ -14,6 +14,7 @@ import time
 import sys
 from datetime import datetime
 from automation import BillAutomation
+from login_automation import login_automator
 from processing import process_downloads, get_all_bills, get_dashboard_stats, collection, get_customer_details, _process_rows
 from auth import (
     get_current_user, create_access_token, verify_password,
@@ -719,6 +720,68 @@ def start_download(request: DownloadRequest, background_tasks: BackgroundTasks, 
         "message": f"Downloading {total_selected} bills using {mode_msg}.",
         "details": f"Dispatched {tasks_dispatched} task(s) ({num_workers} workers requested)."
     }
+
+from fastapi.responses import StreamingResponse
+import asyncio
+import base64
+
+class LoginStartReq(BaseModel):
+    username: str
+    password: str
+    dateStr: Optional[str] = None
+    customId: Optional[str] = None
+
+class CaptchaSubmitReq(BaseModel):
+    captcha: str
+
+class OtpSubmitReq(BaseModel):
+    otp: str
+
+# Global state to pass date to primary_automation after playwright login
+active_login_date = None
+active_login_custom_id = None
+
+def handoff_to_selenium(res):
+    if res.get("status") == "SUCCESS" and "session" in res:
+        # Launch the old selenium headless to do the actual scraping
+        success, msg = primary_automation.launch_browser(active_login_date)
+        if success:
+            sel_cookies = []
+            for c in res["session"]:
+                sc = {"name": c["name"], "value": c["value"], "domain": c["domain"], "path": c["path"]}
+                sel_cookies.append(sc)
+            primary_automation.set_cookies(sel_cookies)
+            # Store customId if needed
+            primary_automation.custom_id = active_login_custom_id
+
+@app.post("/api/start-login")
+async def api_start_login(req: LoginStartReq, user=Depends(get_current_user)):
+    global active_login_date, active_login_custom_id
+    active_login_date = req.dateStr
+    active_login_custom_id = req.customId
+    res = await login_automator.start_login(req.username, req.password)
+    handoff_to_selenium(res)
+    return res
+
+@app.post("/api/submit-captcha")
+async def api_submit_captcha(req: CaptchaSubmitReq, user=Depends(get_current_user)):
+    res = await login_automator.submit_captcha(req.captcha)
+    handoff_to_selenium(res)
+    return res
+
+@app.post("/api/submit-otp")
+async def api_submit_otp(req: OtpSubmitReq, user=Depends(get_current_user)):
+    res = await login_automator.submit_otp(req.otp)
+    handoff_to_selenium(res)
+    return res
+
+@app.post("/api/reset")
+async def api_reset(user=Depends(get_current_user)):
+    await login_automator.close_browser()
+    # also reset old automation if present
+    primary_automation.close()
+    return {"status": "success"}
+
 
 def process_data_task(storage_path):
     global process_in_progress, process_results, total_process_count, current_process_count

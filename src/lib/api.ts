@@ -1,6 +1,6 @@
-const API_BASE_URL =
+export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ||
-  `http://${window.location.hostname}:5000/api`;
+  (window.location.hostname === 'localhost' ? 'http://localhost:5000/api' : `/api`);
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // JWT TOKEN MANAGEMENT
@@ -210,10 +210,33 @@ export const api = {
     },
 
     // ── PROTECTED ENDPOINTS ──
-    launch: async (date: string, customId?: string) => {
-        const response = await authFetch(`${API_BASE_URL}/launch`, {
+    startLogin: async (username?: string, password?: string, dateStr?: string, customId?: string) => {
+        const response = await authFetch(`${API_BASE_URL}/start-login`, {
             method: "POST",
-            body: JSON.stringify({ date, customId }),
+            body: JSON.stringify({ username, password, dateStr, customId }),
+        });
+        return checkResponse(response);
+    },
+    
+    submitCaptcha: async (captcha: string) => {
+        const response = await authFetch(`${API_BASE_URL}/submit-captcha`, {
+            method: "POST",
+            body: JSON.stringify({ captcha }),
+        });
+        return checkResponse(response);
+    },
+    
+    submitOtp: async (otp: string) => {
+        const response = await authFetch(`${API_BASE_URL}/submit-otp`, {
+            method: "POST",
+            body: JSON.stringify({ otp }),
+        });
+        return checkResponse(response);
+    },
+    
+    resetSystem: async () => {
+        const response = await authFetch(`${API_BASE_URL}/reset`, {
+            method: "POST",
         });
         return checkResponse(response);
     },

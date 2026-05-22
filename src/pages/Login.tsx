@@ -126,7 +126,7 @@ export default function Login() {
       let msg = error.message || "Login failed. Please try again.";
       
       if (isNetworkError) {
-        msg = "Cannot reach the server. Please ensure the backend is running on port 5000 and allowed through your firewall.";
+        msg = "Cannot reach the server. Please ensure the backend is running and allowed through your firewall.";
       }
 
       setErrorMessage(msg);

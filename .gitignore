@@ -22,8 +22,24 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-"__pycache__/" 
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+
+# Secrets and environment
 .env
 backend/.env
 backend/secrets/
 token.json
+
+# Project specific data and artifacts
+backend/chrome_profile_*/
+backend/debug_*.png
+backend/debug_*.html
+backend/job_state.json
+backend/*.csv
