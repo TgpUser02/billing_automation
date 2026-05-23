@@ -7,7 +7,7 @@ services:
       dockerfile: Dockerfile
     container_name: billing_automation
     ports:
-      - "80:5000"
+      - "5000:5000"
     env_file:
       - .env
     environment:

@@ -27,7 +27,15 @@ class LoginAutomation:
 
         try:
             self.playwright = await async_playwright().start()
-            self.browser = await self.playwright.chromium.launch(headless=True)
+            self.browser = await self.playwright.chromium.launch(
+                headless=True,
+                args=[
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--disable-gpu-sandbox"
+                ]
+            )
             self.context = await self.browser.new_context(viewport={"width": 1400, "height": 900})
             self.page = await self.context.new_page()
             self.page.on("dialog", self._handle_dialog)
