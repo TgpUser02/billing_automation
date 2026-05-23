@@ -233,6 +233,11 @@ export const api = {
         });
         return checkResponse(response);
     },
+
+    fetchRemoteView: async () => {
+        const response = await authFetch(`${API_BASE_URL}/remote-view`);
+        return checkResponse(response);
+    },
     
     resetSystem: async () => {
         const response = await authFetch(`${API_BASE_URL}/reset`, {

@@ -10,7 +10,7 @@ import requests
 logger = logging.getLogger(__name__)
 
 # Scopes needed for Google Drive API
-SCOPES = ['https://www.googleapis.com/auth/drive.file', 'https://www.googleapis.com/auth/drive']
+SCOPES = ['https://www.googleapis.com/auth/drive']
 
 def get_drive_service():
     """Initializes and returns the Google Drive API service with automatic token management."""
@@ -24,6 +24,10 @@ def get_drive_service():
                 os.makedirs(os.path.dirname(token_path), exist_ok=True)
 
             creds = None
+            client_id = os.environ.get("GOOGLE_DRIVE_CLIENT_ID")
+            client_secret = os.environ.get("GOOGLE_DRIVE_CLIENT_SECRET")
+            refresh_token = os.environ.get("GOOGLE_DRIVE_REFRESH_TOKEN")
+
             # 1. Try loading from token.json
             if os.path.exists(token_path):
                 from google.oauth2.credentials import Credentials
@@ -32,10 +36,6 @@ def get_drive_service():
 
             # 2. If no valid credentials, try to bootstrap from .env variables
             if not creds or not creds.valid:
-                client_id = os.environ.get("GOOGLE_DRIVE_CLIENT_ID")
-                client_secret = os.environ.get("GOOGLE_DRIVE_CLIENT_SECRET")
-                refresh_token = os.environ.get("GOOGLE_DRIVE_REFRESH_TOKEN")
-
                 if creds and creds.expired and creds.refresh_token:
                     # Token expired, try refreshing it
                     try:
@@ -47,20 +47,46 @@ def get_drive_service():
                         creds = None # Force bootstrap from .env
 
                 if not creds:
-                    if not all([client_id, client_secret, refresh_token]):
-                        logger.error("Missing required OAuth credentials for Google Drive bootstrap.")
-                        return None
+                    if client_id and client_secret and refresh_token:
+                        from google.oauth2.credentials import Credentials
+                        creds = Credentials(
+                            token=None,
+                            refresh_token=refresh_token,
+                            token_uri="https://oauth2.googleapis.com/token",
+                            client_id=client_id,
+                            client_secret=client_secret,
+                            scopes=SCOPES
+                        )
+                        logger.info("Bootstrapped Google Drive credentials from environment variables")
+                    elif client_id and client_secret:
+                        # Interactive one-time bootstrap for local development.
+                        # This writes a token.json cache so later runs do not need a refresh token in .env.
+                        try:
+                            from google_auth_oauthlib.flow import InstalledAppFlow
 
-                    from google.oauth2.credentials import Credentials
-                    creds = Credentials(
-                        token=None,
-                        refresh_token=refresh_token,
-                        token_uri="https://oauth2.googleapis.com/token",
-                        client_id=client_id,
-                        client_secret=client_secret,
-                        scopes=SCOPES
-                    )
-                    logger.info("Bootstrapped Google Drive credentials from environment variables")
+                            flow = InstalledAppFlow.from_client_config(
+                                {
+                                    "installed": {
+                                        "client_id": client_id,
+                                        "client_secret": client_secret,
+                                        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                                        "token_uri": "https://oauth2.googleapis.com/token",
+                                        "redirect_uris": ["http://localhost:8080/"]
+                                    }
+                                },
+                                SCOPES
+                            )
+                            creds = flow.run_local_server(port=8080, access_type="offline", prompt="consent")
+                            logger.info("Bootstrapped Google Drive credentials interactively")
+                        except Exception as flow_err:
+                            logger.error(f"Interactive Google Drive bootstrap failed: {flow_err}")
+                            return None
+                    else:
+                        logger.error(
+                            "Missing required Google Drive OAuth credentials. Set GOOGLE_DRIVE_CLIENT_ID and GOOGLE_DRIVE_CLIENT_SECRET, "
+                            "and optionally GOOGLE_DRIVE_REFRESH_TOKEN for non-interactive runs."
+                        )
+                        return None
 
                 # Verify valid now
                 if not creds.valid:

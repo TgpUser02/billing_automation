@@ -7,7 +7,7 @@ import {
   ShieldCheck,
   CheckCircle2,
   AlertCircle,
-  RotateCcw
+  RotateCcw,
 } from "lucide-react";
 import { api } from "@/lib/api";
 
@@ -22,7 +22,7 @@ export function RemoteBrowser({
   isRunning,
   date,
   customId,
-  onReset
+  onReset,
 }: RemoteBrowserProps) {
   const [status, setStatus] = useState<
     | "IDLE"
@@ -32,12 +32,31 @@ export function RemoteBrowser({
     | "SUCCESS"
     | "ERROR"
   >("IDLE");
+
+  const resetLocalSession = () => {
+    setStatus("IDLE");
+    setCaptchaImage("");
+    setCaptchaInput("");
+    setOtpInput("");
+    setOtpEmail("");
+    setOtpMobile("");
+    setErrorMessage("");
+    setUsername("");
+    setPassword("");
+    setShowPass(false);
+    setRemoteViewImage("");
+    setRemoteViewMeta({});
+    setIsFetchingRemoteView(false);
+  };
   const [captchaImage, setCaptchaImage] = useState<string>("");
   const [captchaInput, setCaptchaInput] = useState<string>("");
   const [otpInput, setOtpInput] = useState<string>("");
   const [otpEmail, setOtpEmail] = useState<string>("");
   const [otpMobile, setOtpMobile] = useState<string>("");
   const [errorMessage, setErrorMessage] = useState<string>("");
+  const [remoteViewImage, setRemoteViewImage] = useState<string>("");
+  const [remoteViewMeta, setRemoteViewMeta] = useState<{ title?: string; url?: string }>({});
+  const [isFetchingRemoteView, setIsFetchingRemoteView] = useState(false);
 
   const [username, setUsername] = useState<string>("");
   const [password, setPassword] = useState<string>("");
@@ -54,6 +73,12 @@ export function RemoteBrowser({
     }
   }, [isRunning, date, customId, status]);
 
+  useEffect(() => {
+    if (!isRunning) {
+      resetLocalSession();
+    }
+  }, [isRunning]);
+
   const startLogin = async (user: string, pass: string) => {
     setStatus("STARTING");
     setErrorMessage("");
@@ -68,13 +93,19 @@ export function RemoteBrowser({
         customId || undefined,
       );
       handleResponse(res);
-    } catch (err: any) {
+    } catch (err: unknown) {
       setStatus("ERROR");
-      setErrorMessage(err.message || "Failed to start login");
+      setErrorMessage(err instanceof Error ? err.message : "Failed to start login");
     }
   };
 
-  const handleResponse = (res: any) => {
+  const handleResponse = (res: {
+    status: string;
+    captchaImage?: string;
+    otpEmail?: string;
+    otpMobile?: string;
+    message?: string;
+  }) => {
     if (res.status === "CAPTCHA_REQUIRED") {
       setStatus("CAPTCHA_REQUIRED");
       setCaptchaImage(res.captchaImage);
@@ -99,9 +130,9 @@ export function RemoteBrowser({
     try {
       const res = await api.submitCaptcha(captchaInput);
       handleResponse(res);
-    } catch (err: any) {
+    } catch (err: unknown) {
       setStatus("ERROR");
-      setErrorMessage(err.message || "Failed to submit captcha");
+      setErrorMessage(err instanceof Error ? err.message : "Failed to submit captcha");
     }
   };
 
@@ -112,9 +143,89 @@ export function RemoteBrowser({
     try {
       const res = await api.submitOtp(otpInput);
       handleResponse(res);
-    } catch (err: any) {
+    } catch (err: unknown) {
       setStatus("ERROR");
-      setErrorMessage(err.message || "Failed to submit OTP");
+      setErrorMessage(err instanceof Error ? err.message : "Failed to submit OTP");
+    }
+  };
+
+  const fetchRemoteView = async () => {
+    setIsFetchingRemoteView(true);
+    setErrorMessage("");
+    try {
+      const res = await api.fetchRemoteView();
+      if (res.status === "success" && res.image) {
+        setRemoteViewImage(res.image);
+        setRemoteViewMeta({ title: res.title, url: res.url });
+
+        const viewer = window.open("about:blank", "_blank", "width=1280,height=900");
+        if (viewer) {
+          const title = res.title || "Remote View";
+          const urlLabel = res.url || "/api/remote-view";
+          viewer.document.write(`
+            <!doctype html>
+            <html lang="en">
+              <head>
+                <meta charset="utf-8" />
+                <meta name="viewport" content="width=device-width, initial-scale=1" />
+                <title>${title.replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</title>
+                <style>
+                  body {
+                    margin: 0;
+                    font-family: Arial, sans-serif;
+                    background: #0f172a;
+                    color: #e2e8f0;
+                    display: grid;
+                    place-items: center;
+                    min-height: 100vh;
+                    padding: 24px;
+                    box-sizing: border-box;
+                  }
+                  .wrap {
+                    width: min(100%, 1240px);
+                  }
+                  .meta {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 6px;
+                    margin-bottom: 16px;
+                    font-size: 12px;
+                  }
+                  .meta strong { font-size: 14px; }
+                  img {
+                    width: 100%;
+                    height: auto;
+                    border-radius: 16px;
+                    background: #fff;
+                    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+                  }
+                </style>
+              </head>
+              <body>
+                <div class="wrap">
+                  <div class="meta">
+                    <strong>${title.replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</strong>
+                    <span>${urlLabel.replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</span>
+                  </div>
+                  <img src="${res.image}" alt="Remote browser view" />
+                </div>
+              </body>
+            </html>
+          `);
+          viewer.document.close();
+          viewer.focus();
+        }
+
+        if (!viewer) {
+          window.location.href = res.image;
+        }
+      } else {
+        setErrorMessage(res.message || "Failed to fetch remote view");
+      }
+    } catch (err: unknown) {
+      setErrorMessage(err instanceof Error ? err.message : "Failed to fetch remote view");
+    } finally {
+      setIsFetchingRemoteView(false);
     }
   };
 
@@ -133,6 +244,21 @@ export function RemoteBrowser({
             Secure Login
           </h3>
         </div>
+
+        <Button
+          type="button"
+          onClick={fetchRemoteView}
+          disabled={isFetchingRemoteView}
+          variant="outline"
+          className="w-full h-11 rounded-xl border-slate-200 bg-white/80 text-slate-700 font-black text-[10px] uppercase tracking-widest shadow-sm hover:bg-slate-50"
+        >
+          {isFetchingRemoteView ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <RotateCcw className="mr-2 h-4 w-4" />
+          )}
+          View Remote View
+        </Button>
 
         {/* Credentials Step (IDLE) */}
         {status === "IDLE" && (
@@ -256,27 +382,34 @@ export function RemoteBrowser({
             <div className="bg-orange-50 text-orange-800 p-4 rounded-xl border border-orange-200 flex flex-col gap-2">
               <div className="flex items-center gap-2 font-bold mb-1">
                 <Key className="w-4 h-4 shrink-0 text-orange-600" />
-                <p className="text-[10px] text-orange-700">OTP has been successfully sent to following contact details:</p>
+                <p className="text-[10px] text-orange-700">
+                  OTP has been successfully sent to following contact details:
+                </p>
               </div>
-              
+
               {otpEmail && (
-                <p className="text-[11px] font-bold text-red-600 truncate">{otpEmail}</p>
+                <p className="text-[11px] font-bold text-red-600 truncate">
+                  {otpEmail}
+                </p>
               )}
               {otpMobile && (
-                <p className="text-[11px] font-bold text-red-600 truncate">{otpMobile}</p>
+                <p className="text-[11px] font-bold text-red-600 truncate">
+                  {otpMobile}
+                </p>
               )}
-              
-              {(!otpEmail && !otpMobile) && (
-                <p className="text-[11px] font-bold text-red-600">Registered mobile/email.</p>
+
+              {!otpEmail && !otpMobile && (
+                <p className="text-[11px] font-bold text-red-600">
+                  Registered mobile/email.
+                </p>
               )}
-            </div>  
+            </div>
             <div className="w-full flex justify-center">
-              
- <small className="text-[8px] text-center text-slate-500 w-full uppercase tracking-widest ">
+              <small className="text-[8px] text-center text-slate-500 w-full uppercase tracking-widest ">
                 OTP will be of 7 digits
               </small>
             </div>
-           
+
             <div className="space-y-1">
               <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
                 Enter OTP
@@ -314,6 +447,31 @@ export function RemoteBrowser({
             <p className="text-xs font-medium text-slate-500 text-center">
               You can now proceed with your tasks.
             </p>
+          </div>
+        )}
+
+        {remoteViewImage && (
+          <div className="w-full space-y-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+            <div className="flex flex-col gap-1">
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                Current Remote View
+              </p>
+              {remoteViewMeta.title && (
+                <p className="text-xs font-bold text-slate-700 truncate">
+                  {remoteViewMeta.title}
+                </p>
+              )}
+              {remoteViewMeta.url && (
+                <p className="text-[10px] text-slate-400 font-mono truncate">
+                  {remoteViewMeta.url}
+                </p>
+              )}
+            </div>
+            <img
+              src={remoteViewImage}
+              alt="Current remote browser view"
+              className="w-full rounded-xl border border-slate-200 object-contain bg-slate-50"
+            />
           </div>
         )}
       </div>

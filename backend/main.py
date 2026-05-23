@@ -4,6 +4,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Optional
+import base64
 import logging
 from logging.handlers import RotatingFileHandler
 import os
@@ -43,7 +44,26 @@ file_handler.setFormatter(logging.Formatter(
 ))
 logging.getLogger().addHandler(file_handler)
 
+
+class EndpointNoiseFilter(logging.Filter):
+    def filter(self, record):
+        message = record.getMessage()
+        return not (
+            "/api/process-status" in message
+            or "/api/download-status" in message
+        )
+
+
+logging.getLogger("uvicorn.access").addFilter(EndpointNoiseFilter())
+
 app = FastAPI(title="BillBot API")
+
+def get_arin_storage_root():
+    return os.environ.get("ARIN_STORAGE_PATH", "/var/arin")
+
+
+def get_arin_storage_path(date_str: str):
+    return os.path.join(get_arin_storage_root(), date_str)
 
 BASE_DIR = os.path.dirname(__file__)
 PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
@@ -197,8 +217,7 @@ def download_wrapper(worker_func, *args, **kwargs):
                         date_str = date_str.split("T")[0]
                 except: pass
                 
-                desktop_path = os.path.join(os.environ.get('USERPROFILE', os.path.expanduser("~")), 'Desktop')
-                storage_path = os.path.join(desktop_path, 'arin', date_str)
+                storage_path = get_arin_storage_path(date_str)
                 
                 if os.path.exists(storage_path):
                     logger.info(f"--- Triggering Batch Upload for: {storage_path} ---")
@@ -249,7 +268,7 @@ class ReportRequest(BaseModel):
 async def save_reports(request: ReportRequest, user=Depends(get_current_user)):
     """Saves batch reports (CSV, XLSX, PDF) to local desktop and uploads to Google Drive."""
     try:
-        desktop_path = os.path.join(os.environ.get('USERPROFILE', os.path.expanduser("~")), 'Desktop')
+        desktop_path = get_arin_storage_root()
         
         # 1. Standardize and Format Date for Folder Name
         date_folder_name = request.dateStr
@@ -261,7 +280,7 @@ async def save_reports(request: ReportRequest, user=Depends(get_current_user)):
         except: pass
 
         # Centralized local path: arin/Report/[Date]/
-        target_dir = os.path.join(desktop_path, 'arin', 'Report', formatted_date)
+        target_dir = os.path.join(desktop_path, 'Report', formatted_date)
         os.makedirs(target_dir, exist_ok=True)
         
         file_path = os.path.join(target_dir, request.filename)
@@ -646,6 +665,7 @@ def launch_automation(request: LaunchRequest, user=Depends(get_current_user)):
 def fetch_consumers(user=Depends(get_current_user)):
     """Scrapes the consumer list from the primary browser session."""
     success, data = primary_automation.get_consumer_list()
+    print(f"Fetched consumers: {data}")
     if not success:
         raise HTTPException(status_code=500, detail=data)
     return data
@@ -743,16 +763,26 @@ active_login_custom_id = None
 
 def handoff_to_selenium(res):
     if res.get("status") == "SUCCESS" and "session" in res:
-        # Launch the old selenium headless to do the actual scraping
+        # Launch the old selenium headless to do the actual scraping.
         success, msg = primary_automation.launch_browser(active_login_date)
-        if success:
-            sel_cookies = []
-            for c in res["session"]:
-                sc = {"name": c["name"], "value": c["value"], "domain": c["domain"], "path": c["path"]}
-                sel_cookies.append(sc)
-            primary_automation.set_cookies(sel_cookies)
-            # Store customId if needed
-            primary_automation.custom_id = active_login_custom_id
+        if not success:
+            logger.error(f"Selenium handoff failed after login: {msg}")
+            return {"status": "ERROR", "message": f"Login succeeded, but browser handoff failed: {msg}"}
+
+        sel_cookies = []
+        for c in res["session"]:
+            sc = {"name": c["name"], "value": c["value"], "domain": c["domain"], "path": c["path"]}
+            sel_cookies.append(sc)
+
+        if not primary_automation.set_cookies(sel_cookies):
+            logger.error("Selenium handoff failed while restoring cookies after login")
+            primary_automation.close()
+            return {"status": "ERROR", "message": "Login succeeded, but browser session could not be restored."}
+
+        # Store customId if needed
+        primary_automation.custom_id = active_login_custom_id
+
+    return res
 
 @app.post("/api/start-login")
 async def api_start_login(req: LoginStartReq, user=Depends(get_current_user)):
@@ -760,19 +790,25 @@ async def api_start_login(req: LoginStartReq, user=Depends(get_current_user)):
     active_login_date = req.dateStr
     active_login_custom_id = req.customId
     res = await login_automator.start_login(req.username, req.password)
-    handoff_to_selenium(res)
+    handoff_res = handoff_to_selenium(res)
+    if handoff_res is not res and handoff_res.get("status") == "ERROR":
+        return handoff_res
     return res
 
 @app.post("/api/submit-captcha")
 async def api_submit_captcha(req: CaptchaSubmitReq, user=Depends(get_current_user)):
     res = await login_automator.submit_captcha(req.captcha)
-    handoff_to_selenium(res)
+    handoff_res = handoff_to_selenium(res)
+    if handoff_res is not res and handoff_res.get("status") == "ERROR":
+        return handoff_res
     return res
 
 @app.post("/api/submit-otp")
 async def api_submit_otp(req: OtpSubmitReq, user=Depends(get_current_user)):
     res = await login_automator.submit_otp(req.otp)
-    handoff_to_selenium(res)
+    handoff_res = handoff_to_selenium(res)
+    if handoff_res is not res and handoff_res.get("status") == "ERROR":
+        return handoff_res
     return res
 
 @app.post("/api/reset")
@@ -840,8 +876,7 @@ def process_data(background_tasks: BackgroundTasks, user=Depends(get_current_use
     except:
         pass
         
-    desktop_path = os.path.join(os.environ.get('USERPROFILE', os.path.expanduser("~")), 'Desktop')
-    storage_path = os.path.join(desktop_path, 'arin', date_str)
+    storage_path = get_arin_storage_path(date_str)
     
     background_tasks.add_task(process_data_task, storage_path)
     return {"status": "success", "message": "Processing started in background"}
@@ -870,8 +905,7 @@ def get_consumers_for_date(date_str: str, user=Depends(get_current_user)):
         if "T" in date_str:
             date_str = date_str.split("T")[0]
             
-        desktop_path = os.path.join(os.environ.get('USERPROFILE', os.path.expanduser("~")), 'Desktop')
-        target_dir = os.path.join(desktop_path, 'arin', date_str)
+        target_dir = get_arin_storage_path(date_str)
         
         consumers = []
         if os.path.exists(target_dir):
@@ -907,87 +941,105 @@ def get_consumers_for_date(date_str: str, user=Depends(get_current_user)):
         logger.error(f"Failed to get consumers for date {date_str}: {e}")
         return {"status": "error", "consumers": []}
 
-@app.get("/api/download-status")
-def get_download_status(user=Depends(get_current_user)):
-    """Returns current download status."""
+def _build_download_status():
     date_str = primary_automation.process_date if primary_automation.process_date else "unknown_date"
-    
-    # Standardize date to YYYY-MM-DD to match automation.py folder structure
+
+    # Standardize date to YYYY-MM-DD to match automation.py folder structure.
     try:
         from datetime import datetime, timedelta
         if "T" in date_str:
-            # ISO format from frontend (e.g. 2026-02-16T00:00:00.000Z)
             dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
-            dt = dt + timedelta(hours=5, minutes=30) # Adjust for IST
+            dt = dt + timedelta(hours=5, minutes=30)
             date_str = dt.strftime("%Y-%m-%d")
         else:
-            # Fallback for plain dates
             dt = datetime.strptime(date_str, "%Y-%m-%d")
             date_str = dt.strftime("%Y-%m-%d")
-    except:
-        pass # Keep as is if parsing fails (fallback)
-        
-    desktop_path = os.path.join(os.environ.get('USERPROFILE', os.path.expanduser("~")), 'Desktop')
-    storage_path = os.path.join(desktop_path, 'arin', date_str)
-    
-    # Get total count
+    except Exception:
+        pass
+
+    storage_path = get_arin_storage_path(date_str)
     total_bills = global_total_bills
-    
-    # If starting up or lost state, try to estimate total
-    if total_bills == 0 and primary_automation.driver:
-        try:
-            from selenium.webdriver.common.by import By
-            # This is slow, so only do it if absolutely necessary
-            # buttons = primary_automation.driver.find_elements(By.XPATH, "//img[@title='View Bill']")
-            # total_bills = len(buttons)
-            pass
-        except:
-            pass
-            
     completed = 0
     filenames = []
     success_list = []
-    
-    # PDFs are deleted from local storage after Drive upload, so we count using extracted_cache.json
+
+    # PDFs can be deleted from local storage after Drive upload, so count cache first.
     cache_path = os.path.join(storage_path, "extracted_cache.json")
     if os.path.exists(cache_path):
         import json
         try:
-            with open(cache_path, "r") as f:
+            with open(cache_path, "r", encoding="utf-8") as f:
                 cache_data = json.load(f)
-            completed = len(cache_data)
             success_list = [str(c.get("consumer_number", "Unknown")) for c in cache_data]
-            filenames = [f"{str(c.get('consumer_number'))}.pdf" for c in cache_data]
-        except:
-            pass
-            
-    files = []
-    if os.path.exists(storage_path):
-        import glob
-        files = glob.glob(os.path.join(storage_path, "*.pdf"))
-        if files:
-            pdf_names = [os.path.basename(f) for f in files]
-            filenames.extend(pdf_names)
-            # Roughly extract cnum from filename for success_list fallback
-            for fn in pdf_names:
-                import re
-                m = re.search(r'(\d{10,12})', fn)
-                if m and m.group(1) not in success_list:
-                    success_list.append(m.group(1))
+            filenames = [f"{consumer}.pdf" for consumer in success_list]
             completed = len(set(success_list))
-    
+        except Exception as e:
+            logger.warning(f"Could not read download cache at {cache_path}: {e}")
+
+    if os.path.exists(storage_path):
+        import re
+        pdf_files = glob.glob(os.path.join(storage_path, "*.pdf"))
+        for file_path in pdf_files:
+            filename = os.path.basename(file_path)
+            if filename not in filenames:
+                filenames.append(filename)
+            match = re.search(r"(\d{10,12})", filename)
+            if match and match.group(1) not in success_list:
+                success_list.append(match.group(1))
+        completed = len(set(success_list))
+
     failed = 0
     if not download_in_progress and total_bills > 0:
         failed = max(0, total_bills - completed)
-    
+
     return {
         "completed": completed,
-        "total": total_bills if total_bills > 0 else completed, # fallback to completed if total unknown
+        "total": total_bills if total_bills > 0 else completed,
         "failed": failed,
         "in_progress": download_in_progress,
         "filenames": filenames,
-        "success_list": success_list
+        "success_list": success_list,
     }
+
+
+@app.get("/api/download-status")
+async def get_download_status(user=Depends(get_current_user)):
+    """Returns current download status without waiting behind download workers."""
+    return await asyncio.to_thread(_build_download_status)
+
+
+@app.get("/api/remote-view")
+async def get_remote_view(user=Depends(get_current_user)):
+    """Returns a screenshot of the currently active browser session."""
+    try:
+        if login_automator.page:
+            screenshot = await login_automator.page.screenshot(full_page=False)
+            image_b64 = base64.b64encode(screenshot).decode("utf-8")
+            page_title = await login_automator.page.title()
+            return {
+                "status": "success",
+                "image": f"data:image/png;base64,{image_b64}",
+                "title": page_title,
+                "url": login_automator.page.url,
+                "mode": "playwright",
+            }
+
+        driver = primary_automation.driver
+        if driver:
+            screenshot = await asyncio.to_thread(driver.get_screenshot_as_png)
+            image_b64 = base64.b64encode(screenshot).decode("utf-8")
+            return {
+                "status": "success",
+                "image": f"data:image/png;base64,{image_b64}",
+                "title": driver.title,
+                "url": driver.current_url,
+                "mode": "selenium",
+            }
+
+        return {"status": "error", "message": "No active browser session is available."}
+    except Exception as e:
+        logger.error(f"Failed to capture remote view screenshot: {e}")
+        return {"status": "error", "message": str(e)}
 
 @app.post("/api/drive/upload-zero-gen")
 def upload_zero_gen_report(user=Depends(get_current_user)):
@@ -1010,5 +1062,3 @@ def spa_fallback(full_path: str):
     if os.path.isfile(FRONTEND_INDEX_FILE):
         return FileResponse(FRONTEND_INDEX_FILE)
     raise HTTPException(status_code=404, detail="Not Found")
-
-

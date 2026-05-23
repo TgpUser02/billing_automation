@@ -14,6 +14,7 @@ class LoginAutomation:
         self.login_url = "https://wss.mahadiscom.in/wss/wss?uiActionName=getCustAccountLogin"
         self.status = "IDLE"
         self.last_alert_msg = None
+        self._operation_lock = asyncio.Lock()
 
     async def _handle_dialog(self, dialog):
         logger.warning(f"Browser Alert: {dialog.message}")
@@ -21,12 +22,18 @@ class LoginAutomation:
         await dialog.dismiss()
 
     async def init_browser(self):
-        if self.playwright is None:
+        if self.playwright is not None:
+            return
+
+        try:
             self.playwright = await async_playwright().start()
             self.browser = await self.playwright.chromium.launch(headless=True)
             self.context = await self.browser.new_context(viewport={"width": 1400, "height": 900})
             self.page = await self.context.new_page()
             self.page.on("dialog", self._handle_dialog)
+        except Exception:
+            await self.close_browser()
+            raise
 
     async def close_browser(self):
         try:
@@ -150,14 +157,52 @@ class LoginAutomation:
                         "otpMobile": mob_msg
                     }
 
+            # If the portal keeps the base shell URL, inspect the DOM before treating it as an error.
+            try:
+                await self.page.wait_for_load_state("networkidle", timeout=5000)
+            except:
+                pass
+
+            dashboard_ready = False
+            try:
+                grd_cust_list = await self.page.query_selector("#grdCustList")
+                if grd_cust_list and await grd_cust_list.is_visible():
+                    dashboard_ready = True
+            except:
+                pass
+
+            if not dashboard_ready:
+                try:
+                    view_bill_btn = await self.page.query_selector("img[title='View Bill']")
+                    if view_bill_btn and await view_bill_btn.is_visible():
+                        dashboard_ready = True
+                except:
+                    pass
+
             # Check if login was successful (we reach dashboard)
             # Dashboard URL is typically getMyAccount
             url = self.page.url
-            if "getMyAccount" in url or "Home" in url:
+            if dashboard_ready or "getMyAccount" in url or "Home" in url:
                 self.status = "SUCCESS"
                 cookies = await self.context.cookies()
                 # We can store cookies to use for requests or return them
                 return {"status": "SUCCESS", "session": cookies}
+
+            if url.rstrip("/").endswith("/wss/wss"):
+                login_visible = False
+                try:
+                    login_id = await self.page.query_selector("#loginId")
+                    password_el = await self.page.query_selector("#password")
+                    login_visible = bool((login_id and await login_id.is_visible()) or (password_el and await password_el.is_visible()))
+                except:
+                    pass
+
+                if not login_visible:
+                    self.status = "SUCCESS"
+                    cookies = await self.context.cookies()
+                    return {"status": "SUCCESS", "session": cookies}
+
+                return {"status": "ERROR", "message": "Portal stayed on the base page with the login form still visible."}
                 
             # If we are still on the login page but no OTP, maybe wrong credentials?
             if "getCustAccountLogin" in url:

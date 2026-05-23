@@ -448,14 +448,56 @@ class BillAutomation:
             # Must be on the domain to set cookies
             self.driver.get("https://wss.mahadiscom.in/wss/wss")
             time.sleep(1)
+            self.driver.delete_all_cookies()
+            time.sleep(0.5)
+
+            def _normalize_cookie(cookie):
+                normalized = {}
+                for key in ("name", "value", "path", "domain", "secure", "httpOnly"):
+                    if key in cookie and cookie[key] is not None:
+                        normalized[key] = cookie[key]
+                if cookie.get("expires") is not None:
+                    try:
+                        normalized["expiry"] = int(cookie["expires"])
+                    except (TypeError, ValueError):
+                        pass
+                if cookie.get("sameSite"):
+                    normalized["sameSite"] = cookie["sameSite"]
+                return normalized
+
             for cookie in cookies:
                 try:
-                    self.driver.add_cookie(cookie)
+                    self.driver.add_cookie(_normalize_cookie(cookie))
                 except Exception as e:
                     logger.warning(f"Failed to add cookie: {e}")
             
             # Navigate to the dashboard after setting cookies
             self.driver.get("https://wss.mahadiscom.in/wss/wss?uiActionName=getMyAccount")
+            wait = WebDriverWait(self.driver, 20)
+            try:
+                wait.until(
+                    EC.any_of(
+                        EC.presence_of_element_located((By.ID, "grdCustList")),
+                        EC.presence_of_element_located((By.XPATH, "//img[@title='View Bill']")),
+                    )
+                )
+            except Exception:
+                login_visible = False
+                try:
+                    login_id = self.driver.find_elements(By.ID, "loginId")
+                    password_el = self.driver.find_elements(By.ID, "password")
+                    login_visible = bool(login_id or password_el)
+                except Exception:
+                    pass
+
+                current_url = (self.driver.current_url or "").lower()
+                if ("getmyaccount" in current_url or current_url.rstrip("/").endswith("/wss/wss")) and not login_visible:
+                    logger.warning("Dashboard widgets did not load, but the authenticated portal shell is present after cookie restoration.")
+                    return True
+
+                logger.warning("Dashboard did not fully load after cookie restoration.")
+                return False
+
             return True
         except Exception as e:
             logger.error(f"Error setting cookies: {e}")
@@ -672,28 +714,63 @@ class BillAutomation:
         
         try:
             consumers = []
-            wait = WebDriverWait(self.driver, 10)
-            
-            # Ensure we are on the dashboard
+            dashboard_url = "https://wss.mahadiscom.in/wss/wss?uiActionName=getMyAccount"
+
+            # Reconfirm the browser session is still responsive before scraping.
             try:
-                wait.until(EC.presence_of_element_located((By.ID, "grdCustList")))
-            except:
-                self.driver.get("https://wss.mahadiscom.in/wss/wss?uiActionName=getMyAccount")
-                wait.until(EC.presence_of_element_located((By.ID, "grdCustList")))
+                _ = self.driver.current_url
+                _ = self.driver.window_handles
+            except Exception as session_err:
+                logger.error(f"Browser session is not responsive: {session_err}")
+                return False, "Browser session is not responsive. Please reconnect and try again."
+            
+            # Ensure we are on the dashboard.
+            # Poll both the grid and the bill buttons because the portal can render either first.
+            dashboard_ready = False
+            last_error = None
+            for attempt in range(12):
+                try:
+                    current_rows = self.driver.find_elements(By.XPATH, "//table[@id='grdCustList']//tr[position()>1]")
+                    current_buttons = self.driver.find_elements(By.XPATH, "//img[@title='View Bill']")
+
+                    if current_rows or current_buttons:
+                        dashboard_ready = True
+                        break
+
+                    current_url = (self.driver.current_url or "").lower()
+                    if "getcustaccountlogin" in current_url:
+                        logger.error("Consumer scrape reached the login page instead of the dashboard.")
+                        return False, "Login session is no longer active. Please reconnect and try again."
+
+                    if attempt == 0:
+                        self.driver.get(dashboard_url)
+
+                    time.sleep(2)
+                except Exception as poll_err:
+                    last_error = poll_err
+                    time.sleep(2)
+
+            if not dashboard_ready:
+                logger.error(f"Dashboard was not ready for consumer scrape: {last_error}")
+                return False, "Dashboard not ready yet. Please wait a few seconds and try again."
 
             # Find the table and rows
             # The Mahadiscom grid usually has a specific structure
             rows = self.driver.find_elements(By.XPATH, "//table[@id='grdCustList']//tr[position()>1]")
+            if not rows:
+                # Fallback to a more generic table scan when the grid ID is unstable.
+                rows = self.driver.find_elements(By.XPATH, "//table//tr[td]")[1:]
             
             logger.info(f"Found {len(rows)} potential rows in the consumer grid.")
             
             for idx, row in enumerate(rows):
                 try:
                     cells = row.find_elements(By.TAG_NAME, "td")
-                    if len(cells) < 6:
+                    if len(cells) < 10:
                         continue
                         
-                    # Usually: 0:Select, 1:ConsumerNo, 2:BU, 3:ConsumerName, 4:ConsumerType, 5:BillMonth
+                    # Grid layout: 0:Select, 1:ConsumerNo, 2:Billing Unit, 3:Division Code, 4:HT/LT,
+                    # 5:Bill Month, 6:Units, 7:Balance, 8:Due Date, 9:View Bill, 14:View Photo
                     raw_cnum = cells[1].text.strip()
                     
                     # Support Marathi numbers (Issue #15)
@@ -703,8 +780,14 @@ class BillAutomation:
                     c_num = "".join([c for c in raw_cnum if c.isdigit()])
                     
                     c_bu = cells[2].text.strip()
-                    c_name = cells[3].text.strip()
+                    c_division = cells[3].text.strip()
+                    c_type = cells[4].text.strip()
                     c_month = cells[5].text.strip()
+                    c_units = cells[6].text.strip()
+                    c_balance = cells[7].text.strip()
+                    c_due_date = cells[8].text.strip()
+                    has_bill = bool(row.find_elements(By.XPATH, ".//img[@title='View Bill']"))
+                    has_photo = bool(row.find_elements(By.XPATH, ".//img[@title='View Meter Photo']"))
                     
                     if not c_num: continue
                     
@@ -716,9 +799,16 @@ class BillAutomation:
                     consumers.append({
                         "index": idx,
                         "consumerNumber": c_num,
-                        "name": c_name,
+                        "name": c_division or c_type or c_bu,
                         "bu": c_bu,
-                        "month": c_month
+                        "divisionCode": c_division,
+                        "htlt": c_type,
+                        "month": c_month,
+                        "units": c_units,
+                        "balance": c_balance,
+                        "dueDate": c_due_date,
+                        "hasBill": has_bill,
+                        "hasPhoto": has_photo,
                     })
                 except Exception as row_err:
                     logger.warning(f"Error parsing row {idx}: {row_err}")
@@ -798,46 +888,168 @@ class BillAutomation:
             
             import glob, time
             from processing import extract_data_from_pdf
+            dashboard_url = "https://wss.mahadiscom.in/wss/wss?uiActionName=getMyAccount"
+
+            existing_consumers = set()
+            cache_path = os.path.join(target_dir, "extracted_cache.json")
+            if os.path.exists(cache_path):
+                try:
+                    import json
+                    with open(cache_path, "r") as cache_file:
+                        cache_data = json.load(cache_file)
+                    for item in cache_data:
+                        c_num = str(item.get("consumer_number") or "").strip()
+                        if c_num:
+                            existing_consumers.add(c_num)
+                except Exception:
+                    pass
+
+            for existing_pdf in glob.glob(os.path.join(target_dir, "*.pdf")):
+                import re
+                existing_match = re.search(r"(\d{10,12})", os.path.basename(existing_pdf))
+                if existing_match:
+                    existing_consumers.add(existing_match.group(1))
+
+            def _ensure_dashboard_ready():
+                try:
+                    self.driver.get(dashboard_url)
+                except Exception:
+                    pass
+
+                wait = WebDriverWait(self.driver, 20)
+                try:
+                    wait.until(EC.any_of(
+                        EC.presence_of_element_located((By.XPATH, "//img[@title='View Bill']")),
+                        EC.presence_of_element_located((By.XPATH, "//table[@id='grdCustList']//tr[position()>1]")),
+                    ))
+                except Exception:
+                    pass
+
+            def _find_view_bill_button(c_num, c_name):
+                selectors = [
+                    f"//tr[td[2][normalize-space()='{c_num}']]//img[@title='View Bill']",
+                    f"//tr[td[2][normalize-space()='{c_num}'] and td[3][normalize-space()='{c_name}']]//img[@title='View Bill']",
+                    f"//tr[contains(normalize-space(.), '{c_num}')]//img[@title='View Bill']",
+                    "//img[@title='View Bill']",
+                ]
+
+                for _ in range(2):
+                    for selector in selectors:
+                        try:
+                            btn = self.driver.find_element(By.XPATH, selector)
+                            return btn
+                        except Exception:
+                            continue
+
+                    _ensure_dashboard_ready()
+
+                return None
+
+            def _save_current_tab_pdf(dest_path):
+                """Try to save the current tab URL as a PDF without relying on the browser viewer."""
+                try:
+                    import requests
+
+                    tab_url = self.driver.current_url
+                    session = requests.Session()
+
+                    for cookie in self.driver.get_cookies():
+                        session.cookies.set(
+                            cookie.get("name"),
+                            cookie.get("value"),
+                            domain=cookie.get("domain"),
+                            path=cookie.get("path", "/"),
+                        )
+
+                    user_agent = "Mozilla/5.0"
+                    try:
+                        user_agent = self.driver.execute_script("return navigator.userAgent") or user_agent
+                    except Exception:
+                        pass
+
+                    response = session.get(
+                        tab_url,
+                        headers={"User-Agent": user_agent, "Referer": tab_url},
+                        timeout=30,
+                        allow_redirects=True,
+                    )
+                    content_type = (response.headers.get("Content-Type") or "").lower()
+                    content_disposition = (response.headers.get("Content-Disposition") or "").lower()
+
+                    if "pdf" in content_type or "attachment" in content_disposition or response.content.startswith(b"%PDF"):
+                        with open(dest_path, "wb") as handle:
+                            handle.write(response.content)
+                        logger.info(f"[{self.port}] Saved PDF directly from URL for {dest_path}")
+                        return True
+
+                    logger.debug(f"[{self.port}] Direct fetch for {tab_url} returned {content_type}; falling back to in-page click.")
+                except Exception as fetch_err:
+                    logger.warning(f"[{self.port}] Direct PDF fetch failed for {dest_path}: {fetch_err}")
+
+                return False
             
             for i in range(0, real_count, BATCH_SIZE):
                 batch_indices = indices_to_process[i:i+BATCH_SIZE]
                 logger.info(f"[{self.port}] Batch: Triggering {len(batch_indices)} downloads...")
+
+                _ensure_dashboard_ready()
+                current_rows = self.driver.find_elements(By.XPATH, "//table[@id='grdCustList']//tr[position()>1]")
                 
-                # PRE-DOWNLOAD: Build mapping and clean up old duplicates!
                 batch_metadata = []
                 for idx in batch_indices:
                     try:
-                        btn = potential_buttons[idx]
-                        row = btn.find_element(By.XPATH, "./ancestor::tr")
-                        cells = row.find_elements(By.TAG_NAME, "td")
-                        
-                        if len(cells) >= 4:
-                            raw_cnum = cells[1].text.strip()
-                            # Support Marathi numbers (Issue #15)
-                            trans_table = str.maketrans("०१२३४५६७८९", "0123456789")
-                            raw_cnum = raw_cnum.translate(trans_table)
-                            c_num = "".join([c for c in raw_cnum if c.isdigit()])
-                            raw_name = cells[3].text
-                            c_name = "".join([c for c in raw_name if c.isalnum() or c in (' ', '_', '-')]).strip()
-                            
-                            target_filename = f"{c_num}_{c_name}.pdf"
-                            target_filepath = os.path.join(target_dir, target_filename)
-                            
-                            # 1. OVERWRITE LOGIC: Delete the target file if it already exists
-                            if os.path.exists(target_filepath):
-                                try:
-                                    os.remove(target_filepath)
-                                    logger.info(f"[{self.port}] Overwriting existing file: {target_filename}")
-                                except Exception as e:
-                                    logger.warning(f"Could not delete existing target {target_filename}: {e}")
-                            
-                            # 2. OVERWRITE LOGIC: Delete archaic or stale EB raw files for this consumer
-                            stale_files = [f for f in glob.glob(os.path.join(target_dir, "*.pdf")) if c_num in os.path.basename(f) and "_" not in os.path.basename(f)]
-                            for stale in stale_files:
-                                try: os.remove(stale)
-                                except: pass
-                                    
-                            batch_metadata.append({"index": idx, "c_num": c_num, "c_name": c_name, "target": target_filename})
+                        row_meta = None
+                        if idx < len(current_rows):
+                            try:
+                                row = current_rows[idx]
+                                cells = row.find_elements(By.TAG_NAME, "td")
+                                if len(cells) >= 4:
+                                    raw_cnum = cells[1].text.strip()
+                                    trans_table = str.maketrans("०१२३४५६७८९", "0123456789")
+                                    raw_cnum = raw_cnum.translate(trans_table)
+                                    c_num = "".join([c for c in raw_cnum if c.isdigit()])
+                                    raw_name = cells[3].text
+                                    c_name = "".join([c for c in raw_name if c.isalnum() or c in (' ', '_', '-')]).strip()
+                                    row_meta = {"c_num": c_num, "c_name": c_name}
+                            except Exception:
+                                row_meta = None
+
+                        if not row_meta:
+                            logger.warning(f"[{self.port}] No live row found for index {idx}; skipping.")
+                            continue
+
+                        c_num = row_meta["c_num"]
+                        c_name = row_meta["c_name"]
+
+                        if c_num in existing_consumers:
+                            logger.info(f"[{self.port}] Skipping already downloaded/processed consumer {c_num}.")
+                            continue
+
+                        target_filename = f"{c_num}_{c_name}.pdf"
+                        target_filepath = os.path.join(target_dir, target_filename)
+
+                        # 1. OVERWRITE LOGIC: Delete the target file if it already exists
+                        if os.path.exists(target_filepath):
+                            try:
+                                os.remove(target_filepath)
+                                logger.info(f"[{self.port}] Overwriting existing file: {target_filename}")
+                            except Exception as e:
+                                logger.warning(f"Could not delete existing target {target_filename}: {e}")
+
+                        # 2. OVERWRITE LOGIC: Delete archaic or stale EB raw files for this consumer
+                        stale_files = [f for f in glob.glob(os.path.join(target_dir, "*.pdf")) if c_num in os.path.basename(f) and "_" not in os.path.basename(f)]
+                        for stale in stale_files:
+                            try:
+                                os.remove(stale)
+                            except:
+                                pass
+
+                        batch_metadata.append({
+                            "index": idx,
+                            "c_num": c_num,
+                            "c_name": c_name,
+                            "target": target_filename,
+                        })
                     except Exception as map_err:
                         logger.warning(f"[{self.port}] Failed to map metadata for index {idx}: {map_err}")
                 
@@ -851,12 +1063,15 @@ class BillAutomation:
                     target_filepath = os.path.join(target_dir, target_filename)
                     
                     try:
+                        _ensure_dashboard_ready()
                         main_window = self.driver.current_window_handle
                         before_handles = set(self.driver.window_handles)
                         before_pdfs = set(glob.glob(os.path.join(target_dir, "*.pdf")))
                         
                         # Step 1: Click View Bill button
-                        btn = self.driver.find_elements(By.XPATH, "//img[@title='View Bill']")[idx]
+                        btn = _find_view_bill_button(c_num, c_name)
+                        if btn is None:
+                            raise Exception(f"View Bill button not found for consumer {c_num}")
                         self.driver.execute_script("arguments[0].scrollIntoView(true);", btn)
                         time.sleep(0.3)
                         self.driver.execute_script("arguments[0].click();", btn)
@@ -886,35 +1101,41 @@ class BillAutomation:
                             new_tab = list(new_tab_handles)[0]
                             self.driver.switch_to.window(new_tab)
                             logger.info(f"[{self.port}] Switched to bill tab for {c_num}")
+
+                            # If the tab URL is already the bill/PDF, save it directly instead of relying on the viewer.
+                            direct_saved = _save_current_tab_pdf(target_filepath)
+                            if direct_saved:
+                                self.driver.close()
+                                self.driver.switch_to.window(main_window)
+                            else:
+                                # Wait for the tab content to be ready
+                                try:
+                                    WebDriverWait(self.driver, 5).until(lambda d: d.execute_script("return document.readyState") == "complete")
+                                except: pass
                             
-                            # Wait for the tab content to be ready
-                            try:
-                                WebDriverWait(self.driver, 5).until(lambda d: d.execute_script("return document.readyState") == "complete")
-                            except: pass
-                            
-                            # Optimized JS to find and click download button instantly
-                            self.driver.execute_script("""
-                                function clickDownload() {
-                                    const selectors = [
-                                        'button[id*="download"]', 'a[href*="download"]', 
-                                        'img[title*="Download"]', '.btn-download',
-                                        'input[value*="Download"]', 'button:contains("Download")'
-                                    ];
-                                    for (let s of selectors) {
-                                        let el = document.querySelector(s);
-                                        if (el) { el.click(); return true; }
-                                    }
-                                    // Deep search if not found
-                                    let all = document.querySelectorAll('*');
-                                    for (let el of all) {
-                                        if (el.innerText && el.innerText.toLowerCase().includes('download') && el.tagName !== 'BODY') {
-                                            el.click(); return true;
+                                # Optimized JS to find and click download button instantly
+                                self.driver.execute_script("""
+                                    function clickDownload() {
+                                        const selectors = [
+                                            'button[id*="download"]', 'a[href*="download"]', 
+                                            'img[title*="Download"]', '.btn-download',
+                                            'input[value*="Download"]'
+                                        ];
+                                        for (let s of selectors) {
+                                            let el = document.querySelector(s);
+                                            if (el) { el.click(); return true; }
                                         }
+                                        // Deep search if not found
+                                        let all = document.querySelectorAll('*');
+                                        for (let el of all) {
+                                            if (el.innerText && el.innerText.toLowerCase().includes('download') && el.tagName !== 'BODY') {
+                                                el.click(); return true;
+                                            }
+                                        }
+                                        return false;
                                     }
-                                    return false;
-                                }
-                                clickDownload();
-                            """)
+                                    clickDownload();
+                                """)
                             
                             # Wait for download to start (check for crdownload or new pdf)
                             download_started = False
@@ -1083,7 +1304,8 @@ class BillAutomation:
                         except Exception as e:
                             logger.error(f"[{self.port}] Failed to bulk rename {pdf_file}: {e}")
                 
-            return True, f"[{self.port}] Finished. Uploaded {downloaded}/{real_count} bills to Drive."
+            return True, f"[{self.port}] Finished. Downloaded and saved {downloaded}/{real_count} bills locally; Drive upload runs after completion."
+            
 
         except Exception as e:
             logger.error(f"[{self.port}] Error in download_bills: {e}")

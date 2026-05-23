@@ -511,6 +511,7 @@ def process_downloads(download_dir="downloads", progress_callback=None):
     # We use dictionaries to avoid duplicates and track results
     results_map = {} # consumer_num -> status ('success' or 'failed')
     all_extracted_data = []
+    conn = get_db_connection()
 
     if not os.path.exists(download_dir):
         logger.error(f"Directory DOES NOT EXIST: {download_dir}")
@@ -549,8 +550,8 @@ def process_downloads(download_dir="downloads", progress_callback=None):
         if not record.get("bill_month_date"):
             results_map[consumer_num] = "failed"
         else:
-            save_status = save_to_mysql(record)
-            if save_status == True:
+            save_status = save_to_mysql(record, conn=conn)
+            if save_status in (True, "exists"):
                 results_map[consumer_num] = "success"
                 all_extracted_data.append(record)
             elif save_status == "not_found":
@@ -593,8 +594,8 @@ def process_downloads(download_dir="downloads", progress_callback=None):
             if not extracted_data.get("bill_month_date"):
                 results_map[consumer_num] = "failed"
             else:
-                save_status = save_to_mysql(extracted_data)
-                if save_status == True:
+                save_status = save_to_mysql(extracted_data, conn=conn)
+                if save_status in (True, "exists"):
                     results_map[consumer_num] = "success"
                     all_extracted_data.append(extracted_data)
                     # Delete the PDF after DB save
@@ -621,6 +622,12 @@ def process_downloads(download_dir="downloads", progress_callback=None):
     if os.path.exists(cache_path):
         try: os.remove(cache_path)
         except: pass
+
+    if conn:
+        try:
+            conn.close()
+        except Exception:
+            pass
         
     logger.info(f"--- FINISHED PROCESS_DOWNLOADS. Success: {len(success_list)}, Not in DB: {len(not_in_db_list)}, Failed: {len(failed_list)} ---")
     return {"success": success_list, "failed": failed_list, "not_in_db": not_in_db_list}
@@ -781,16 +788,16 @@ def _validate_bill_data(consumer_number, import_units, export_units, generation_
     return validated, warnings
 
 
-def save_to_mysql(bill_data):
+def save_to_mysql(bill_data, conn=None):
     consumer_number = bill_data.get('consumer_number', 'N/A')
 
     # ── KEY NORMALISATION ────────────────────────────────────────────────────
-    import_units        = _safe_float(bill_data.get('import_units')      or bill_data.get('import'))
-    export_units        = _safe_float(bill_data.get('export_units')      or bill_data.get('export'))
-    generation_units    = _safe_float(bill_data.get('generation_units')  or bill_data.get('generated'))
-    prev_bank_units   = _safe_float(bill_data.get('prev_bank_units') or bill_data.get('prev_banked'))
-    bank_solar_units   = _safe_float(bill_data.get('bank_solar_units')  or bill_data.get('curr_banked'))
-    billing_amount      = _safe_float(bill_data.get('billing_amount')    or bill_data.get('amount'))
+    import_units     = _safe_float(bill_data.get('import_units') or bill_data.get('import'))
+    export_units     = _safe_float(bill_data.get('export_units') or bill_data.get('export'))
+    generation_units = _safe_float(bill_data.get('generation_units') or bill_data.get('generated'))
+    prev_bank_units  = _safe_float(bill_data.get('prev_bank_units') or bill_data.get('prev_banked'))
+    bank_solar_units = _safe_float(bill_data.get('bank_solar_units') or bill_data.get('curr_banked'))
+    billing_amount   = _safe_float(bill_data.get('billing_amount') or bill_data.get('amount'))
 
     bill_month_date  = bill_data.get('bill_month_date') or bill_data.get('bill_month')
     reading_date_raw = bill_data.get('reading_date') or bill_data.get('bill_date')
@@ -814,39 +821,46 @@ def save_to_mysql(bill_data):
         f"amt={billing_amount} | month={bill_month_date} reading={reading_date_raw}"
     )
 
-    conn = get_db_connection()
-    if not conn:
+    local_conn = conn or get_db_connection()
+    if not local_conn:
         logger.error("No DB connection available.")
         return False
 
     try:
-        cursor = conn.cursor(dictionary=True)
+        if conn and hasattr(local_conn, "ping"):
+            local_conn.ping(reconnect=True, attempts=1, delay=0)
+    except Exception:
+        pass
+
+    try:
+        cursor = local_conn.cursor(dictionary=True)
 
         # ── 1. Discover actual columns in both tables ──
         cursor.execute("DESCRIBE bill_generation_details")
         bill_cols = [row['Field'] for row in cursor.fetchall()]
-        
+
         cursor.execute("DESCRIBE customers")
-        cust_cols = [row['Field'] for row in cursor.fetchall()]
+        cursor.fetchall()
 
         # ── 2. Parse dates ──
         def parse_date(val):
-            if not val or val == 'N/A': return None
+            if not val or val == 'N/A':
+                return None
             if isinstance(val, (dt_mod.datetime, dt_mod.date)):
                 return val.strftime('%Y-%m-%d')
-            
+
             val_str = str(val).strip()
-            # common formats
             for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%b %Y', '%B %Y', '%b%Y', '%B%Y'):
-                try: return dt_mod.datetime.strptime(val_str, fmt).strftime('%Y-%m-%d')
-                except: pass
+                try:
+                    return dt_mod.datetime.strptime(val_str, fmt).strftime('%Y-%m-%d')
+                except Exception:
+                    pass
             return None
 
         m_year = parse_date(bill_month_date)
         r_date = parse_date(reading_date_raw) or m_year
 
         if not m_year:
-            # Fallback: if it's already in YYYY-MM-DD format but strptime failed
             if re.match(r"\d{4}-\d{2}-\d{2}", str(bill_month_date)):
                 m_year = str(bill_month_date)
             else:
@@ -858,92 +872,66 @@ def save_to_mysql(bill_data):
         cust_found = cursor.fetchone()
 
         if not cust_found:
-            # Check if it exists in backup table
             cursor.execute("SELECT id, customer_name FROM customers_backup WHERE consumer_number = %s", (consumer_number,))
             cust_bkp = cursor.fetchone()
             if cust_bkp:
                 customer_internal_id = cust_bkp['id']
             else:
-                # STRICT MODE: Do not auto-register. Return not_found to trigger UI warning.
                 logger.warning(f"Consumer {consumer_number} not found in database. Skipping save as requested.")
                 return "not_found"
         else:
             customer_internal_id = cust_found['id']
-            
-        # Note: No INSERT or UPDATE is performed on the customers table anymore.
 
         # ── 4. MAP DATA TO COLUMNS ──
         val_map = {
-            'customer_id':           customer_internal_id,
-            'consumer_number':       consumer_number,
-            'month_year':            m_year,
-            'bill_month':            m_year,
-            'reading_date':          r_date,
-            'bill_date':             r_date,
-            'import_units':          import_units,
-            'export_units':          export_units,
-            'generation_units':      generation_units,
-            'prev_bank_units':       prev_bank_units,
-            'bank_solar_units':      bank_solar_units,
-            'billing_amount':        billing_amount,
-            'import':                import_units,
-            'export':                export_units,
-            'generated':             generation_units,
-            'amount':                billing_amount
+            'customer_id': customer_internal_id,
+            'consumer_number': consumer_number,
+            'month_year': m_year,
+            'bill_month': m_year,
+            'reading_date': r_date,
+            'bill_date': r_date,
+            'import_units': import_units,
+            'export_units': export_units,
+            'generation_units': generation_units,
+            'prev_bank_units': prev_bank_units,
+            'bank_solar_units': bank_solar_units,
+            'billing_amount': billing_amount,
+            'import': import_units,
+            'export': export_units,
+            'generated': generation_units,
+            'amount': billing_amount,
         }
 
         cols_to_use = [c for c in bill_cols if c in val_map and val_map[c] is not None]
         vals_to_use = [val_map[c] for c in cols_to_use]
 
-        # ── 5. EXPLICIT INSERT OR UPDATE (Protecting Monthly Records) ──
-        # Check if record for this specific month and consumer already exists
         cursor.execute(
-            "SELECT id FROM bill_generation_details WHERE consumer_number = %s AND month_year = %s", 
+            "SELECT id FROM bill_generation_details WHERE consumer_number = %s AND month_year = %s",
             (consumer_number, m_year)
         )
         existing_record = cursor.fetchone()
 
         if existing_record:
-            # UPDATE (If user presses "Save Data" twice, we overwrite the duplicate instead of making new rows)
-            update_cols = []
-            update_vals = []
-            for c in cols_to_use:
-                # Don't overwrite the identifiers
-                if c not in ('id', 'customer_id', 'consumer_number', 'month_year', 'bill_month'):
-                    update_cols.append(f"{c} = %s")
-                    update_vals.append(val_map[c])
-            
-            update_vals.append(existing_record['id']) # Append the PK for WHERE clause
-            
-            update_query = f"UPDATE bill_generation_details SET {', '.join(update_cols)} WHERE id = %s"
-            cursor.execute(update_query, tuple(update_vals))
-            conn.commit()
-            record_id = existing_record['id']
-            logger.info(f"✓ UPDATED EXISTING RECORD: {consumer_number} for {m_year}")
+            logger.info(f"✓ SKIPPING EXISTING DB RECORD: {consumer_number} for {m_year}")
+            return "exists"
         else:
-            # INSERT NEW (When next month rolls around, this safely inserts a brand new row)
             placeholders = ", ".join(["%s"] * len(cols_to_use))
-            col_names    = ", ".join(cols_to_use)
-            
+            col_names = ", ".join(cols_to_use)
             insert_query = f"INSERT INTO bill_generation_details ({col_names}) VALUES ({placeholders})"
             cursor.execute(insert_query, tuple(vals_to_use))
-            conn.commit()  # <--- DATA IS NOW PERMANENT
+            local_conn.commit()
             record_id = cursor.lastrowid
-            
             logger.info(f"✓ SAVED NEW RECORD: {consumer_number} for {m_year}")
 
-        # ── POST-SAVE VERIFICATION ──────────────────────────────────────────
-        # Immediately read back the saved row and compare critical values
         try:
-            cursor2 = conn.cursor(dictionary=True)
+            cursor2 = local_conn.cursor(dictionary=True)
             cursor2.execute(
-                "SELECT billing_amount, import_units, export_units, generation_units, "
-                "prev_bank_units, bank_solar_units FROM bill_generation_details WHERE id = %s",
+                "SELECT billing_amount, import_units, export_units, generation_units, prev_bank_units, bank_solar_units FROM bill_generation_details WHERE id = %s",
                 (record_id,)
             )
             saved_row = cursor2.fetchone()
             cursor2.close()
-            
+
             if saved_row:
                 checks = [
                     ('billing_amount', billing_amount, float(saved_row.get('billing_amount', 0))),
@@ -953,8 +941,7 @@ def save_to_mysql(bill_data):
                 for field, expected, actual in checks:
                     if abs(expected - actual) > 0.01:
                         logger.error(
-                            f"⚠ DATA INTEGRITY MISMATCH for {consumer_number} [{field}]: "
-                            f"expected={expected}, saved={actual}"
+                            f"⚠ DATA INTEGRITY MISMATCH for {consumer_number} [{field}]: expected={expected}, saved={actual}"
                         )
         except Exception as verify_err:
             logger.warning(f"Post-save verification failed: {verify_err}")
@@ -966,10 +953,12 @@ def save_to_mysql(bill_data):
         logger.error(f"MySQL store error for {consumer_number}: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        if conn: conn.rollback()
+        if local_conn:
+            local_conn.rollback()
         return False
     finally:
-        if conn: conn.close()
+        if conn is None and local_conn:
+            local_conn.close()
 
 
 def get_all_bills():

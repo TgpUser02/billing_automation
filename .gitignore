@@ -43,3 +43,6 @@ backend/debug_*.png
 backend/debug_*.html
 backend/job_state.json
 backend/*.csv
+
+
+*.pdf
