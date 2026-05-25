@@ -385,7 +385,7 @@ async def save_reports(request: ReportRequest, user=Depends(get_current_user)):
                 service = get_drive_service()
                 if service:
                     # Root -> Bill_Generation1 -> Report -> [Date]
-                    bill_gen_root_id = get_or_create_date_folder(service, "Bill_Generation1", drive_root_id)
+                    bill_gen_root_id = get_or_create_date_folder(service, "billing_automation", drive_root_id)
                     report_root_id = get_or_create_date_folder(service, "Report", bill_gen_root_id)
                     report_date_folder_id = get_or_create_date_folder(service, formatted_date, report_root_id)
                     
