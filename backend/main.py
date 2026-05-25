@@ -1405,6 +1405,12 @@ def spa_fallback(full_path: str):
     """Return frontend index for client-side routes while keeping API 404s intact."""
     if full_path.startswith("api"):
         raise HTTPException(status_code=404, detail="Not Found")
+    
+    # Check if the file exists in the static build output
+    file_path = os.path.join(FRONTEND_DIST_DIR, full_path)
+    if os.path.isfile(file_path):
+        return FileResponse(file_path)
+
     if os.path.isfile(FRONTEND_INDEX_FILE):
         return FileResponse(FRONTEND_INDEX_FILE)
     raise HTTPException(status_code=404, detail="Not Found")
