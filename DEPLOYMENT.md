@@ -1,66 +1,58 @@
 # Billing Automation – VPS Deployment Guide
 
-This guide covers the end-to-end deployment of the Headless Billing Automation system to a Linux VPS (Ubuntu/Debian) using Docker. 
-
-If your VPS is already running other services like **Frappe LMS** (which binds to ports 80 and 443), this guide details how to configure a custom Nginx reverse proxy to host the Billing Automation system on a separate subdomain (e.g., `billing.yourdomain.com`) without causing port conflicts.
+This guide covers the end-to-end deployment of the Headless Billing Automation system to a Linux VPS (Ubuntu/Debian) with Nginx, automated SSL (Let's Encrypt), and Docker.
 
 ---
 
-## 1. Prerequisites
-Ensure your VPS has the following installed:
-- **Git** (to clone the repository)
-- **Docker** & **Docker Compose**
+## 🚀 The Recommended Path: Automated Deployment
 
-If Docker is not installed on your VPS, you can install it using:
-```bash
-curl -fsSL https://get.docker.com -o get-docker.sh
-sudo sh get-docker.sh
-sudo apt-get install docker-compose-plugin -y
-```
+We provide a `deploy.sh` script in the root directory that automates:
+1. Installing system dependencies (Docker, Docker Compose, Nginx, Certbot).
+2. Creating local storage directories (`/var/arin`) with proper permissions.
+3. Prompting for your domain name and email address.
+4. Setting up Nginx virtual host proxy configurations.
+5. Acquiring and configuring Let's Encrypt SSL certificates (HTTPS).
+6. Generating default production environment variables (`.env`).
+7. Spinning up Docker containers.
 
----
+### Step-by-Step Instructions
 
-## 2. Setup the Repository
-Clone your project onto the VPS and navigate to the project directory:
+#### 1. Configure DNS Records
+Before running the deployment, log in to your domain registrar (e.g., GoDaddy, Namecheap, Cloudflare) and add an **A Record** pointing to your VPS public IP address:
+* **Host/Name:** `billing` (or `@` if using root domain)
+* **Value/IP:** `<YOUR_VPS_PUBLIC_IP>`
+
+#### 2. Clone the Repository on the VPS
+SSH into your VPS, clone the repository, and navigate to the project root:
 ```bash
 git clone <your-repository-url>
 cd billing_automation
 ```
 
----
-
-## 3. Environment Variables Configuration (`.env`)
-Create a `.env` file in the root directory:
+#### 3. Run the Automated Deployment Script
+Make the script executable and run it as root:
 ```bash
-cp .env.example .env
+chmod +x deploy.sh
+sudo ./deploy.sh
 ```
-Edit the `.env` file (e.g., using `nano .env`) and configure the variables. Since this runs on a headless server, make sure `BROWSER_HEADLESS=1` is set:
 
+Follow the interactive prompts:
+* **Custom domain name:** Enter your configured domain (e.g., `billing.yourdomain.com`).
+* **Email address:** Enter your email address to receive Let's Encrypt certificate renewal alerts.
+
+#### 4. Configure Production Credentials
+Once the containers start up, you must configure the Google Drive API and Database variables in the production `.env` file:
+```bash
+nano .env
+```
+Ensure you update the following credentials:
 ```env
-# Frontend Configuration
-VITE_API_BASE_URL=/api
-
-# Headless Browser Configuration
-BROWSER_HEADLESS=1
-
-# Backend Storage (mapped to Docker volume)
-ARIN_STORAGE_PATH=/app/downloads
-
 # Database Configuration (Remote MySQL Database)
 DB_HOST=166.62.28.141
 DB_PORT=3306
 DB_USER=Arin
 DB_PASSWORD=Arin@098123
 DB_NAME=Arin_Energy
-
-# JWT Authentication
-JWT_SECRET_KEY=generate_a_random_hex_string_using_openssl_rand_-hex_32
-JWT_ALGORITHM=HS256
-JWT_EXPIRATION_MINUTES=1440
-
-# Google reCAPTCHA v2 Keys
-RECAPTCHA_SITE_KEY=6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI
-RECAPTCHA_SECRET_KEY=6LeIxAcTAAAAAGG-vFI1TnRWxMZNFuojJ4WifJWe
 
 # Google Drive API Configuration
 GOOGLE_DRIVE_FOLDER_ID=your_drive_folder_id
@@ -69,61 +61,48 @@ GOOGLE_DRIVE_CLIENT_SECRET=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
 GOOGLE_DRIVE_REFRESH_TOKEN=your_refresh_token
 ```
 
----
-
-## 4. Build and Deploy
-The deployment is managed by an optimized, two-stage Docker setup. It compiles the React Frontend and bundles it with the Python FastAPI Backend.
-
-Run the following command to start the deployment:
+#### 5. Restart Containers with new Credentials
+Apply the new credentials by recreating the containers:
 ```bash
 docker compose up -d --build
 ```
 
-### What this command does:
-1. **Frontend Build:** Installs Node.js dependencies and compiles the Vite React app into static files.
-2. **Backend Build:** Installs Python 3.11, Google Chrome, Playwright (Chromium), and all backend dependencies.
-3. **Serving:** FastAPI mounts the static React bundle and serves the entire application on port `5000` (which is mapped to port `5000` on your host).
-4. **Volume Binding:** Creates a `./downloads` folder on your host machine linked directly to `/app/downloads` in the container.
-
 ---
 
-## 5. Option A: Direct Access via IP and Port (No Nginx Configuration)
+## 🛠️ Manual Configuration (Alternative)
 
-The simplest way to access the application on your VPS without domain names or proxy configurations is directly via the exposed Docker port `5000`:
+If you prefer to configure components manually, follow these details:
 
-1. Allow port `5000` on your VPS firewall:
-   ```bash
-   sudo ufw allow 5000/tcp
-   ```
-
-2. Open your web browser and navigate to:
-   ```
-   http://<YOUR_VPS_IP_ADDRESS>:5000
-   ```
-   *Thanks to our dynamic URL routing, the React frontend will automatically connect to `http://<YOUR_VPS_IP_ADDRESS>:5000/api` with no extra reverse proxy configuration needed.*
-
----
-
-## 6. Option B: Routing via Nginx using VPS IP on a Custom Port
-
-If you want Nginx to act as a reverse proxy for your IP address on a custom port (e.g. `8080` or `8081` to avoid conflicting with Frappe LMS on port 80/443):
-
-### 1. Install Nginx
-If Nginx is not installed yet on your VPS, run:
+### 1. Install Packages
 ```bash
 sudo apt update
-sudo apt install nginx -y
+sudo apt install -y curl git nginx certbot python3-certbot-nginx
 ```
 
-### 2. Create the Site Configuration
+### 2. Install Docker
+```bash
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh get-docker.sh
+sudo apt-get install docker-compose-plugin -y
+```
+
+### 3. Create Storage Directories
+```bash
+sudo mkdir -p /var/arin
+sudo chmod -R 777 /var/arin
+```
+
+### 4. Create Nginx Site Configuration
 Create a virtual host file `/etc/nginx/sites-available/billing`:
 ```nginx
 server {
-    listen 8080; # Listen on port 8080 for IP-based access
-    server_name _; # Matches any request coming to this port (including your VPS IP)
+    listen 80;
+    server_name billing.yourdomain.com;
+
+    client_max_body_size 50M;
 
     location / {
-        proxy_pass http://127.0.0.1:5000; # Forward to the Docker container
+        proxy_pass http://127.0.0.1:5000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -135,44 +114,40 @@ server {
 }
 ```
 
-### 3. Enable the Config and Restart Nginx
-Link the configuration and restart Nginx:
+Enable it and obtain the SSL certificate:
 ```bash
-sudo ln -s /etc/nginx/sites-available/billing /etc/nginx/sites-enabled/
+sudo ln -sf /etc/nginx/sites-available/billing /etc/nginx/sites-enabled/
 sudo nginx -t
 sudo systemctl restart nginx
+
+# Obtain SSL Certificate
+sudo certbot --nginx -d billing.yourdomain.com
 ```
 
-### 4. Firewall Setup
-Allow port `8080` (or the port you configured) on your VPS firewall:
-```bash
-sudo ufw allow 8080/tcp
-```
-
-You can now access the application securely through Nginx by visiting:
-```
-http://<YOUR_VPS_IP_ADDRESS>:8080
-```
-
----
-
-## 7. System Management & Maintenance
-
-**Check Logs:**
-To monitor background scraping progress or debug errors:
-```bash
-docker compose logs -f
-```
-
-**Restarting the Container:**
+### 5. Build and Deploy Containers
 ```bash
 docker compose up -d --build
 ```
 
-**Stopping the App:**
+---
+
+## ⚙️ Maintenance & Logs
+
+**Check Container Status:**
+```bash
+docker compose ps
+```
+
+**Check Realtime Logs:**
+To monitor background scraping progress or inspect errors:
+```bash
+docker compose logs -f --tail=100
+```
+
+**Stop the Application:**
 ```bash
 docker compose down
 ```
 
-**System Reset:**
-If a browser session gets stuck, use the **"Force Reset System"** button in the top-right corner of the web interface. This triggers the `/api/reset` endpoint to cleanly terminate background headless browsers and reset your session.
+**Force Reset Stuck Browsers:**
+If a browser session gets stuck, use the **"Force Reset System"** button in the top-right corner of the web interface. This calls `/api/reset` to terminate background headless processes.
