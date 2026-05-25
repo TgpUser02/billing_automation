@@ -1,3 +1,10 @@
+import os
+from dotenv import load_dotenv
+# Load environment variables first
+load_dotenv(override=True)
+# Also search in the parent directory as fallback (for local start.sh relative pathing)
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'), override=True)
+
 from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -100,6 +107,33 @@ class LoginRequest(BaseModel):
 class ChangePasswordRequest(BaseModel):
     currentPassword: str
     newPassword: str
+
+class CustomerModel(BaseModel):
+    arin_id: Optional[str] = None
+    customer_name: str
+    contact_number: Optional[str] = "N/A"
+    zone: Optional[str] = "Other"
+    current_location_link: Optional[str] = ""
+    address: Optional[str] = "N/A"
+    consumer_number: str
+    panel_name: Optional[str] = "Other"
+    panel_name_other: Optional[str] = None
+    panel_type: Optional[str] = None
+    solar_wattpick: Optional[int] = None
+    solar_panel_count: Optional[int] = 0
+    solar_capacity_kw: Optional[int] = 0
+    panel_capacity_kw: Optional[int] = 0
+    inverter_name: Optional[str] = "Other"
+    inverter_name_other: Optional[str] = None
+    inverter_capacity: Optional[int] = 0
+    commission_date: Optional[str] = None
+    wifi_available: Optional[int] = 0
+    wifi_id: Optional[str] = None
+    wifi_password: Optional[str] = None
+    visits_per_year: Optional[int] = 2
+    total_visits_in_5_years: Optional[int] = 10
+    is_blacklisted: Optional[int] = 0
+    inverter_warranty_expiry_date: Optional[str] = None
 
 @app.post("/api/auth/login")
 async def login(request: LoginRequest, req: Request):
@@ -427,6 +461,318 @@ async def upload_excel(file: UploadFile = File(...), user=Depends(get_current_us
     except Exception as e:
         logger.error(f"Excel error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to process Excel: {str(e)}")
+
+@app.post("/api/import-consumers")
+async def import_consumers(file: UploadFile = File(...), user=Depends(get_current_user)):
+    """Parses Excel/CSV file to insert or update consumer profiles in the customers table."""
+    try:
+        filename = file.filename.lower()
+        content = await file.read()
+        
+        if filename.endswith('.csv'):
+            df = pd.read_csv(io.BytesIO(content))
+        elif filename.endswith(('.xlsx', '.xls')):
+            df = pd.read_excel(io.BytesIO(content))
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported file format. Please upload an Excel (.xlsx/.xls) or CSV (.csv) file.")
+        
+        # Define mappings from possible Excel headers to database columns
+        mappings = {
+            'arin_id': ['arin id', 'arin_id', 'arin_identifier', 'id'],
+            'customer_name': ['customer name', 'customer_name', 'name', 'consumer name', 'consumer_name'],
+            'contact_number': ['contact number', 'contact_number', 'phone', 'contact', 'mobile', 'mobile number', 'mobile_number'],
+            'zone': ['zone', 'area', 'region'],
+            'current_location_link': ['location link', 'current_location_link', 'location', 'link', 'map link', 'map_link'],
+            'address': ['address', 'addr'],
+            'consumer_number': ['consumer number', 'consumer_number', 'consumer no', 'consumer_no', 'consumer no.', 'number', 'msedcl no'],
+            'panel_name': ['panel name', 'panel_name', 'panel'],
+            'panel_name_other': ['panel name other', 'panel_name_other', 'panel_other'],
+            'panel_type': ['panel type', 'panel_type', 'type of panel'],
+            'solar_wattpick': ['solar wattpick', 'solar_wattpick', 'wattpick', 'solar watt peak', 'solar_wattpeak'],
+            'solar_panel_count': ['solar panel count', 'solar_panel_count', 'panel count', 'panels', 'no of panels', 'number of panels'],
+            'solar_capacity_kw': ['solar capacity kw', 'solar_capacity_kw', 'capacity', 'capacity kw', 'solar capacity', 'capacity_kw', 'system size'],
+            'panel_capacity_kw': ['panel capacity kw', 'panel_capacity_kw', 'panel capacity', 'panel_capacity_kw_value'],
+            'inverter_name': ['inverter name', 'inverter_name', 'inverter'],
+            'inverter_name_other': ['inverter name other', 'inverter_name_other', 'inverter_other'],
+            'inverter_capacity': ['inverter capacity', 'inverter_capacity', 'inverter capacity kw', 'inverter_capacity_kw'],
+            'commission_date': ['commission date', 'commission_date', 'commissioning date', 'date of commission', 'date_of_commission'],
+            'wifi_available': ['wifi available', 'wifi_available', 'wifi', 'wifi_enabled'],
+            'wifi_id': ['wifi id', 'wifi_id', 'wifi name', 'wifi_name'],
+            'wifi_password': ['wifi password', 'wifi_password', 'wifi pass'],
+            'visits_per_year': ['visits per year', 'visits_per_year', 'visits'],
+            'total_visits_in_5_years': ['total visits in 5 years', 'total_visits_in_5_years', 'total visits', 'total_visits'],
+            'is_blacklisted': ['is blacklisted', 'is_blacklisted', 'blacklisted'],
+            'inverter_warranty_expiry_date': ['inverter warranty expiry date', 'inverter_warranty_expiry_date', 'warranty expiry', 'inverter warranty expiry']
+        }
+        
+        # Clean DataFrame column names: lowercase, strip spaces and underscores for mapping
+        df_cols_clean = {str(c).lower().replace(" ", "").replace("_", "").replace(".", ""): c for c in df.columns}
+        
+        # Map DataFrame columns to target DB columns
+        mapped_columns = {}
+        for db_col, variations in mappings.items():
+            for var in variations:
+                clean_var = var.lower().replace(" ", "").replace("_", "").replace(".", "")
+                if clean_var in df_cols_clean:
+                    mapped_columns[db_col] = df_cols_clean[clean_var]
+                    break
+        
+        # Check if consumer_number is mapped
+        if 'consumer_number' not in mapped_columns:
+            raise HTTPException(status_code=400, detail="Missing required column: 'consumer_number' (or variations like 'Consumer No', 'Consumer Number') was not found in the file.")
+        
+        from processing import get_db_connection
+        conn = get_db_connection()
+        if not conn:
+            raise HTTPException(status_code=500, detail="Failed to connect to database.")
+            
+        cursor = conn.cursor()
+        
+        records_imported = 0
+        records_updated = 0
+        records_skipped = 0
+        warnings = []
+        
+        # Parse and process row by row
+        for index, row in df.iterrows():
+            # Get consumer number
+            raw_c_num = row[mapped_columns['consumer_number']]
+            if pd.isna(raw_c_num):
+                records_skipped += 1
+                warnings.append(f"Row {index+2}: Skipped due to missing Consumer Number.")
+                continue
+                
+            # Normalize consumer number: convert float to string, remove '.0' if parsed as float, remove spaces
+            c_num = str(raw_c_num).split('.')[0].replace(" ", "").strip()
+            if not c_num:
+                records_skipped += 1
+                warnings.append(f"Row {index+2}: Skipped due to empty Consumer Number.")
+                continue
+                
+            # Extract other values with fallbacks
+            def get_val(db_key, default_val=None, is_int=False, is_float=False, is_date=False, is_bool=False):
+                if db_key not in mapped_columns:
+                    return default_val
+                val = row[mapped_columns[db_key]]
+                if pd.isna(val):
+                    return default_val
+                    
+                if is_int:
+                    try:
+                        return int(float(str(val).replace(",", "").strip()))
+                    except:
+                        return default_val
+                elif is_float:
+                    try:
+                        return float(str(val).replace(",", "").strip())
+                    except:
+                        return default_val
+                elif is_bool:
+                    val_str = str(val).strip().lower()
+                    if val_str in ('1', 'true', 'yes', 'y', 'enabled', 'active'):
+                        return 1
+                    elif val_str in ('0', 'false', 'no', 'n', 'disabled', 'inactive'):
+                        return 0
+                    return default_val
+                elif is_date:
+                    if isinstance(val, (datetime, pd.Timestamp)):
+                        return val.strftime("%Y-%m-%d")
+                    # Try parsing date string
+                    val_str = str(val).strip()
+                    for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%Y/%m/%d', '%b %Y', '%B %Y', '%b-%Y', '%B-%Y'):
+                        try:
+                            return datetime.strptime(val_str, fmt).strftime('%Y-%m-%d')
+                        except:
+                            pass
+                    return default_val
+                else:
+                    return str(val).strip()
+
+            arin_id = get_val('arin_id')
+            customer_name = get_val('customer_name', 'Unknown')
+            contact_number = get_val('contact_number', 'N/A')
+            zone = get_val('zone', 'Other')
+            current_location_link = get_val('current_location_link', '')
+            address = get_val('address', 'N/A')
+            
+            panel_name = get_val('panel_name', 'Other')
+            panel_name_other = get_val('panel_name_other')
+            panel_type = get_val('panel_type')
+            solar_wattpick = get_val('solar_wattpick', is_int=True)
+            solar_panel_count = get_val('solar_panel_count', 0, is_int=True)
+            solar_capacity_kw = get_val('solar_capacity_kw', 0, is_int=True)
+            panel_capacity_kw = get_val('panel_capacity_kw', 0, is_int=True)
+            
+            inverter_name = get_val('inverter_name', 'Other')
+            inverter_name_other = get_val('inverter_name_other')
+            inverter_capacity = get_val('inverter_capacity', 0, is_int=True)
+            
+            commission_date = get_val('commission_date', datetime.now().strftime("%Y-%m-%d"), is_date=True)
+            
+            wifi_available = get_val('wifi_available', 0, is_bool=True)
+            wifi_id = get_val('wifi_id')
+            wifi_password = get_val('wifi_password')
+            
+            visits_per_year = get_val('visits_per_year', 2, is_int=True)
+            total_visits_in_5_years = get_val('total_visits_in_5_years', 10, is_int=True)
+            is_blacklisted = get_val('is_blacklisted', 0, is_bool=True)
+            
+            inverter_warranty_expiry_date = get_val('inverter_warranty_expiry_date', is_date=True)
+
+            # Upsert into customers table
+            query = """
+                INSERT INTO customers (
+                    arin_id, customer_name, contact_number, zone, current_location_link, address, 
+                    consumer_number, panel_name, panel_name_other, panel_type, solar_wattpick, 
+                    solar_panel_count, solar_capacity_kw, panel_capacity_kw, inverter_name, 
+                    inverter_name_other, inverter_capacity, commission_date, wifi_available, 
+                    wifi_id, wifi_password, visits_per_year, total_visits_in_5_years, is_blacklisted, 
+                    inverter_warranty_expiry_date
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                ) ON DUPLICATE KEY UPDATE 
+                    arin_id = VALUES(arin_id),
+                    customer_name = VALUES(customer_name),
+                    contact_number = VALUES(contact_number),
+                    zone = VALUES(zone),
+                    current_location_link = VALUES(current_location_link),
+                    address = VALUES(address),
+                    panel_name = VALUES(panel_name),
+                    panel_name_other = VALUES(panel_name_other),
+                    panel_type = VALUES(panel_type),
+                    solar_wattpick = VALUES(solar_wattpick),
+                    solar_panel_count = VALUES(solar_panel_count),
+                    solar_capacity_kw = VALUES(solar_capacity_kw),
+                    panel_capacity_kw = VALUES(panel_capacity_kw),
+                    inverter_name = VALUES(inverter_name),
+                    inverter_name_other = VALUES(inverter_name_other),
+                    inverter_capacity = VALUES(inverter_capacity),
+                    commission_date = VALUES(commission_date),
+                    wifi_available = VALUES(wifi_available),
+                    wifi_id = VALUES(wifi_id),
+                    wifi_password = VALUES(wifi_password),
+                    visits_per_year = VALUES(visits_per_year),
+                    total_visits_in_5_years = VALUES(total_visits_in_5_years),
+                    is_blacklisted = VALUES(is_blacklisted),
+                    inverter_warranty_expiry_date = VALUES(inverter_warranty_expiry_date)
+            """
+            
+            try:
+                cursor.execute(query, (
+                    arin_id, customer_name, contact_number, zone, current_location_link, address,
+                    c_num, panel_name, panel_name_other, panel_type, solar_wattpick,
+                    solar_panel_count, solar_capacity_kw, panel_capacity_kw, inverter_name,
+                    inverter_name_other, inverter_capacity, commission_date, wifi_available,
+                    wifi_id, wifi_password, visits_per_year, total_visits_in_5_years, is_blacklisted,
+                    inverter_warranty_expiry_date
+                ))
+                # Check if it was an insert or update
+                if cursor.rowcount == 1:
+                    records_imported += 1
+                elif cursor.rowcount == 2:
+                    records_updated += 1
+                else:
+                    # Rowcount can be 0 if it exists but no values changed
+                    records_updated += 1
+            except Exception as row_err:
+                records_skipped += 1
+                warnings.append(f"Row {index+2} (Consumer {c_num}): Error saving to database: {row_err}")
+                logger.error(f"Error importing row {index+2}: {row_err}")
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        logger.info(f"Consumer import complete. Imported: {records_imported}, Updated: {records_updated}, Skipped: {records_skipped}")
+        
+        return {
+            "status": "success",
+            "imported": records_imported,
+            "updated": records_updated,
+            "skipped": records_skipped,
+            "warnings": warnings[:50]
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error importing consumers: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Failed to process file: {str(e)}")
+
+@app.post("/api/save-customer")
+def save_customer_endpoint(customer: CustomerModel, user=Depends(get_current_user)):
+    """Inserts or updates a single customer profile."""
+    from processing import get_db_connection
+    conn = get_db_connection()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Failed to connect to database.")
+    try:
+        cursor = conn.cursor()
+        
+        # Convert dates if present
+        comm_date = customer.commission_date
+        if not comm_date:
+            comm_date = datetime.now().strftime("%Y-%m-%d")
+            
+        query = """
+            INSERT INTO customers (
+                arin_id, customer_name, contact_number, zone, current_location_link, address, 
+                consumer_number, panel_name, panel_name_other, panel_type, solar_wattpick, 
+                solar_panel_count, solar_capacity_kw, panel_capacity_kw, inverter_name, 
+                inverter_name_other, inverter_capacity, commission_date, wifi_available, 
+                wifi_id, wifi_password, visits_per_year, total_visits_in_5_years, is_blacklisted, 
+                inverter_warranty_expiry_date
+            ) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+            ) ON DUPLICATE KEY UPDATE 
+                arin_id = VALUES(arin_id),
+                customer_name = VALUES(customer_name),
+                contact_number = VALUES(contact_number),
+                zone = VALUES(zone),
+                current_location_link = VALUES(current_location_link),
+                address = VALUES(address),
+                panel_name = VALUES(panel_name),
+                panel_name_other = VALUES(panel_name_other),
+                panel_type = VALUES(panel_type),
+                solar_wattpick = VALUES(solar_wattpick),
+                solar_panel_count = VALUES(solar_panel_count),
+                solar_capacity_kw = VALUES(solar_capacity_kw),
+                panel_capacity_kw = VALUES(panel_capacity_kw),
+                inverter_name = VALUES(inverter_name),
+                inverter_name_other = VALUES(inverter_name_other),
+                inverter_capacity = VALUES(inverter_capacity),
+                commission_date = VALUES(commission_date),
+                wifi_available = VALUES(wifi_available),
+                wifi_id = VALUES(wifi_id),
+                wifi_password = VALUES(wifi_password),
+                visits_per_year = VALUES(visits_per_year),
+                total_visits_in_5_years = VALUES(total_visits_in_5_years),
+                is_blacklisted = VALUES(is_blacklisted),
+                inverter_warranty_expiry_date = VALUES(inverter_warranty_expiry_date)
+        """
+        
+        cursor.execute(query, (
+            customer.arin_id, customer.customer_name, customer.contact_number, customer.zone,
+            customer.current_location_link, customer.address, customer.consumer_number,
+            customer.panel_name, customer.panel_name_other, customer.panel_type,
+            customer.solar_wattpick, customer.solar_panel_count, customer.solar_capacity_kw,
+            customer.panel_capacity_kw, customer.inverter_name, customer.inverter_name_other,
+            customer.inverter_capacity, comm_date, customer.wifi_available,
+            customer.wifi_id, customer.wifi_password, customer.visits_per_year,
+            customer.total_visits_in_5_years, customer.is_blacklisted,
+            customer.inverter_warranty_expiry_date
+        ))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return {"status": "success", "message": "Customer profile saved successfully."}
+    except Exception as e:
+        logger.error(f"Error saving customer: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/customer-details")
 def customer_details(consumerNumber: str, user=Depends(get_current_user)):

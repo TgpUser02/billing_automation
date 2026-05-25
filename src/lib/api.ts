@@ -339,6 +339,32 @@ export const api = {
         return checkResponse(response);
     },
 
+    saveCustomer: async (customerData: any) => {
+        const response = await authFetch(`${API_BASE_URL}/save-customer`, {
+            method: "POST",
+            body: JSON.stringify(customerData),
+        });
+        return checkResponse(response);
+    },
+
+    importConsumers: async (file: File) => {
+        const token = getToken();
+        const formData = new FormData();
+        formData.append("file", file);
+        
+        const headers: Record<string, string> = {};
+        if (token) {
+            headers["Authorization"] = `Bearer ${token}`;
+        }
+        
+        const response = await fetch(`${API_BASE_URL}/import-consumers`, {
+            method: "POST",
+            headers,
+            body: formData,
+        });
+        return checkResponse(response);
+    },
+
     closeBrowser: async () => {
         const response = await authFetch(`${API_BASE_URL}/close`, {
             method: "POST",

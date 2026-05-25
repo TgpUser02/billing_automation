@@ -15,6 +15,7 @@ const COLORS = ['#0D9488', '#F97316', '#8B5CF6', '#10B981', '#EC4899', '#3B82F6'
 
 const Dashboard = () => {
     const navigate = useNavigate();
+    const [isLoading, setIsLoading] = useState(true);
     const [stats, setStats] = useState({
         totalConsumers: 0,
         totalBills: 0,
@@ -33,17 +34,20 @@ const Dashboard = () => {
     });
 
     useEffect(() => {
-        const fetchStats = async () => {
+        const fetchStats = async (isFirst = false) => {
+            if (isFirst) setIsLoading(true);
             try {
                 const data = await api.getStats();
                 setStats(data);
             } catch (err) {
                 console.error("Failed to fetch dashboard stats", err);
+            } finally {
+                if (isFirst) setIsLoading(false);
             }
         };
 
-        fetchStats();
-        const interval = setInterval(fetchStats, 5000);
+        fetchStats(true);
+        const interval = setInterval(() => fetchStats(false), 5000);
         return () => clearInterval(interval);
     }, []);
 
@@ -118,7 +122,11 @@ const Dashboard = () => {
                             <Database className="h-6 w-6 text-arin-teal" />
                         </CardHeader>
                         <CardContent>
-                            <div className="text-6xl font-black">{stats.totalConsumers}</div>
+                            {isLoading ? (
+                                <div className="h-16 w-32 bg-slate-200 dark:bg-slate-800 rounded animate-pulse" />
+                            ) : (
+                                <div className="text-6xl font-black">{stats.totalConsumers}</div>
+                            )}
                             <p className="text-xs text-muted-foreground mt-2 font-black uppercase tracking-widest">Registered Consumers</p>
                         </CardContent>
                     </Card>
@@ -128,7 +136,11 @@ const Dashboard = () => {
                             <FileText className="h-6 w-6 text-arin-orange" />
                         </CardHeader>
                         <CardContent>
-                            <div className="text-6xl font-black">{stats.totalBills}</div>
+                            {isLoading ? (
+                                <div className="h-16 w-32 bg-slate-200 dark:bg-slate-800 rounded animate-pulse" />
+                            ) : (
+                                <div className="text-6xl font-black">{stats.totalBills}</div>
+                            )}
                             <p className="text-xs text-muted-foreground mt-2 font-black uppercase tracking-widest">Extracted Bill Records</p>
                         </CardContent>
                     </Card>

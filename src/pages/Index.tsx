@@ -1121,17 +1121,31 @@ const Index = () => {
                   <Button
                     onClick={handleDbSearch}
                     disabled={isSearchingDb || isFetchingAllDb}
-                    className="bg-slate-900 hover:bg-black text-white rounded-xl font-black uppercase tracking-widest text-[10px] w-full sm:w-auto self-start shadow-lg shadow-slate-900/20 py-6 px-8 transition-all active:scale-95"
+                    className="bg-slate-900 hover:bg-black text-white rounded-xl font-black uppercase tracking-widest text-[10px] w-full sm:w-auto self-start shadow-lg shadow-slate-900/20 py-6 px-8 transition-all active:scale-95 flex items-center justify-center"
                   >
-                    {isSearchingDb ? "Searching..." : "Search Database"}
+                    {isSearchingDb ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
+                        Searching...
+                      </>
+                    ) : (
+                      "Search Database"
+                    )}
                   </Button>
                   <Button
                     onClick={handleViewAllConsumers}
                     disabled={isSearchingDb || isFetchingAllDb}
                     variant="outline"
-                    className="bg-white hover:bg-slate-50 text-slate-800 rounded-xl font-black uppercase tracking-widest text-[10px] w-full sm:w-auto self-start shadow-sm border-slate-200 py-6 px-8 transition-all active:scale-95"
+                    className="bg-white hover:bg-slate-50 text-slate-800 rounded-xl font-black uppercase tracking-widest text-[10px] w-full sm:w-auto self-start shadow-sm border-slate-200 py-6 px-8 transition-all active:scale-95 flex items-center justify-center"
                   >
-                    {isFetchingAllDb ? "Loading..." : "View All Consumers"}
+                    {isFetchingAllDb ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
+                        Loading...
+                      </>
+                    ) : (
+                      "View All Consumers"
+                    )}
                   </Button>
                 </div>
 

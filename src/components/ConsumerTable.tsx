@@ -5,9 +5,10 @@ import { formatCurrency, formatDate } from "@/lib/formatters";
 interface ConsumerTableProps {
   consumers: Consumer[];
   onRowClick: (consumer: Consumer) => void;
+  isLoading?: boolean;
 }
 
-export function ConsumerTable({ consumers, onRowClick }: ConsumerTableProps) {
+export function ConsumerTable({ consumers, onRowClick, isLoading = false }: ConsumerTableProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 50;
   
@@ -40,7 +41,26 @@ export function ConsumerTable({ consumers, onRowClick }: ConsumerTableProps) {
           </tr>
         </thead>
         <tbody>
-          {consumers.length === 0 ? (
+          {isLoading ? (
+            Array.from({ length: 8 }).map((_, i) => (
+              <tr key={i} className="animate-pulse">
+                <td className="text-center py-4"><div className="h-4 w-6 bg-slate-200 dark:bg-slate-800 rounded mx-auto" /></td>
+                <td><div className="h-4 w-12 bg-slate-200 dark:bg-slate-800 rounded mx-auto" /></td>
+                <td><div className="h-4 w-20 bg-slate-200 dark:bg-slate-800 rounded" /></td>
+                <td><div className="h-4 w-32 bg-slate-200 dark:bg-slate-800 rounded" /></td>
+                <td><div className="h-4 w-28 bg-slate-200 dark:bg-slate-800 rounded font-mono" /></td>
+                <td><div className="h-4 w-8 bg-slate-200 dark:bg-slate-800 rounded mx-auto" /></td>
+                <td><div className="h-4 w-20 bg-slate-200 dark:bg-slate-800 rounded" /></td>
+                <td><div className="h-4 w-12 bg-slate-200 dark:bg-slate-800 rounded mx-auto" /></td>
+                <td><div className="h-4 w-12 bg-slate-200 dark:bg-slate-800 rounded mx-auto" /></td>
+                <td><div className="h-4 w-12 bg-slate-200 dark:bg-slate-800 rounded mx-auto" /></td>
+                <td><div className="h-4 w-20 bg-slate-200 dark:bg-slate-800 rounded" /></td>
+                <td><div className="h-4 w-16 bg-slate-200 dark:bg-slate-800 rounded mx-auto" /></td>
+                <td><div className="h-4 w-12 bg-slate-200 dark:bg-slate-800 rounded mx-auto" /></td>
+                <td><div className="h-4 w-12 bg-slate-200 dark:bg-slate-800 rounded mx-auto" /></td>
+              </tr>
+            ))
+          ) : consumers.length === 0 ? (
             <tr>
               <td colSpan={14} className="text-center py-8 text-muted-foreground">
                 No consumers found matching your criteria

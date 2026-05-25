@@ -149,6 +149,11 @@ def get_drive_service():
             # Fallback service account logic if needed
             from google.oauth2 import service_account
             service_account_file = os.environ.get("GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE")
+            if service_account_file and not os.path.isabs(service_account_file):
+                # Resolve relative to the project root (parent directory of backend)
+                project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                service_account_file = os.path.abspath(os.path.join(project_root, service_account_file))
+
             if service_account_file and os.path.exists(service_account_file):
                 creds = service_account.Credentials.from_service_account_file(
                     service_account_file, scopes=SCOPES)

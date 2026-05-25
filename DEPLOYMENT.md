@@ -87,18 +87,43 @@ docker compose up -d --build
 
 ---
 
-## 5. Co-hosting with Frappe LMS (Nginx Setup)
+## 5. Option A: Direct Access via IP and Port (No Nginx Configuration)
 
-Since Frappe LMS is running on your server, ports 80/443 are already managed by Nginx. We route traffic to the billing container using a new subdomain:
+The simplest way to access the application on your VPS without domain names or proxy configurations is directly via the exposed Docker port `5000`:
 
-1. Create a new Nginx configuration file `/etc/nginx/sites-available/billing`:
+1. Allow port `5000` on your VPS firewall:
+   ```bash
+   sudo ufw allow 5000/tcp
+   ```
+
+2. Open your web browser and navigate to:
+   ```
+   http://<YOUR_VPS_IP_ADDRESS>:5000
+   ```
+   *Thanks to our dynamic URL routing, the React frontend will automatically connect to `http://<YOUR_VPS_IP_ADDRESS>:5000/api` with no extra reverse proxy configuration needed.*
+
+---
+
+## 6. Option B: Routing via Nginx using VPS IP on a Custom Port
+
+If you want Nginx to act as a reverse proxy for your IP address on a custom port (e.g. `8080` or `8081` to avoid conflicting with Frappe LMS on port 80/443):
+
+### 1. Install Nginx
+If Nginx is not installed yet on your VPS, run:
+```bash
+sudo apt update
+sudo apt install nginx -y
+```
+
+### 2. Create the Site Configuration
+Create a virtual host file `/etc/nginx/sites-available/billing`:
 ```nginx
 server {
-    listen 80;
-    server_name billing.yourdomain.com; # Replace with your dedicated subdomain
+    listen 8080; # Listen on port 8080 for IP-based access
+    server_name _; # Matches any request coming to this port (including your VPS IP)
 
     location / {
-        proxy_pass http://127.0.0.1:5000; # Forward requests to Docker
+        proxy_pass http://127.0.0.1:5000; # Forward to the Docker container
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -110,22 +135,28 @@ server {
 }
 ```
 
-2. Link it to `sites-enabled` and reload Nginx:
+### 3. Enable the Config and Restart Nginx
+Link the configuration and restart Nginx:
 ```bash
 sudo ln -s /etc/nginx/sites-available/billing /etc/nginx/sites-enabled/
-sudo nginx -t && sudo systemctl reload nginx
+sudo nginx -t
+sudo systemctl restart nginx
 ```
 
-3. Obtain SSL/HTTPS using Certbot:
+### 4. Firewall Setup
+Allow port `8080` (or the port you configured) on your VPS firewall:
 ```bash
-sudo certbot --nginx -d billing.yourdomain.com
+sudo ufw allow 8080/tcp
 ```
 
-Your Frappe LMS will continue running on its domain, and your Billing Automation app will be fully isolated and accessible securely at `https://billing.yourdomain.com`.
+You can now access the application securely through Nginx by visiting:
+```
+http://<YOUR_VPS_IP_ADDRESS>:8080
+```
 
 ---
 
-## 6. System Management & Maintenance
+## 7. System Management & Maintenance
 
 **Check Logs:**
 To monitor background scraping progress or debug errors:

@@ -127,18 +127,18 @@ def get_all_customers_db():
         return []
     try:
         cursor = conn.cursor(dictionary=True)
-        # Assuming we need consumer_number and arin_id, preferring customers table first
+        # Fetch all columns from customers table to support full profile views
         try:
-            cursor.execute("SELECT arin_id, consumer_number FROM customers")
+            cursor.execute("SELECT * FROM customers")
             results = cursor.fetchall()
-            # if customers table exists but is empty, or doesn't have arin_id
+            # if customers table exists but is empty
             if not results:
-                cursor.execute("SELECT arin_id, consumer_number FROM customers_backup")
+                cursor.execute("SELECT * FROM customers_backup")
                 results = cursor.fetchall()
             return results
         except Exception:
             # Fallback
-            cursor.execute("SELECT arin_id, consumer_number FROM customers_backup")
+            cursor.execute("SELECT * FROM customers_backup")
             return cursor.fetchall()
     except Exception as e:
         logger.error(f"Get all consumers error: {e}")
@@ -993,7 +993,9 @@ def get_all_bills():
                 c.commission_date,
                 c.arin_id,
                 c.panel_name,
-                c.inverter_name
+                c.inverter_name,
+                c.zone,
+                c.is_blacklisted
             FROM bill_generation_details b
             LEFT JOIN customers c {join_clause}
             ORDER BY b.month_year DESC
