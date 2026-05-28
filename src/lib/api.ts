@@ -53,7 +53,7 @@ function shouldRefreshToken(): boolean {
 let refreshPromise: Promise<any> | null = null;
 
 function redirectToLogin(): void {
-    window.location.hash = "#/login";
+    window.location.href = "/login";
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
