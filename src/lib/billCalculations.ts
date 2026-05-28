@@ -11,6 +11,13 @@ export interface ConsumerData {
   panelWarranty: string;
   systemWarranty: string;
   inverterWarranty: string;
+  panel_warranty_expiry_date?: string;
+  inverter_warranty_expiry_date?: string;
+  system_warranty_expiry_date?: string;
+  general_warranty_expiry_date?: string;
+  blacklisted_reason?: string;
+  portal_username?: string;
+  portal_password?: string;
 }
 
 export interface BillInputs {
@@ -32,6 +39,11 @@ export interface BillInputs {
   inverter_name: string;
   systemHealth: 'Normal' | 'POOR' | 'GOOD';
   billStatus: string;
+  healthThreshold?: number;
+  panel_warranty_expiry_date?: string;
+  inverter_warranty_expiry_date?: string;
+  system_warranty_expiry_date?: string;
+  general_warranty_expiry_date?: string;
 }
 
 export interface CalculatedBillData {
@@ -52,6 +64,7 @@ export interface CalculatedBillData {
   panelWarranty: string;
   systemWarranty: string;
   inverterWarranty: string;
+  generalWarranty?: string;
   systemHealth: 'Normal' | 'POOR' | 'GOOD';
   billStatus: string;
   panel_name: string;
@@ -73,37 +86,31 @@ export function calculateBillData(
     capacity
   } = inputs;
 
-  // 1) Generation remains as provided (even if zero)
-
-  // 2) Daytime Self Consumption = Generated − Exported
+  // 1) daytime self consumption
   const daytimeSelfConsumption = gen - exp;
 
-  // 3) Total Consumption = (Generated − Exported) + Imported
+  // 2) total consumption
   const totalConsumption = daytimeSelfConsumption + imp;
 
-  // 4) Billing Units = Total Consumption − Generated
+  // 3) billing units
   const billingUnits = totalConsumption - gen;
 
-  // 5) Current Banked Unit
-  // If (Exported − Imported) > 0 -> Current Banked Unit = Previous Banked Unit + (Exported − Imported)
-  // Else -> Current Banked Unit = Previous Banked Unit
+  // 4) current banked units
   let currentBankedUnit = prevBanked;
   if ((exp - imp) > 0) {
     currentBankedUnit = prevBanked + (exp - imp);
   }
 
-  // 6) System Health
-  // If (Generated / Capacity) × 100 > 90 -> System Health = GOOD Else POOR
-  // *If capacity is 0, default to POOR to avoid Infinity*
+  // 5) system health: GOOD if gen/capacity > threshold, else POOR (default threshold 75)
+  const threshold = inputs.healthThreshold !== undefined ? inputs.healthThreshold : 75;
   let systemHealth: 'Normal' | 'POOR' | 'GOOD' = 'POOR';
-  if (capacity > 0 && ((gen / capacity) * 100) > 90) {
+  if (capacity > 0 && (gen / capacity) > threshold) {
     systemHealth = 'GOOD';
   }
 
   // Parse Commissioning Date
   let commDateObj = new Date();
   if (inputs.commissioningDate && inputs.commissioningDate !== 'N/A') {
-    // Expected format dd/MM/yy
     const parts = inputs.commissioningDate.split('/');
     if (parts.length === 3) {
       let year = parseInt(parts[2], 10);
@@ -121,20 +128,38 @@ export function calculateBillData(
     return `${String(nd.getDate()).padStart(2, '0')}/${String(nd.getMonth() + 1).padStart(2, '0')}/${String(nd.getFullYear()).slice(-2)}`;
   };
 
-  // 7) Panel/Inverter Warranty Calculation based on Brands
+  const formatDateStringToDisplay = (dateStr: string | undefined): string | null => {
+    if (!dateStr || dateStr === 'N/A' || dateStr === 'null') return null;
+    if (dateStr.includes('-')) {
+      const parts = dateStr.split('T')[0].split('-');
+      if (parts.length === 3) {
+        return `${parts[2]}/${parts[1]}/${parts[0].slice(-2)}`;
+      }
+    }
+    return dateStr;
+  };
+
+  // 6) Panel/Inverter Warranty Calculation
   const warrantyResult = calculateWarrantyExpiry({
     inverter_brand: inputs.inverter_name,
     panel_brand: inputs.panel_name,
     commissioning_date: inputs.commissioningDate
   }, 'display');
 
-  const panelWarranty = warrantyResult.panel_warranty_expiry_date;
-  const inverterWarranty = warrantyResult.inverter_warranty_expiry_date;
-  
-  // 9) System Warranty = Commissioning Date + 5 Years
-  const systemWarranty = addYearsToString(commDateObj, 5);
+  // Override with database specific warranty dates if present
+  const panelWarranty = formatDateStringToDisplay(inputs.panel_warranty_expiry_date || consumer.panel_warranty_expiry_date) || 
+    warrantyResult.panel_warranty_expiry_date;
+    
+  const inverterWarranty = formatDateStringToDisplay(inputs.inverter_warranty_expiry_date || consumer.inverter_warranty_expiry_date) || 
+    warrantyResult.inverter_warranty_expiry_date;
+    
+  const systemWarranty = formatDateStringToDisplay(inputs.system_warranty_expiry_date || consumer.system_warranty_expiry_date) || 
+    addYearsToString(commDateObj, 5);
 
-  // 10) Working Days = Today’s Date − Commissioning Date
+  const generalWarranty = formatDateStringToDisplay(inputs.general_warranty_expiry_date || consumer.general_warranty_expiry_date) || 
+    'N/A';
+
+  // 7) Working Days
   const today = new Date();
   const daysSinceInstallation = Math.floor(
     (today.getTime() - commDateObj.getTime()) / (1000 * 60 * 60 * 24)
@@ -153,11 +178,12 @@ export function calculateBillData(
     billingAmount: inputs.billingAmount,
     previousBankedUnit: prevBanked,
     currentBankedUnit,
-    commissioningDate: inputs.commissioningDate, // preserve original string formatting
+    commissioningDate: inputs.commissioningDate,
     capacity,
     panelWarranty,
     systemWarranty,
     inverterWarranty,
+    generalWarranty,
     systemHealth,
     billStatus: inputs.billStatus,
     panel_name: inputs.panel_name,

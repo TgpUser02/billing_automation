@@ -9,6 +9,7 @@ import Index from "./pages/Index";
 import ArinBillGenerator from "./pages/ArinBillGenerator";
 import ConsumerConnect from "./pages/ConsumerConnect";
 import Dashboard from "./pages/Dashboard";
+import Reports from "./pages/Reports";
 import NotFound from "./pages/NotFound";
 import { Layout } from "./components/Layout";
 import { ProtectedLayout } from "./components/ProtectedRoute";
@@ -35,6 +36,7 @@ const App = () => {
             <Route path="/bill-buddy" element={<ProtectedLayout><ArinBillGenerator /></ProtectedLayout>} />
             <Route path="/consumer-connect" element={<ProtectedLayout><ConsumerConnect /></ProtectedLayout>} />
             <Route path="/consumerconnect" element={<ProtectedLayout><ConsumerConnect /></ProtectedLayout>} />
+            <Route path="/reports" element={<ProtectedLayout><Reports /></ProtectedLayout>} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<ProtectedLayout><NotFound /></ProtectedLayout>} />
           </Routes>

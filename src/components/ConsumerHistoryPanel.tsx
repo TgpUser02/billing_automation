@@ -274,7 +274,7 @@ export function ConsumerHistoryPanel({
                       <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/40 text-[11px]">
                         {/* Banked Solar battery charge card */}
                         <div className="bg-white/40 dark:bg-slate-900/60 border border-slate-200/40 dark:border-slate-800/60 rounded-xl p-2 flex items-center gap-2.5">
-                          {record.currentUnit > record.previousUnit ? (
+                          {(record.currentUnit ?? 0) > record.previousUnit ? (
                             <div className="w-7 h-7 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-500">
                               <BatteryCharging className="w-4 h-4 animate-pulse" />
                             </div>
@@ -285,7 +285,7 @@ export function ConsumerHistoryPanel({
                           )}
                           <div className="space-y-0.5">
                             <p className="text-[9px] uppercase font-bold text-slate-400 leading-none">Banked Solar</p>
-                            <p className="font-bold text-slate-700 dark:text-slate-300">{record.currentUnit} <span className="font-normal text-[9px] text-muted-foreground">kWh</span></p>
+                            <p className="font-bold text-slate-700 dark:text-slate-300">{record.currentUnit ?? 0} <span className="font-normal text-[9px] text-muted-foreground">kWh</span></p>
                           </div>
                         </div>
 

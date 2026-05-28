@@ -2,7 +2,9 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { GenerationControls } from '@/components/GenerationControls';
 import { BillPreview } from '@/components/BillPreview';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Zap } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Zap, Users, Eye, DownloadCloud, ArrowRight, CheckCircle2, Monitor } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { format } from 'date-fns';
 import {
@@ -17,14 +19,116 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 
+const downloadCSVClient = (data: any[], filename: string) => {
+    if (!data || data.length === 0) return;
+    const headers = ["Consumer Number", "Consumer Name", "Arin ID", "Generation", "Capacity (kW)"];
+    const rows = data.map(item => [
+        item.consumer_no || "",
+        item.consumer_name || "",
+        item.arin_id || "",
+        item.generated ?? 0,
+        item.capacity ?? 0
+    ]);
+    const csvContent = [
+        headers.join(","),
+        ...rows.map(row => row.map(val => typeof val === 'string' && val.includes(',') ? `"${val}"` : val).join(","))
+    ].join("\n");
+    
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    link.style.display = "none";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+};
+
+const downloadXLSXClient = (data: any[], filename: string) => {
+    if (!data || data.length === 0) return;
+    const worksheet = XLSX.utils.json_to_sheet(data.map(item => ({
+        "Consumer Number": item.consumer_no || "",
+        "Consumer Name": item.consumer_name || "",
+        "Arin ID": item.arin_id || "",
+        "Generation": item.generated ?? 0,
+        "Capacity (kW)": item.capacity ?? 0,
+        "Export": item.export ?? 0
+    })));
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Sheet1");
+    XLSX.writeFile(workbook, filename);
+};
+
+const downloadPDFClient = (data: any[], filename: string) => {
+    if (!data || data.length === 0) return;
+    const doc = new jsPDF();
+    
+    // Title
+    doc.setFontSize(16);
+    doc.setFont("helvetica", "bold");
+    doc.text(filename.replace(".pdf", "").replace(/_/g, " ").toUpperCase(), 14, 15);
+    
+    const headers = [["Arin ID", "Consumer Number", "Consumer Name", "Generation", "Capacity (kW)", "Export"]];
+    const rows = data.map(item => [
+        item.arin_id || "N/A",
+        item.consumer_no || "",
+        item.consumer_name || "",
+        item.generated ?? 0,
+        item.capacity ?? 0,
+        item.export ?? 0
+    ]);
+    
+    autoTable(doc, {
+        startY: 22,
+        head: headers,
+        body: rows,
+        theme: 'striped',
+        headStyles: { fillColor: [13, 148, 136] }, // arin-teal
+        styles: { fontSize: 8 }
+    });
+    
+    doc.save(filename);
+};
+
 export default function ArinBillGenerator() {
     const [dbConsumers, setDbConsumers] = useState<any[]>([]);
     const [selectedDate, setSelectedDate] = useState<Date>(new Date());
     const [selectedConsumer, setSelectedConsumer] = useState<any | null>(null);
     const [billData, setBillData] = useState<CalculatedBillData | null>(null);
+    const [selectedForDownload, setSelectedForDownload] = useState<any[]>([]);
+    const [externalSelectedId, setExternalSelectedId] = useState<string | undefined>();
+    const [isFetchingPreview, setIsFetchingPreview] = useState(false);
     const [isBulkDownloading, setIsBulkDownloading] = useState(false);
     const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 });
+    const [showEditorSidebar, setShowEditorSidebar] = useState(true);
+    const [isGeneratingSingle, setIsGeneratingSingle] = useState(false);
+    const [zoomScale, setZoomScale] = useState(1);
+    const previewWrapperRef = useRef<HTMLDivElement>(null);
     const billPreviewRef = useRef<HTMLDivElement>(null);
+
+    const uiPhase: "SETUP" | "PREVIEW" | "GENERATING" =
+        isBulkDownloading
+            ? "GENERATING"
+            : selectedConsumer
+                ? "PREVIEW"
+                : "SETUP";
+
+    useEffect(() => {
+        const handleResize = () => {
+            if (previewWrapperRef.current) {
+                const containerWidth = previewWrapperRef.current.clientWidth - 48; // Padding offset
+                const scale = Math.min(1, containerWidth / 1200);
+                setZoomScale(scale);
+            }
+        };
+        handleResize();
+        const timer = setTimeout(handleResize, 150); // Short delay for sidebar animations
+        window.addEventListener('resize', handleResize);
+        return () => {
+            window.removeEventListener('resize', handleResize);
+            clearTimeout(timer);
+        };
+    }, [showEditorSidebar, billData]);
 
     useEffect(() => {
         const fetchConsumers = async () => {
@@ -78,14 +182,33 @@ export default function ArinBillGenerator() {
                 title: "Error",
                 description: "Please generate a bill preview first",
                 variant: "destructive",
+                className: "font-bold shadow-xl"
             });
             return;
         }
 
+        setIsGeneratingSingle(true);
+        const element = billPreviewRef.current;
+        const parent = element?.parentElement;
+        let originalTransform = '';
+        let originalMarginBottom = '';
+        if (parent) {
+            originalTransform = parent.style.transform;
+            originalMarginBottom = parent.style.marginBottom;
+            parent.style.transform = 'none';
+            parent.style.marginBottom = '0px';
+        }
+
         try {
-            const canvas = await html2canvas(billPreviewRef.current, {
+            const canvas = await html2canvas(element, {
                 scale: 2,
                 backgroundColor: '#ffffff',
+                useCORS: true,
+                logging: false,
+                width: 1200,
+                scrollX: 0,
+                scrollY: 0,
+                windowWidth: 1200,
             });
 
             const base64Image = canvas.toDataURL('image/jpeg', 1.0);
@@ -96,10 +219,11 @@ export default function ArinBillGenerator() {
             link.href = base64Image;
             link.click();
 
-            // 2. Google Drive Save (NEW REQUIREMENT)
+            // 2. Google Drive Save
             toast({
                 title: "Uploading to Drive",
                 description: "Saving this bill to your Google Drive folder...",
+                className: "font-semibold shadow-md"
             });
             
             const dayStr = format(selectedDate, 'yyyy-MM-dd');
@@ -108,13 +232,21 @@ export default function ArinBillGenerator() {
             toast({
                 title: "Saved",
                 description: res.message || "Bill image has been saved to Drive.",
+                className: "bg-green-600 text-white font-bold border-none shadow-2xl"
             });
         } catch (error: any) {
             toast({
                 title: "Error",
                 description: error.message || "Failed to process image save",
                 variant: "destructive",
+                className: "font-bold shadow-xl"
             });
+        } finally {
+            if (parent) {
+                parent.style.transform = originalTransform;
+                parent.style.marginBottom = originalMarginBottom;
+            }
+            setIsGeneratingSingle(false);
         }
     }, [billData, selectedDate]);
 
@@ -164,6 +296,8 @@ export default function ArinBillGenerator() {
 
         const zeroGenList: any[] = [];
         const poorStatusList: any[] = [];
+        const genLessThanExportList: any[] = [];
+        const genEqualToExportList: any[] = [];
         let successCount = 0;
         let processedCount = 0;
 
@@ -220,6 +354,27 @@ export default function ArinBillGenerator() {
 
                 const calculated = calculateBillData(rawInputs as any, consumer as any);
                 
+                // Compare generation to export
+                if (rawInputs.generatedElectricity < rawInputs.exportedToGrid) {
+                    genLessThanExportList.push({
+                        consumer_no: targetId,
+                        consumer_name: rawInputs.consumerName,
+                        arin_id: targetData.arin_id || consumer.arin_id || "N/A",
+                        generated: rawInputs.generatedElectricity,
+                        capacity: rawInputs.capacity,
+                        export: rawInputs.exportedToGrid
+                    });
+                } else if (rawInputs.generatedElectricity === rawInputs.exportedToGrid) {
+                    genEqualToExportList.push({
+                        consumer_no: targetId,
+                        consumer_name: rawInputs.consumerName,
+                        arin_id: targetData.arin_id || consumer.arin_id || "N/A",
+                        generated: rawInputs.generatedElectricity,
+                        capacity: rawInputs.capacity,
+                        export: rawInputs.exportedToGrid
+                    });
+                }
+
                 // 1. ZERO GENERATION FILTER (STRICT - using internal raw input)
                 if (rawInputs.generatedElectricity === 0) {
                     zeroGenList.push({ 
@@ -258,14 +413,35 @@ export default function ArinBillGenerator() {
                 await new Promise(r => setTimeout(r, 600));
 
                 if (billPreviewRef.current) {
-                    const canvas = await html2canvas(billPreviewRef.current, { 
-                        scale: 2, 
-                        useCORS: true,
-                        logging: false
-                    });
-                    const base64Image = canvas.toDataURL('image/jpeg', 1.0);
-                    await api.saveBillImage(targetId, dayStr, base64Image);
-                    successCount++;
+                    const element = billPreviewRef.current;
+                    const parent = element.parentElement;
+                    let originalTransform = '';
+                    let originalMarginBottom = '';
+                    if (parent) {
+                        originalTransform = parent.style.transform;
+                        originalMarginBottom = parent.style.marginBottom;
+                        parent.style.transform = 'none';
+                        parent.style.marginBottom = '0px';
+                    }
+                    try {
+                        const canvas = await html2canvas(element, { 
+                            scale: 2, 
+                            useCORS: true,
+                            logging: false,
+                            width: 1200,
+                            scrollX: 0,
+                            scrollY: 0,
+                            windowWidth: 1200,
+                        });
+                        const base64Image = canvas.toDataURL('image/jpeg', 1.0);
+                        await api.saveBillImage(targetId, dayStr, base64Image);
+                        successCount++;
+                    } finally {
+                        if (parent) {
+                            parent.style.transform = originalTransform;
+                            parent.style.marginBottom = originalMarginBottom;
+                        }
+                    }
                 }
 
                 // Update real-time progress state
@@ -274,12 +450,22 @@ export default function ArinBillGenerator() {
 
             // ── 3. AUTOMATED REPORT PERSISTENCE (Rule #1 & #2) ──
             // Always create/update reports in the background on the server
-            // identifying them as csv format specifically
-            if (zeroGenList.length >= 0) {
+            // identifying them as csv/xlsx format specifically
+            if (zeroGenList.length > 0) {
                 await api.saveReports("zero_generation_consumers.csv", zeroGenList, dayStr);
+                downloadCSVClient(zeroGenList, `zero_generation_consumers_${dayStr}.csv`);
             }
-            if (poorStatusList.length >= 0) {
+            if (poorStatusList.length > 0) {
                 await api.saveReports("poor_consumers.csv", poorStatusList, dayStr);
+                downloadCSVClient(poorStatusList, `poor_consumers_${dayStr}.csv`);
+            }
+            if (genLessThanExportList.length > 0) {
+                await api.saveReports(`generation_less_than_export.pdf`, genLessThanExportList, dayStr);
+                downloadPDFClient(genLessThanExportList, `generation_less_than_export_${dayStr}.pdf`);
+            }
+            if (genEqualToExportList.length > 0) {
+                await api.saveReports(`generation_equal_to_export.pdf`, genEqualToExportList, dayStr);
+                downloadPDFClient(genEqualToExportList, `generation_equal_to_export_${dayStr}.pdf`);
             }
 
             // ── 4. COMPLETION SUMMARY POPUP (User Request) ──
@@ -293,9 +479,11 @@ export default function ArinBillGenerator() {
                             <li>Saved to Drive: {successCount}</li>
                             <li>Skipped (Zero Gen): {zeroGenList.length}</li>
                             <li>Poor Progress: {poorStatusList.length}</li>
+                            <li>Gen &lt; Export: {genLessThanExportList.length}</li>
+                            <li>Gen = Export: {genEqualToExportList.length}</li>
                         </ul>
                         <p className="text-[9px] pt-1 italic opacity-70 border-t mt-1">
-                            CSVs saved to Desktop/arin/{dayStr}/reports/
+                            Files saved on Desktop/arin/{dayStr}/reports/
                         </p>
                     </div>
                 ),
@@ -345,48 +533,176 @@ export default function ArinBillGenerator() {
                 </div>
             )}
             {/* Header */}
-            <div className="mb-8 border-b border-border/10 pb-6">
-                <h1 className="text-4xl font-black tracking-tighter text-foreground bg-clip-text text-transparent bg-gradient-to-r from-arin-orange to-arin-teal">
-                    Bill Analysis Generation
-                </h1>
-                <p className="text-muted-foreground mt-1 font-medium">
-                    Analyze and generate visual reports for consumer solar journeys.
-                </p>
+            <div className="mb-8 border-b border-border/10 pb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                    <h1 className="text-4xl font-black tracking-tighter text-foreground bg-clip-text text-transparent bg-gradient-to-r from-arin-orange to-arin-teal">
+                        Bill Analysis Generation
+                    </h1>
+                    <p className="text-muted-foreground mt-1 font-medium">
+                        Analyze and generate visual reports for consumer solar journeys.
+                    </p>
+                </div>
+                <Button
+                    onClick={() => setShowEditorSidebar(!showEditorSidebar)}
+                    variant="outline"
+                    className="rounded-xl border-2 border-arin-teal text-arin-teal hover:bg-arin-teal/5 font-black uppercase text-xs h-10 px-4 shadow-sm"
+                >
+                    {showEditorSidebar ? "Hide Editor" : "Show Editor"}
+                </Button>
             </div>
 
-            {/* Main Content Sections - Vertical Stack */}
-            <div className="space-y-12">
-                {/* Section 1 - Controls (Full Width) */}
-                <div className="w-full max-w-7xl mx-auto">
-                    <GenerationControls
-                        onGenerate={handleGenerate}
-                        onDownloadImage={handleDownloadImage}
-                        onDownloadAllImages={handleDownloadAllImages}
-                        selectedDate={selectedDate}
-                        onDateChange={setSelectedDate}
-                        isBulkDownloading={isBulkDownloading}
-                    />
-                </div>
+            {/* Step Breadcrumb Indicator */}
+            <div className="flex items-center gap-1 mb-6 bg-white/60 backdrop-blur-sm border border-white/30 rounded-2xl px-5 py-3 shadow-sm w-fit">
+                {[
+                    { key: "SETUP", label: "Select Consumers", icon: Users },
+                    { key: "PREVIEW", label: "Review & Edit", icon: Eye },
+                    { key: "GENERATING", label: "Generate", icon: DownloadCloud },
+                ].map((step, idx, arr) => {
+                    const phases = ["SETUP", "PREVIEW", "GENERATING"];
+                    const currentIdx = phases.indexOf(uiPhase);
+                    const stepIdx = phases.indexOf(step.key);
+                    const isActive = step.key === uiPhase;
+                    const isDone = stepIdx < currentIdx;
+                    const Icon = step.icon;
+                    return (
+                        <div key={step.key} className="flex items-center gap-1">
+                            <div
+                                className={cn(
+                                    "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
+                                    isActive
+                                        ? "bg-arin-teal text-white shadow-md shadow-arin-teal/20"
+                                        : isDone
+                                            ? "bg-green-50 text-green-600 border border-green-200"
+                                            : "text-slate-400 bg-slate-50 border border-slate-100"
+                                )}
+                            >
+                                {isDone ? (
+                                    <CheckCircle2 className="w-3 h-3" />
+                                ) : (
+                                    <Icon className="w-3 h-3" />
+                                )}
+                                <span className="hidden sm:inline">{step.label}</span>
+                            </div>
+                            {idx < arr.length - 1 && (
+                                <ArrowRight className="w-3 h-3 text-slate-300 mx-0.5" />
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
 
-                {/* Section 2 - Preview (Full Width) */}
-                <div className="w-full">
+            {/* Main Content Sections - Side-by-Side Flex Layout */}
+            <div className="flex flex-col lg:flex-row gap-8 items-start">
+                {/* Section 1 - Controls (Editor Sidebar) */}
+                {showEditorSidebar && (
+                    <div className="w-full lg:w-[420px] shrink-0 transition-all duration-300">
+                        <GenerationControls
+                            onGenerate={handleGenerate}
+                            onDownloadImage={handleDownloadImage}
+                            onDownloadAllImages={handleDownloadAllImages}
+                            selectedDate={selectedDate}
+                            onDateChange={setSelectedDate}
+                            isBulkDownloading={isBulkDownloading}
+                            isGeneratingSingle={isGeneratingSingle}
+                            onSelectionUpdate={setSelectedForDownload}
+                            externalSelectedId={externalSelectedId}
+                            onFetchingChange={setIsFetchingPreview}
+                        />
+                    </div>
+                )}
+
+                {/* Section 2 - Preview (Main Content Area) */}
+                <div className="flex-1 w-full min-w-0">
                     <Card className="glass-card shadow-2xl border-white/20 overflow-hidden">
-                        <CardHeader className="bg-white/50 border-b border-border/10 py-4">
+                        <CardHeader className="bg-white/50 border-b border-border/10 py-4 flex flex-row items-center justify-between">
                             <CardTitle className="text-lg font-bold flex items-center gap-2">
                                 <Zap className="w-5 h-5 text-arin-orange fill-current" />
                                 Live Premium Preview
                             </CardTitle>
+                            {uiPhase !== "SETUP" && (
+                                <Button 
+                                    onClick={handleDownloadImage}
+                                    disabled={isGeneratingSingle || isBulkDownloading || isFetchingPreview}
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 gap-2 font-bold text-xs border-arin-teal text-arin-teal hover:bg-arin-teal/10"
+                                >
+                                    {isGeneratingSingle ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <DownloadCloud className="w-3.5 h-3.5" />}
+                                    Download Image
+                                </Button>
+                            )}
                         </CardHeader>
                         <CardContent className="p-0 overflow-hidden">
-                            <div className="bg-slate-100/50 p-4 lg:p-8 flex justify-center min-h-[600px] overflow-x-auto custom-scrollbar">
-                                <div className="shadow-2xl">
-                                    <BillPreview
-                                        ref={billPreviewRef}
-                                        consumer={selectedConsumer}
-                                        billData={billData}
-                                        selectedDate={selectedDate}
-                                    />
-                                </div>
+                            <div ref={previewWrapperRef} className="bg-slate-100/50 p-4 lg:p-8 flex justify-center min-h-[600px] overflow-hidden">
+                                {uiPhase === "SETUP" ? (
+                                    <div className="w-full h-full flex flex-col items-center justify-center text-center">
+                                        <div className="w-16 h-16 rounded-2xl bg-white shadow-sm flex items-center justify-center text-slate-400 mb-4 border border-slate-200">
+                                            <Monitor className="w-8 h-8" />
+                                        </div>
+                                        <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">Waiting for Selection</h3>
+                                        <p className="text-xs text-slate-500 max-w-xs mt-2 leading-relaxed font-medium">
+                                            Select a consumer profile from the sidebar on the left to load their bill preview and enable editing.
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-col items-center w-full">
+                                        <div 
+                                            style={{ 
+                                                transform: `scale(${zoomScale})`, 
+                                                transformOrigin: 'top center',
+                                                width: '1200px',
+                                                flexShrink: 0,
+                                                transition: 'transform 0.15s ease-out',
+                                                marginBottom: `-${(1 - zoomScale) * 800}px` // Approximate height compensation
+                                            }}
+                                            className={cn("relative shadow-2xl transition-all duration-300", uiPhase === "GENERATING" ? "opacity-50 blur-[2px]" : "opacity-100")}
+                                        >
+                                            {isFetchingPreview && (
+                                                <div className="absolute inset-0 z-50 bg-white/40 backdrop-blur-[2px] flex items-center justify-center rounded-lg">
+                                                    <div className="bg-white p-6 rounded-2xl shadow-xl flex flex-col items-center gap-3">
+                                                        <Loader2 className="w-8 h-8 animate-spin text-arin-teal" />
+                                                        <span className="text-sm font-black uppercase text-slate-600 tracking-widest">Loading Profile...</span>
+                                                    </div>
+                                                </div>
+                                            )}
+                                            <BillPreview
+                                                ref={billPreviewRef}
+                                                consumer={selectedConsumer}
+                                                billData={billData}
+                                                selectedDate={selectedDate}
+                                            />
+                                        </div>
+                                        {/* Selected Consumers List */}
+                                        {selectedForDownload.length > 0 && uiPhase === "PREVIEW" && (
+                                            <div 
+                                                className="mt-6 bg-white rounded-xl shadow-sm border border-slate-200 p-4 animate-in slide-in-from-bottom-4"
+                                                style={{ width: `${1200 * zoomScale}px`, maxWidth: '100%', zIndex: 10 }}
+                                            >
+                                                <h3 className="text-[10px] font-black uppercase text-slate-500 mb-3 tracking-widest flex items-center gap-2">
+                                                    <Users className="w-3.5 h-3.5" />
+                                                    Selected for Batch ({selectedForDownload.length})
+                                                </h3>
+                                                <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
+                                                    {selectedForDownload.map(c => (
+                                                        <button
+                                                            key={c.consumer_number}
+                                                            onClick={() => setExternalSelectedId(c.consumer_number)}
+                                                            className={cn(
+                                                                "flex flex-col items-start min-w-[160px] max-w-[200px] p-2.5 rounded-lg border text-left transition-all shrink-0",
+                                                                selectedConsumer?.consumer_number === c.consumer_number
+                                                                    ? "border-arin-teal bg-arin-teal/5 shadow-sm"
+                                                                    : "border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-slate-100"
+                                                            )}
+                                                        >
+                                                            <span className="text-xs font-bold text-slate-700 truncate w-full">{c.consumer_name}</span>
+                                                            <span className="text-[10px] font-mono text-slate-500">{c.consumer_number}</span>
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                         </CardContent>
                     </Card>

@@ -33,7 +33,7 @@ export function ConsumerTable({ consumers, onRowClick, isLoading = false }: Cons
             <th className="w-32">Commission Date</th>
             <th className="w-28">Import Units</th>
             <th className="w-28">Export Units</th>
-            <th className="w-32">Total Generation</th>
+            <th className="w-32">Generation of Month</th>
             <th className="w-28">Reading Date</th>
             <th className="w-32">Amount (₹)</th>
             <th className="w-28">Prev Banked</th>
@@ -86,7 +86,7 @@ export function ConsumerTable({ consumers, onRowClick, isLoading = false }: Cons
                 <td>{formatDate(consumer.readingDate)}</td>
                 <td className="font-semibold text-primary">{formatCurrency(consumer.amount)}</td>
                 <td className="text-center">{consumer.previousUnit.toLocaleString()}</td>
-                <td className="text-center font-bold text-arin-teal">{consumer.currentUnit.toLocaleString()}</td>
+                <td className="text-center font-bold text-arin-teal">{(consumer.currentUnit ?? 0).toLocaleString()}</td>
               </tr>
             ))
           )}

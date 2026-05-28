@@ -85,7 +85,7 @@ export interface WarrantyCalculationResult {
  * Normalizes brand name by handling null, undefined, and whitespace
  * Returns 'Other' for invalid/empty brands
  */
-function normalizeBrand(brand: string | null | undefined): string {
+export function normalizeBrand(brand: string | null | undefined): string {
   if (!brand || typeof brand !== 'string' || brand.trim() === '') {
     return 'Other';
   }
@@ -142,7 +142,10 @@ function addYearsToDate(dateStr: string, years: number): string {
   date.setFullYear(date.getFullYear() + years);
 
   // Return in YYYY-MM-DD format (ISO format for database compatibility)
-  return date.toISOString().split('T')[0];
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 /**
@@ -175,8 +178,16 @@ export function calculateWarrantyExpiry(
   outputFormat: 'iso' | 'display' = 'iso'
 ): WarrantyCalculationResult {
   // Extract and normalize brand names
-  const normalizedInverterBrand = normalizeBrand(customerData.inverter_brand);
-  const normalizedPanelBrand = normalizeBrand(customerData.panel_brand);
+  let normalizedInverterBrand = normalizeBrand(customerData.inverter_brand);
+  let normalizedPanelBrand = normalizeBrand(customerData.panel_brand);
+
+  // Fallback to 'Other' if brand is not supported
+  if (!(normalizedInverterBrand in INVERTER_WARRANTY_MAP)) {
+    normalizedInverterBrand = 'Other';
+  }
+  if (!(normalizedPanelBrand in PANEL_WARRANTY_MAP)) {
+    normalizedPanelBrand = 'Other';
+  }
 
   // Get warranty years from maps
   const inverterWarrantyYears = getWarrantyYears(normalizedInverterBrand, INVERTER_WARRANTY_MAP);

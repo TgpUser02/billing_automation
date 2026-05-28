@@ -252,6 +252,13 @@ export const api = {
         return checkResponse(response);
     },
 
+    refreshTab: async () => {
+        const response = await authFetch(`${API_BASE_URL}/refresh-tab`, {
+            method: "POST",
+        });
+        return checkResponse(response);
+    },
+
     startDownload: async (workers: number, selectedIndices: number[], customId?: string) => {
         const response = await authFetch(`${API_BASE_URL}/download`, {
             method: "POST",
@@ -260,9 +267,34 @@ export const api = {
         return checkResponse(response);
     },
 
-    processData: async () => {
+    processData: async (threshold?: number) => {
         const response = await authFetch(`${API_BASE_URL}/process`, {
             method: "POST",
+            body: threshold !== undefined ? JSON.stringify({ threshold }) : undefined,
+        });
+        return checkResponse(response);
+    },
+
+    startAddConsumer: async (consumerNumber: string, billingUnit: string) => {
+        const response = await authFetch(`${API_BASE_URL}/portal/add-consumer/start`, {
+            method: "POST",
+            body: JSON.stringify({ consumerNumber, billingUnit }),
+        });
+        return checkResponse(response);
+    },
+
+    submitAddConsumerCaptcha: async (captcha: string) => {
+        const response = await authFetch(`${API_BASE_URL}/portal/add-consumer/captcha`, {
+            method: "POST",
+            body: JSON.stringify({ captcha }),
+        });
+        return checkResponse(response);
+    },
+
+    submitAddConsumerOtp: async (otp: string) => {
+        const response = await authFetch(`${API_BASE_URL}/portal/add-consumer/otp`, {
+            method: "POST",
+            body: JSON.stringify({ otp }),
         });
         return checkResponse(response);
     },
@@ -291,6 +323,17 @@ export const api = {
             body: JSON.stringify({ filename, data, dateStr }),
         });
         return checkResponse(response);
+    },
+
+    listReports: async () => {
+        const response = await authFetch(`${API_BASE_URL}/reports/list`);
+        return checkResponse(response);
+    },
+
+    downloadReport: async (path: string) => {
+        const response = await authFetch(`${API_BASE_URL}/reports/download?path=${encodeURIComponent(path)}`);
+        if (!response.ok) throw new Error("Failed to download file");
+        return response.blob();
     },
 
     saveBillData: async (data: any) => {
@@ -347,6 +390,20 @@ export const api = {
         return checkResponse(response);
     },
 
+    deleteCustomer: async (consumerNumber: string) => {
+        const response = await authFetch(`${API_BASE_URL}/customers/${encodeURIComponent(consumerNumber)}`, {
+            method: "DELETE",
+        });
+        return checkResponse(response);
+    },
+
+    deduplicateCustomers: async () => {
+        const response = await authFetch(`${API_BASE_URL}/customers/deduplicate`, {
+            method: "POST",
+        });
+        return checkResponse(response);
+    },
+
     importConsumers: async (file: File) => {
         const token = getToken();
         const formData = new FormData();
@@ -373,9 +430,27 @@ export const api = {
     },
     
     uploadZeroGenReport: async () => {
-        return authFetch(`${API_BASE_URL}/drive/upload-zero-gen`, {
+        const response = await authFetch(`${API_BASE_URL}/drive/upload-zero-gen`, {
             method: 'POST'
         });
+        return checkResponse(response);
+    },
+    getPortalCredentials: async () => {
+        const response = await authFetch(`${API_BASE_URL}/portal-credentials`);
+        return checkResponse(response);
+    },
+    savePortalCredential: async (username: string, password_hash: string, description?: string) => {
+        const response = await authFetch(`${API_BASE_URL}/portal-credentials`, {
+            method: "POST",
+            body: JSON.stringify({ username, password: password_hash, description }),
+        });
+        return checkResponse(response);
+    },
+    deletePortalCredential: async (username: string) => {
+        const response = await authFetch(`${API_BASE_URL}/portal-credentials/${encodeURIComponent(username)}`, {
+            method: "DELETE",
+        });
+        return checkResponse(response);
     }
 };
 

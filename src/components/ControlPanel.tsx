@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { format } from "date-fns";
 import { CalendarIcon, Play, User, Key, Plus, X, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,8 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import ProcessIndicator from "./ProcessIndicator";
+import { api } from "@/lib/api";
+import { confirmAction, showAlert } from "@/lib/swal";
 
 interface ControlPanelProps {
   onLaunch: (date: Date, customId?: string) => void;
@@ -18,35 +20,115 @@ interface ControlPanelProps {
   currentStep: number;
   date: Date | undefined;
   setDate: (date: Date | undefined) => void;
+  customId: string | undefined;
+  onCustomIdChange: (id: string) => void;
+  isLoggedIn?: boolean;
 }
 
-const ControlPanel = ({ onLaunch, isRunning, currentStep, date, setDate }: ControlPanelProps) => {
-  const [customId, setCustomId] = useState("");
+const ControlPanel = ({ onLaunch, isRunning, currentStep, date, setDate, customId, onCustomIdChange, isLoggedIn }: ControlPanelProps) => {
   const [newIdInput, setNewIdInput] = useState("");
-  const [savedIds, setSavedIds] = useState<string[]>(() => {
-    try {
-      const stored = localStorage.getItem('arin_savedIds');
-      return stored ? JSON.parse(stored) : [];
-    } catch { return []; }
-  });
+  const [newPasswordInput, setNewPasswordInput] = useState("");
+  const [portalCredentials, setPortalCredentials] = useState<any[]>([]);
   const [isAddingNew, setIsAddingNew] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
-  const handleAddId = () => {
-    if (newIdInput.trim() && !savedIds.includes(newIdInput.trim())) {
-      const newSaved = [newIdInput.trim(), ...savedIds];
-      setSavedIds(newSaved);
-      localStorage.setItem('arin_savedIds', JSON.stringify(newSaved));
-      setCustomId(newIdInput.trim());
-      setNewIdInput("");
-      setIsAddingNew(false);
+  const fetchCredentials = async () => {
+    try {
+      const res = await api.getPortalCredentials();
+      if (res.status === "success" && res.data) {
+        setPortalCredentials(res.data);
+      }
+    } catch (err) {
+      console.error("Failed to load portal credentials:", err);
     }
   };
 
-  const handleDeleteId = (idToDelete: string) => {
-    const newSaved = savedIds.filter(id => id !== idToDelete);
-    setSavedIds(newSaved);
-    localStorage.setItem('arin_savedIds', JSON.stringify(newSaved));
-    if (customId === idToDelete) setCustomId("");
+  useEffect(() => {
+    fetchCredentials();
+  }, []);
+
+  const handleAddId = async () => {
+    if (newIdInput.trim() && newPasswordInput.trim()) {
+      const addedId = newIdInput.trim();
+
+      // Check for duplicate username
+      const isDuplicate = portalCredentials.some(
+        (c) => c.username.toLowerCase() === addedId.toLowerCase()
+      );
+
+      if (isDuplicate) {
+        await showAlert({
+          title: "Duplicate Username",
+          text: `An account with the username "${addedId}" already exists.`,
+          icon: "warning",
+          confirmButtonText: "OK",
+        });
+        return;
+      }
+
+      // Confirmation prompt
+      const confirmSave = await confirmAction({
+        title: "Save Credential?",
+        text: `Are you sure you want to save the portal credentials for "${addedId}"?`,
+        icon: "question",
+        confirmButtonText: "Yes, Save",
+        cancelButtonText: "Cancel",
+      });
+      if (!confirmSave) return;
+
+      try {
+        await api.savePortalCredential(addedId, newPasswordInput.trim(), "Custom Portal User");
+        onCustomIdChange(addedId);
+        setNewIdInput("");
+        setNewPasswordInput("");
+        setIsAddingNew(false);
+        await fetchCredentials();
+        await showAlert({
+          title: "Account Saved",
+          text: `The portal credential for "${addedId}" has been saved.`,
+          icon: "success",
+          confirmButtonText: "OK",
+        });
+      } catch (err: any) {
+        console.error("Failed to save portal credential:", err);
+        await showAlert({
+          title: "Failed to Save",
+          text: err.message || "An error occurred while saving the portal account credentials.",
+          icon: "error",
+          confirmButtonText: "Close",
+        });
+      }
+    }
+  };
+
+  const handleDeleteId = async (idToDelete: string) => {
+    const confirmDelete = await confirmAction({
+      title: "Delete Account?",
+      text: `Are you sure you want to delete the portal account "${idToDelete}"?`,
+      icon: "warning",
+      confirmButtonText: "Yes, Delete",
+      cancelButtonText: "Cancel",
+    });
+    if (!confirmDelete) return;
+    try {
+      await api.deletePortalCredential(idToDelete);
+      if (customId === idToDelete) onCustomIdChange("");
+      await fetchCredentials();
+      await showAlert({
+        title: "Account Deleted",
+        text: `The portal account "${idToDelete}" was successfully removed.`,
+        icon: "success",
+        confirmButtonText: "OK",
+      });
+    } catch (err: any) {
+      console.error("Failed to delete portal credential:", err);
+      await showAlert({
+        title: "Deletion Failed",
+        text: err.message || "An error occurred while deleting the account credentials.",
+        icon: "error",
+        confirmButtonText: "Close",
+      });
+    }
   };
 
   const autoGeneratedId = date ? `Arin$${String(date.getDate()).padStart(3, '0')}` : "Arin#2024";
@@ -102,64 +184,83 @@ const ControlPanel = ({ onLaunch, isRunning, currentStep, date, setDate }: Contr
                   <Plus className="w-4 h-4 mr-1" /> Add New ID
                 </Button>
               ) : (
-                <div className="flex gap-2">
+                <div className="flex flex-col gap-2 p-2 bg-slate-50 border border-slate-200 rounded-xl">
                   <input
                     type="text"
-                    placeholder="Enter new ID..."
+                    placeholder="Enter Username"
                     value={newIdInput}
                     onChange={(e) => setNewIdInput(e.target.value)}
-                    className="flex-1 bg-transparent font-mono font-black text-sm text-arin-teal focus:outline-none placeholder:text-slate-300 px-2 border-b border-arin-teal/30"
+                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 font-mono text-xs text-slate-800 focus:outline-none"
                     autoFocus
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleAddId();
-                      if (e.key === 'Escape') { setIsAddingNew(false); setNewIdInput(""); }
-                    }}
                   />
-                  <Button 
-                    onClick={handleAddId} 
-                    disabled={!newIdInput.trim()}
-                    className="h-8 px-3 text-[10px] uppercase font-black tracking-wider bg-slate-900 hover:bg-slate-800 text-white rounded-lg"
-                  >
-                    Save
-                  </Button>
-                  <Button 
-                    variant="ghost"
-                    onClick={() => { setIsAddingNew(false); setNewIdInput(""); }}
-                    className="h-8 px-2 text-slate-400 hover:text-slate-600 rounded-lg"
-                  >
-                    Cancel
-                  </Button>
+                  <input
+                    type="text"
+                    placeholder="Enter Password"
+                    value={newPasswordInput}
+                    onChange={(e) => setNewPasswordInput(e.target.value)}
+                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 font-mono text-xs text-slate-800 focus:outline-none"
+                  />
+                  <div className="flex justify-end gap-2 mt-1">
+                    <Button 
+                      variant="ghost"
+                      onClick={() => { setIsAddingNew(false); setNewIdInput(""); setNewPasswordInput(""); }}
+                      className="h-7 px-2 text-[10px] uppercase font-bold text-slate-400 hover:text-slate-600"
+                    >
+                      Cancel
+                    </Button>
+                    <Button 
+                      onClick={handleAddId} 
+                      disabled={!newIdInput.trim() || !newPasswordInput.trim()}
+                      className="h-7 px-3 text-[10px] uppercase font-black tracking-wider bg-arin-teal hover:bg-arin-teal/90 text-white rounded-lg"
+                    >
+                      Save
+                    </Button>
+                  </div>
                 </div>
               )}
+            </div>
+            <div className="p-2 border-b border-border bg-slate-50/30">
+              <input
+                type="text"
+                placeholder="🔍 Search IDs..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-800 focus:outline-none focus:border-arin-teal/50"
+              />
             </div>
 
             {/* Scrollable list of predefined IDs - Using max-height for better visibility */}
             <div className="max-h-60 overflow-y-auto p-1 custom-scrollbar pr-2 space-y-1">
               <div className="grid grid-cols-1 gap-1">
-                {date ? (
-                  Array.from(new Set([
-                    `Arin$${String(date.getDate()).padStart(3, '0')}`, 
-                    `Arin#${String(date.getDate()).padStart(3, '0')}`,
-                    ...savedIds
-                  ])).map((id) => {
-                    const isActive = customId === id || (!customId && autoGeneratedId === id);
-                    const isDeletable = savedIds.includes(id);
-                    return (
-                      <div key={id} className="flex gap-1 group/item">
-                        <button
-                          onClick={() => setCustomId(id)}
-                          className={cn(
-                            "flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-black transition-all flex-1 text-left group",
-                            isActive
-                              ? "bg-arin-teal text-white shadow-md shadow-arin-teal/20"
-                              : "text-slate-600 hover:bg-white hover:text-arin-teal border border-transparent hover:border-arin-teal/20 hover:shadow-sm bg-white/40"
-                          )}
-                        >
-                          <span className="font-mono tracking-tight">{id}</span>
-                          {isActive && <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse shadow-[0_0_8px_white]" />}
-                          {!isActive && <div className="w-1.5 h-1.5 rounded-full bg-arin-teal/20 opacity-0 group-hover:opacity-100 transition-opacity" />}
-                        </button>
-                        {isDeletable && (
+                {portalCredentials.length === 0 ? (
+                  <div className="px-3 py-4 text-center text-xs font-bold text-slate-400">
+                    No credentials found. Add a new ID to start.
+                  </div>
+                ) : portalCredentials.filter(c => c.username.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 ? (
+                  <div className="px-3 py-4 text-center text-xs font-bold text-slate-400">
+                    No matching IDs found.
+                  </div>
+                ) : (
+                  portalCredentials
+                    .filter(c => c.username.toLowerCase().includes(searchQuery.toLowerCase()))
+                    .map((cred) => {
+                      const id = cred.username;
+                      const isActive = customId === id;
+                      return (
+                        <div key={id} className="flex gap-1 group/item">
+                          <button
+                            onClick={() => onCustomIdChange(id)}
+                            className={cn(
+                              "flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-black transition-all flex-1 text-left group",
+                              isActive
+                                ? "bg-arin-teal text-white shadow-md shadow-arin-teal/20"
+                                : "text-slate-600 hover:bg-white hover:text-arin-teal border border-transparent hover:border-arin-teal/20 hover:shadow-sm bg-white/40"
+                            )}
+                          >
+                            <span className="font-mono tracking-tight">{id}</span>
+                            {isActive && <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse shadow-[0_0_8px_white]" />}
+                            {!isActive && <div className="w-1.5 h-1.5 rounded-full bg-arin-teal/20 opacity-0 group-hover:opacity-100 transition-opacity" />}
+                          </button>
                           <button 
                             onClick={(e) => { e.stopPropagation(); handleDeleteId(id); }}
                             className="bg-white/40 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-lg px-2 border border-transparent hover:border-red-100 transition-all opacity-0 group-hover/item:opacity-100"
@@ -167,16 +268,10 @@ const ControlPanel = ({ onLaunch, isRunning, currentStep, date, setDate }: Contr
                           >
                             <X className="w-3.5 h-3.5" />
                           </button>
-                        )}
-                      </div>
-                    );
-                  })
-                ) : (
-                  <div className="px-3 py-4 text-center text-xs font-bold text-slate-400">
-                    Select a date to view options
-                  </div>
+                        </div>
+                      );
+                    })
                 )}
-                {/* Extra standard IDs removed as per request */}
               </div>
             </div>
           </div>
@@ -200,7 +295,7 @@ const ControlPanel = ({ onLaunch, isRunning, currentStep, date, setDate }: Contr
           </label>
           <Button
             onClick={() => date && onLaunch(date, customId || undefined)}
-            disabled={!date}
+            disabled={!date || !customId}
             className={cn(
               "w-full gap-2 text-white h-14 rounded-xl text-base font-bold shadow-xl border-0 transition-all active:scale-[0.98]",
               isRunning 
@@ -224,7 +319,7 @@ const ControlPanel = ({ onLaunch, isRunning, currentStep, date, setDate }: Contr
 
         {/* Process Indicator */}
         <div className="pt-4 border-t border-border/50">
-          <ProcessIndicator currentStep={currentStep} />
+          <ProcessIndicator currentStep={currentStep} isLoggedIn={isLoggedIn} />
         </div>
       </CardContent>
     </Card>

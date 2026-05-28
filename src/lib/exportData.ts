@@ -10,7 +10,7 @@ export function exportToCSV(consumers: Consumer[], filename: string = "consumer_
     "Commission Date",
     "Import Units",
     "Export Units",
-    "Total Generation",
+    "Generation of Month",
     "Reading Date",
     "Amount (₹)",
     "Previous Unit",

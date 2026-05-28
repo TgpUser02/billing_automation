@@ -36,7 +36,8 @@ import {
     User,
     Wrench,
     Search,
-    Loader2
+    Loader2,
+    Trash2
 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 
@@ -65,7 +66,13 @@ const emptyCustomerProfile = {
     visits_per_year: 2,
     total_visits_in_5_years: 10,
     is_blacklisted: 0,
-    inverter_warranty_expiry_date: ""
+    inverter_warranty_expiry_date: "",
+    panel_warranty_expiry_date: "",
+    system_warranty_expiry_date: "",
+    general_warranty_expiry_date: "",
+    blacklisted_reason: "",
+    portal_username: "",
+    portal_password: ""
 };
 
 const ConsumerConnect = () => {
@@ -101,6 +108,16 @@ const ConsumerConnect = () => {
     const [formData, setFormData] = useState<any>({ ...emptyCustomerProfile });
     const [isSaving, setIsSaving] = useState(false);
     const [saveError, setSaveError] = useState<string | null>(null);
+
+    // Delete Confirmation States
+    const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+    const [customerToDelete, setCustomerToDelete] = useState<any | null>(null);
+    const [isDeleting, setIsDeleting] = useState(false);
+
+    // Deduplicate States
+    const [showDuplicatesOnly, setShowDuplicatesOnly] = useState(false);
+    const [isDeduplicateOpen, setIsDeduplicateOpen] = useState(false);
+    const [isDeduplicating, setIsDeduplicating] = useState(false);
 
     // Pagination for profiles
     const [profilePage, setProfilePage] = useState(1);
@@ -183,6 +200,22 @@ const ConsumerConnect = () => {
         return ["All Zones", ...unique];
     }, [profiles]);
 
+    // Derive duplicates dynamically from profiles
+    const duplicateConsumerNumbers = useMemo(() => {
+        const counts = new Map<string, number>();
+        profiles.forEach(p => {
+            if (p.consumer_number) {
+                const cleanNum = p.consumer_number.trim();
+                counts.set(cleanNum, (counts.get(cleanNum) || 0) + 1);
+            }
+        });
+        return new Set(Array.from(counts.entries()).filter(([_, c]) => c > 1).map(([n, _]) => n));
+    }, [profiles]);
+
+    const duplicateProfiles = useMemo(() => {
+        return profiles.filter(p => p.consumer_number && duplicateConsumerNumbers.has(p.consumer_number.trim()));
+    }, [profiles, duplicateConsumerNumbers]);
+
     // Filtered lists
     const filteredProfiles = useMemo(() => {
         return profiles.filter((profile) => {
@@ -206,9 +239,11 @@ const ConsumerConnect = () => {
             const matchesMinCap = minCapacity === "" || capacity >= Number(minCapacity);
             const matchesMaxCap = maxCapacity === "" || capacity <= Number(maxCapacity);
 
-            return matchesSearch && matchesZone && matchesStatus && matchesMinCap && matchesMaxCap;
+            const matchesDuplicate = !showDuplicatesOnly || (profile.consumer_number && duplicateConsumerNumbers.has(profile.consumer_number.trim()));
+
+            return matchesSearch && matchesZone && matchesStatus && matchesMinCap && matchesMaxCap && matchesDuplicate;
         });
-    }, [searchQuery, selectedZone, selectedStatus, minCapacity, maxCapacity, profiles]);
+    }, [searchQuery, selectedZone, selectedStatus, minCapacity, maxCapacity, profiles, showDuplicatesOnly, duplicateConsumerNumbers]);
 
     const filteredConsumers = useMemo(() => {
         return consumers.filter((consumer) => {
@@ -309,7 +344,13 @@ const ConsumerConnect = () => {
             visits_per_year: profile.visits_per_year || 2,
             total_visits_in_5_years: profile.total_visits_in_5_years || 10,
             is_blacklisted: profile.is_blacklisted ? 1 : 0,
-            inverter_warranty_expiry_date: profile.inverter_warranty_expiry_date ? profile.inverter_warranty_expiry_date.split('T')[0] : ""
+            inverter_warranty_expiry_date: profile.inverter_warranty_expiry_date ? profile.inverter_warranty_expiry_date.split('T')[0] : "",
+            panel_warranty_expiry_date: profile.panel_warranty_expiry_date ? profile.panel_warranty_expiry_date.split('T')[0] : "",
+            system_warranty_expiry_date: profile.system_warranty_expiry_date ? profile.system_warranty_expiry_date.split('T')[0] : "",
+            general_warranty_expiry_date: profile.general_warranty_expiry_date ? profile.general_warranty_expiry_date.split('T')[0] : "",
+            blacklisted_reason: profile.blacklisted_reason || "",
+            portal_username: profile.portal_username || "",
+            portal_password: profile.portal_password || ""
         });
         setSaveError(null);
         setIsSaveOpen(true);
@@ -363,6 +404,75 @@ const ConsumerConnect = () => {
             setSaveError(err.message || "An unexpected error occurred.");
         } finally {
             setIsSaving(false);
+        }
+    };
+
+    // Delete Handlers
+    const handleDeleteCustomer = (profile: any) => {
+        setCustomerToDelete(profile);
+        setIsDeleteOpen(true);
+    };
+
+    const handleDeleteCustomerSubmit = async () => {
+        if (!customerToDelete) return;
+        setIsDeleting(true);
+        try {
+            const result = await api.deleteCustomer(customerToDelete.consumer_number);
+            if (result.status === "success") {
+                toast({
+                    title: "Profile Deleted",
+                    description: `Successfully deleted profile for ${customerToDelete.customer_name}.`,
+                });
+                setIsDeleteOpen(false);
+                setCustomerToDelete(null);
+                loadAllData(); // Reload counts and lists
+            } else {
+                toast({
+                    title: "Delete Failed",
+                    description: result.message || "Failed to delete customer profile.",
+                    variant: "destructive",
+                });
+            }
+        } catch (err: any) {
+            console.error("Delete customer failed:", err);
+            toast({
+                title: "Delete Error",
+                description: err.message || "An unexpected error occurred during deletion.",
+                variant: "destructive",
+            });
+        } finally {
+            setIsDeleting(false);
+        }
+    };
+
+    const handleResolveDuplicates = async () => {
+        setIsDeduplicating(true);
+        try {
+            const result = await api.deduplicateCustomers();
+            if (result.status === "success") {
+                toast({
+                    title: "Deduplication Complete",
+                    description: result.message || "Successfully resolved duplicate customer profiles.",
+                });
+                setIsDeduplicateOpen(false);
+                setShowDuplicatesOnly(false);
+                loadAllData(); // Reload both lists to sync counts
+            } else {
+                toast({
+                    title: "Deduplication Failed",
+                    description: result.message || "Failed to resolve duplicate customer profiles.",
+                    variant: "destructive",
+                });
+            }
+        } catch (err: any) {
+            console.error("Deduplication error:", err);
+            toast({
+                title: "Deduplication Error",
+                description: err.message || "An unexpected error occurred.",
+                variant: "destructive",
+            });
+        } finally {
+            setIsDeduplicating(false);
         }
     };
 
@@ -496,6 +606,38 @@ const ConsumerConnect = () => {
                     </div>
                 </div>
 
+                {/* Duplicate Alert Banner */}
+                {duplicateConsumerNumbers.size > 0 && viewMode === 'profiles' && (
+                    <Alert className="bg-amber-500/10 border-amber-500/20 text-amber-800 rounded-xl mb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-in fade-in slide-in-from-top-4 duration-300">
+                        <div className="flex items-center gap-3">
+                            <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
+                            <div>
+                                <AlertTitle className="font-bold text-amber-900">Duplicate Customers Detected</AlertTitle>
+                                <AlertDescription className="text-amber-800 text-xs mt-0.5">
+                                    Found {duplicateConsumerNumbers.size} consumer numbers with duplicate profiles ({duplicateProfiles.length} records total).
+                                </AlertDescription>
+                            </div>
+                        </div>
+                        <div className="flex gap-2 shrink-0">
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setShowDuplicatesOnly(!showDuplicatesOnly)}
+                                className={`h-8 rounded-lg border-amber-500/30 font-semibold text-xs transition-all ${showDuplicatesOnly ? 'bg-amber-500 text-white hover:bg-amber-600' : 'bg-white text-amber-700 hover:bg-amber-50'}`}
+                            >
+                                {showDuplicatesOnly ? "Show All Profiles" : "Show Only Duplicates"}
+                            </Button>
+                            <Button
+                                size="sm"
+                                onClick={() => setIsDeduplicateOpen(true)}
+                                className="h-8 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs shadow-sm"
+                            >
+                                Resolve Duplicates
+                            </Button>
+                        </div>
+                    </Alert>
+                )}
+
                 {/* Glassmorphic Controls Panel */}
                 <div className="glass-card rounded-xl p-4 shadow-md border-t-4 border-t-arin-teal space-y-4">
                     <div className="flex flex-wrap items-center gap-4 justify-between">
@@ -519,7 +661,7 @@ const ConsumerConnect = () => {
                     </div>
 
                     {/* Advanced Filters Grid */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-border/60">
+                    <div className={`grid grid-cols-1 sm:grid-cols-2 ${viewMode === 'profiles' ? 'md:grid-cols-5' : 'md:grid-cols-4'} gap-4 pt-4 border-t border-border/60`}>
                         <div className="flex flex-col gap-1.5">
                             <Label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Zone</Label>
                             <select
@@ -567,11 +709,29 @@ const ConsumerConnect = () => {
                                 className="h-10 rounded-xl border-slate-200"
                             />
                         </div>
+
+                        {viewMode === 'profiles' && (
+                            <div className="flex flex-col gap-1.5 justify-center">
+                                <Label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Duplicates Filter</Label>
+                                <div className="flex items-center gap-2 h-10">
+                                    <input
+                                        id="filter_duplicates"
+                                        type="checkbox"
+                                        checked={showDuplicatesOnly}
+                                        onChange={e => setShowDuplicatesOnly(e.target.checked)}
+                                        className="w-4.5 h-4.5 rounded border-slate-300 text-arin-teal focus:ring-arin-teal cursor-pointer"
+                                    />
+                                    <Label htmlFor="filter_duplicates" className="text-xs font-semibold text-slate-700 cursor-pointer">
+                                        Show Duplicates Only
+                                    </Label>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
 
                 {/* Filter Status Chips */}
-                {(selectedMonth !== "All Months" || searchQuery || selectedZone !== "All Zones" || selectedStatus !== "All" || minCapacity || maxCapacity) && (
+                {(selectedMonth !== "All Months" || searchQuery || selectedZone !== "All Zones" || selectedStatus !== "All" || minCapacity || maxCapacity || showDuplicatesOnly) && (
                     <div className="flex flex-wrap gap-2 animate-in fade-in zoom-in duration-300">
                         {viewMode === 'bills' && selectedMonth !== "All Months" && (
                             <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold border border-primary/20">
@@ -601,6 +761,12 @@ const ConsumerConnect = () => {
                             <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-amber-500/10 text-amber-600 text-xs font-semibold border border-amber-500/20">
                                 Capacity: {minCapacity || "0"} - {maxCapacity || "∞"} kW
                                 <button onClick={() => { setMinCapacity(""); setMaxCapacity(""); }} className="ml-1 font-bold text-sm">×</button>
+                            </span>
+                        )}
+                        {showDuplicatesOnly && (
+                            <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-amber-500/10 text-amber-600 text-xs font-semibold border border-amber-500/20">
+                                Duplicates Only
+                                <button onClick={() => setShowDuplicatesOnly(false)} className="ml-1 font-bold text-sm">×</button>
                             </span>
                         )}
                     </div>
@@ -685,9 +851,19 @@ const ConsumerConnect = () => {
                                                         </td>
                                                         <td className="text-center">
                                                             {profile.is_blacklisted ? (
-                                                                <Badge className="bg-red-500 text-white font-bold text-[10px]">
-                                                                    Blacklisted
-                                                                </Badge>
+                                                                <div className="flex flex-col items-center">
+                                                                    <Badge 
+                                                                        className="bg-red-500 text-white font-bold text-[10px]"
+                                                                        title={profile.blacklisted_reason ? `Reason: ${profile.blacklisted_reason}` : "Blacklisted"}
+                                                                    >
+                                                                        Blacklisted
+                                                                    </Badge>
+                                                                    {profile.blacklisted_reason && (
+                                                                        <span className="text-[9px] text-red-500 max-w-[100px] truncate block font-medium" title={profile.blacklisted_reason}>
+                                                                            {profile.blacklisted_reason}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
                                                             ) : (
                                                                 <Badge variant="outline" className="bg-green-500/10 text-green-500 border-green-500/20 font-bold text-[10px]">
                                                                     Active
@@ -711,6 +887,14 @@ const ConsumerConnect = () => {
                                                                     className="px-2 py-1 h-8 rounded-lg hover:bg-secondary border-slate-200"
                                                                 >
                                                                     <History className="w-3 h-3" />
+                                                                </Button>
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="outline"
+                                                                    onClick={() => handleDeleteCustomer(profile)}
+                                                                    className="px-2 py-1 h-8 rounded-lg hover:bg-red-50 hover:text-red-600 hover:border-red-200 text-red-500 border-slate-200"
+                                                                >
+                                                                    <Trash2 className="w-3.5 h-3.5" />
                                                                 </Button>
                                                             </div>
                                                         </td>
@@ -767,6 +951,139 @@ const ConsumerConnect = () => {
                     onClose={() => setSelectedConsumer(null)}
                 />
             )}
+
+            {/* Delete Customer Confirmation Dialog */}
+            <Dialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
+                <DialogContent className="max-w-md bg-card border-border shadow-2xl rounded-2xl p-6 glass-card">
+                    <DialogHeader>
+                        <DialogTitle className="text-xl font-bold text-red-600 flex items-center gap-2">
+                            <AlertTriangle className="w-5 h-5 text-red-500" />
+                            Delete Consumer Profile
+                        </DialogTitle>
+                        <DialogDescription className="text-muted-foreground text-sm mt-2">
+                            Are you sure you want to delete the profile for <strong>{customerToDelete?.customer_name}</strong> ({customerToDelete?.consumer_number})?
+                            <br /><br />
+                            This action will permanently delete their profile and all associated billing data from the database. This cannot be undone.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <DialogFooter className="mt-6 gap-2 flex justify-end">
+                        <Button
+                            variant="outline"
+                            onClick={() => setIsDeleteOpen(false)}
+                            disabled={isDeleting}
+                            className="rounded-xl border-slate-200"
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            onClick={handleDeleteCustomerSubmit}
+                            disabled={isDeleting}
+                            className="rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold"
+                        >
+                            {isDeleting ? (
+                                <>
+                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                    Deleting...
+                                </>
+                            ) : (
+                                "Delete Permanently"
+                            )}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Resolve Duplicates Dialog */}
+            <Dialog open={isDeduplicateOpen} onOpenChange={setIsDeduplicateOpen}>
+                <DialogContent className="max-w-2xl bg-card border-border shadow-2xl rounded-2xl p-6 glass-card">
+                    <DialogHeader>
+                        <DialogTitle className="text-2xl font-bold text-amber-600 flex items-center gap-2">
+                            <AlertTriangle className="w-6 h-6 text-amber-500 animate-bounce" />
+                            Resolve Duplicate Customer Profiles
+                        </DialogTitle>
+                        <DialogDescription className="text-muted-foreground text-sm mt-2">
+                            The database has multiple customer profiles sharing the same <strong>Consumer Number</strong>.
+                            Deduplication will merge these records by keeping the <strong>oldest customer profile</strong> (first created/lowest ID) and permanently deleting the duplicates.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="space-y-4 my-4">
+                        <Alert className="bg-amber-500/10 border-amber-500/20 text-amber-800 rounded-xl">
+                            <AlertTriangle className="h-4 w-4 text-amber-600" />
+                            <AlertTitle className="font-bold">Important Safeguard</AlertTitle>
+                            <AlertDescription className="text-xs">
+                                All duplicate backups under the same consumer number in the synchronization cache will also be cleaned up. This prevents duplicates from returning on subsequent imports.
+                            </AlertDescription>
+                        </Alert>
+
+                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block">
+                            Detected Duplicates ({duplicateConsumerNumbers.size} Groups / {duplicateProfiles.length} Total Records)
+                        </span>
+
+                        <ScrollArea className="h-60 rounded-xl border border-border bg-slate-50 p-4">
+                            <div className="space-y-4">
+                                {Array.from(duplicateConsumerNumbers).map((cnum) => {
+                                    const matching = duplicateProfiles.filter(p => p.consumer_number && p.consumer_number.trim() === cnum);
+                                    // Sort by ID to see which one is kept (lowest ID first)
+                                    const sortedMatching = [...matching].sort((a, b) => Number(a.id || 0) - Number(b.id || 0));
+                                    const keptProfile = sortedMatching[0];
+                                    const deletedProfiles = sortedMatching.slice(1);
+
+                                    return (
+                                        <div key={cnum} className="border-b border-slate-200 last:border-0 pb-3 last:pb-0">
+                                            <div className="flex justify-between items-center bg-slate-100 p-2 rounded-lg mb-2">
+                                                <span className="font-mono text-sm font-bold text-slate-700">Consumer No: {cnum}</span>
+                                                <Badge className="bg-amber-500 text-white text-[10px] font-bold">
+                                                    {matching.length} instances
+                                                </Badge>
+                                            </div>
+                                            <div className="pl-2 space-y-1.5">
+                                                <div className="text-xs flex items-center gap-1.5 text-emerald-600 font-semibold">
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                                    Keep (Oldest ID: {keptProfile?.id || "N/A"}): <strong className="text-emerald-700">{keptProfile?.customer_name}</strong>
+                                                </div>
+                                                {deletedProfiles.map((dp, idx) => (
+                                                    <div key={dp.id || idx} className="text-xs flex items-center gap-1.5 text-red-500">
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                                                        Delete (ID: {dp.id || "N/A"}): <strong className="text-red-700">{dp.customer_name}</strong>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </ScrollArea>
+                    </div>
+
+                    <DialogFooter className="border-t border-border/40 pt-4 gap-2 flex justify-end">
+                        <Button
+                            variant="outline"
+                            onClick={() => setIsDeduplicateOpen(false)}
+                            disabled={isDeduplicating}
+                            className="rounded-xl border-slate-200"
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={handleResolveDuplicates}
+                            disabled={isDeduplicating}
+                            className="rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold"
+                        >
+                            {isDeduplicating ? (
+                                <>
+                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                    Deduplicating...
+                                </>
+                            ) : (
+                                "Resolve & Deduplicate"
+                            )}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             {/* Manual Save Customer Dialog */}
             <Dialog open={isSaveOpen} onOpenChange={setIsSaveOpen}>
@@ -874,6 +1191,52 @@ const ConsumerConnect = () => {
                                         className="flex w-full rounded-xl border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-arin-teal"
                                     />
                                 </div>
+                                <div className="grid grid-cols-2 gap-4 border-t border-border/40 pt-3 mt-2">
+                                    <div className="flex flex-col gap-1.5">
+                                        <Label htmlFor="portal_user" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Portal Username</Label>
+                                        <Input
+                                            id="portal_user"
+                                            value={formData.portal_username || ""}
+                                            onChange={e => setFormData(prev => ({ ...prev, portal_username: e.target.value }))}
+                                            placeholder="Enter Portal Username"
+                                            className="rounded-xl font-bold"
+                                        />
+                                    </div>
+                                    <div className="flex flex-col gap-1.5">
+                                        <Label htmlFor="portal_pass" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Portal Password</Label>
+                                        <Input
+                                            id="portal_pass"
+                                            value={formData.portal_password || ""}
+                                            onChange={e => setFormData(prev => ({ ...prev, portal_password: e.target.value }))}
+                                            placeholder="Enter Portal Password"
+                                            className="rounded-xl font-bold"
+                                        />
+                                    </div>
+                                    <div className="flex flex-col gap-1.5 col-span-2">
+                                        <div className="flex items-center gap-2">
+                                            <input
+                                                id="blacklisted"
+                                                type="checkbox"
+                                                checked={formData.is_blacklisted === 1}
+                                                onChange={e => setFormData(prev => ({ ...prev, is_blacklisted: e.target.checked ? 1 : 0 }))}
+                                                className="w-4 h-4 rounded border-gray-300 text-red-500 focus:ring-red-500"
+                                            />
+                                            <Label htmlFor="blacklisted" className="text-xs font-bold uppercase tracking-wider text-red-600 cursor-pointer">Mark as Blacklisted / Inactive</Label>
+                                        </div>
+                                    </div>
+                                    {formData.is_blacklisted === 1 && (
+                                        <div className="flex flex-col gap-1.5 col-span-2 animate-in slide-in-from-top-2 duration-200">
+                                            <Label htmlFor="blacklist_reason" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Blacklisted Reason</Label>
+                                            <Input
+                                                id="blacklist_reason"
+                                                value={formData.blacklisted_reason || ""}
+                                                onChange={e => setFormData(prev => ({ ...prev, blacklisted_reason: e.target.value }))}
+                                                placeholder="Enter reason for blacklisting"
+                                                className="rounded-xl font-bold"
+                                            />
+                                        </div>
+                                    )}
+                                </div>
                             </TabsContent>
 
                             <TabsContent value="technical" className="space-y-4 m-0">
@@ -936,6 +1299,46 @@ const ConsumerConnect = () => {
                                             className="rounded-xl"
                                         />
                                     </div>
+                                    <div className="flex flex-col gap-1.5">
+                                        <Label htmlFor="panel_warranty_date" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Panel Warranty Expiry</Label>
+                                        <Input
+                                            id="panel_warranty_date"
+                                            type="date"
+                                            value={formData.panel_warranty_expiry_date || ""}
+                                            onChange={e => setFormData(prev => ({ ...prev, panel_warranty_expiry_date: e.target.value }))}
+                                            className="rounded-xl"
+                                        />
+                                    </div>
+                                    <div className="flex flex-col gap-1.5">
+                                        <Label htmlFor="inverter_warranty_date" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Inverter Warranty Expiry</Label>
+                                        <Input
+                                            id="inverter_warranty_date"
+                                            type="date"
+                                            value={formData.inverter_warranty_expiry_date || ""}
+                                            onChange={e => setFormData(prev => ({ ...prev, inverter_warranty_expiry_date: e.target.value }))}
+                                            className="rounded-xl"
+                                        />
+                                    </div>
+                                    <div className="flex flex-col gap-1.5">
+                                        <Label htmlFor="system_warranty_date" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">System Warranty Expiry</Label>
+                                        <Input
+                                            id="system_warranty_date"
+                                            type="date"
+                                            value={formData.system_warranty_expiry_date || ""}
+                                            onChange={e => setFormData(prev => ({ ...prev, system_warranty_expiry_date: e.target.value }))}
+                                            className="rounded-xl"
+                                        />
+                                    </div>
+                                    <div className="flex flex-col gap-1.5">
+                                        <Label htmlFor="general_warranty_date" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">General Warranty Expiry</Label>
+                                        <Input
+                                            id="general_warranty_date"
+                                            type="date"
+                                            value={formData.general_warranty_expiry_date || ""}
+                                            onChange={e => setFormData(prev => ({ ...prev, general_warranty_expiry_date: e.target.value }))}
+                                            className="rounded-xl"
+                                        />
+                                    </div>
                                     <div className="flex flex-col gap-1.5 col-span-2 border-t border-border/40 pt-3 mt-1">
                                         <div className="flex items-center gap-2">
                                             <input
@@ -973,19 +1376,6 @@ const ConsumerConnect = () => {
                                             </div>
                                         </>
                                     )}
-
-                                    <div className="flex flex-col gap-1.5 col-span-2 border-t border-border/40 pt-3 mt-1">
-                                        <div className="flex items-center gap-2">
-                                            <input
-                                                id="blacklisted"
-                                                type="checkbox"
-                                                checked={formData.is_blacklisted === 1}
-                                                onChange={e => setFormData(prev => ({ ...prev, is_blacklisted: e.target.checked ? 1 : 0 }))}
-                                                className="w-4 h-4 rounded border-gray-300 text-red-500 focus:ring-red-500"
-                                            />
-                                            <Label htmlFor="blacklisted" className="text-xs font-bold uppercase tracking-wider text-red-600 cursor-pointer">Mark as Blacklisted / Inactive</Label>
-                                        </div>
-                                    </div>
                                 </div>
                             </TabsContent>
                         </div>

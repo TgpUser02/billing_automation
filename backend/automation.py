@@ -554,20 +554,29 @@ class BillAutomation:
             except:
                 pass
 
-            # Generate credential
-            if custom_id:
-                credential = custom_id
-                logger.info(f"Using custom credential: {credential}")
-            else:
-                from datetime import datetime, timedelta
-                if "T" in date_str:
-                    dt_obj = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
-                    dt_obj = dt_obj + timedelta(hours=5, minutes=30)
-                else:
-                    dt_obj = datetime.strptime(date_str, "%Y-%m-%d")
-                day_num = dt_obj.day
-                credential = f"Arin${day_num:03d}"
-                logger.info(f"Generated credential from date: {credential} for date {date_str}")
+            # Determine credential ID
+            if not custom_id:
+                logger.error("No portal credential ID (custom_id) provided for automated login.")
+                return False, "No portal credential ID provided."
+                
+            credential = custom_id
+            logger.info(f"Using credential: {credential}")
+
+            # Lookup password from database
+            password_to_use = credential
+            try:
+                from processing import get_db_connection
+                conn = get_db_connection()
+                if conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT password FROM portal_credentials WHERE username = %s", (credential,))
+                    row = cursor.fetchone()
+                    if row:
+                        password_to_use = row[0]
+                        logger.info(f"Loaded password for {credential} from database.")
+                    conn.close()
+            except Exception as e:
+                logger.error(f"Failed to lookup portal password for {credential}: {e}")
 
             # ── CDP helpers ─────────────────────────────────────────────────────────────────────
             def cdp_click(x, y):
@@ -657,7 +666,7 @@ class BillAutomation:
                 'button': 'left', 'clickCount': 3, 'modifiers': 0
             })
             time.sleep(0.1)
-            cdp_type(credential)
+            cdp_type(password_to_use)
             logger.info(f"Typed password via CDP")
 
             time.sleep(0.2)
@@ -763,6 +772,7 @@ class BillAutomation:
             
             logger.info(f"Found {len(rows)} potential rows in the consumer grid.")
             
+            seen_cnums = set()
             for idx, row in enumerate(rows):
                 try:
                     cells = row.find_elements(By.TAG_NAME, "td")
@@ -795,6 +805,11 @@ class BillAutomation:
                     if not (c_num.startswith('3') or c_num.startswith('4') or c_num.startswith('5')):
                         continue
 
+                    # Filter duplicate consumer records
+                    if c_num in seen_cnums:
+                        logger.info(f"Filtering duplicate scraped consumer: {c_num}")
+                        continue
+                    seen_cnums.add(c_num)
 
                     consumers.append({
                         "index": idx,

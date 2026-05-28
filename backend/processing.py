@@ -135,11 +135,20 @@ def get_all_customers_db():
             if not results:
                 cursor.execute("SELECT * FROM customers_backup")
                 results = cursor.fetchall()
-            return results
         except Exception:
             # Fallback
             cursor.execute("SELECT * FROM customers_backup")
-            return cursor.fetchall()
+            results = cursor.fetchall()
+            
+        # Deduplicate profiles by consumer_number
+        seen = set()
+        deduped = []
+        for r in results:
+            cnum = r.get("consumer_number")
+            if cnum not in seen:
+                seen.add(cnum)
+                deduped.append(r)
+        return deduped
     except Exception as e:
         logger.error(f"Get all consumers error: {e}")
         return []
@@ -201,7 +210,8 @@ def extract_data_from_pdf(pdf_path, default_date=None):
         "prev_bank_units": 0.0,
         "bank_solar_units": 0.0,
         "capacity": 0.0,
-        "area": "Other"
+        "area": "Other",
+        "bill_status": "Normal"
     }
 
     try:
@@ -478,6 +488,18 @@ def extract_data_from_pdf(pdf_path, default_date=None):
             if cap_match:
                 data["capacity"] = float(cap_match.group(1))
 
+            # ── 9. Bill Status ──────────────────────────────────────────────
+            status_match = re.search(r"(?:Bill\s*Status|देयक\s*स्थिती|बिल\s*स्थिती)\s*[:\-]?\s*([A-Za-z\u0900-\u097F]+)", text, re.IGNORECASE)
+            if status_match:
+                raw_status = status_match.group(1).strip()
+                if "सामान्य" in raw_status or raw_status.lower() == "normal":
+                    data["bill_status"] = "Normal"
+                else:
+                    data["bill_status"] = raw_status
+            else:
+                if "सामान्य" in text or "NORMAL" in text.upper():
+                    data["bill_status"] = "Normal"
+
 
             # ── DEBUG: Log extracted data to file for troubleshooting ─────────
             try:
@@ -497,7 +519,7 @@ def extract_data_from_pdf(pdf_path, default_date=None):
         logger.error(f"Error extracting data from {pdf_path}: {e}")
         return None
 
-def process_downloads(download_dir="downloads", progress_callback=None):
+def process_downloads(download_dir="downloads", progress_callback=None, threshold=75):
     """
     Iterates through downloaded PDFs (recursively) and read extracted caches to save to MySQL.
     Also generates Poor and Zero generation reports.
@@ -611,7 +633,7 @@ def process_downloads(download_dir="downloads", progress_callback=None):
         if progress_callback: progress_callback(idx_counter, total_files)
     
     # Generate Reports
-    generate_generation_reports(download_dir, all_extracted_data)
+    generate_generation_reports(download_dir, all_extracted_data, threshold=threshold)
 
     # Final results lists (unique)
     success_list = sorted(list(set([c for c, status in results_map.items() if status == "success"])))
@@ -633,47 +655,58 @@ def process_downloads(download_dir="downloads", progress_callback=None):
     return {"success": success_list, "failed": failed_list, "not_in_db": not_in_db_list}
 
 
-def generate_generation_reports(target_dir, data_list):
-    """Generates poor_generation.csv and zero_generation.csv."""
-    import csv
+def generate_generation_reports(target_dir, data_list, threshold=75):
+    """Generates zero_generation, poor_generation, export_greater_than_generation, and bill_status_other_than_normal Excel reports."""
+    import pandas as pd
     
     zero_gen = []
     poor_gen = []
+    export_gt_gen = []
+    status_not_normal = []
     
-    logger.info(f"Generating reports for {len(data_list)} records...")
+    logger.info(f"Generating Excel reports for {len(data_list)} records (threshold: {threshold})...")
     for item in data_list:
         try:
-            # Check for multiple possible keys (matches save_to_mysql logic)
-            gen = _safe_float(item.get("generation_units") or item.get("generated"))
-            cap = _safe_float(item.get("capacity") or item.get("solar_capacity_kw"))
+            gen = _safe_float(item.get("generation_units") or item.get("generated") or item.get("Generation"))
+            cap = _safe_float(item.get("capacity") or item.get("solar_capacity_kw") or item.get("Capacity"))
+            exp = _safe_float(item.get("export_units") or item.get("export") or item.get("Export"))
+            status = item.get("bill_status") or item.get("bill_status_other") or "Normal"
+            
             cnum = item.get("consumer_number") or item.get("consumer_no") or "N/A"
             cname = item.get("consumer_name") or item.get("customer_name") or "N/A"
             
             row = {
                 "Consumer Number": cnum,
                 "Consumer Name": cname,
-                "Capacity": cap,
-                "Generation": gen
+                "Capacity (kW)": cap,
+                "Generation (kWh)": gen,
+                "Export (kWh)": exp,
+                "Bill Status": status
             }
             
+            # a) Zero Generation
             if gen == 0:
                 zero_gen.append(row)
-                logger.info(f"Adding {cnum} to Zero Generation report (Gen: {gen})")
-            elif cap > 0 and gen < (cap * 20):
+                
+            # b) Poor Generation
+            if cap > 0 and (gen / cap) <= threshold:
                 poor_gen.append(row)
-                logger.info(f"Adding {cnum} to Poor Generation report (Gen: {gen}, Cap: {cap})")
-            elif cap == 0 and gen < 50:
+            elif cap == 0 and gen < (threshold * 0.5):
                 poor_gen.append(row)
-                logger.info(f"Adding {cnum} to Poor Generation report (Gen: {gen}, Cap Unknown)")
-            else:
-                logger.info(f"Skipping {cnum} for reports (Normal Gen: {gen})")
+                
+            # c) Export greater than generation
+            if exp > gen:
+                export_gt_gen.append(row)
+                
+            # d) Bill status other than Normal
+            if status != "Normal":
+                status_not_normal.append(row)
+                
         except Exception as e:
             logger.error(f"Error processing item for report: {e}")
             continue
 
-            
     # Local Report structure: arin/Report/[Date]/
-    # target_dir is usually .../arin/YYYY-MM-DD
     arin_root = os.path.dirname(os.path.normpath(target_dir))
     date_str = os.path.basename(os.path.normpath(target_dir))
     
@@ -688,21 +721,26 @@ def generate_generation_reports(target_dir, data_list):
     report_local_dir = os.path.join(arin_root, "Report", formatted_date)
     os.makedirs(report_local_dir, exist_ok=True)
     
-    # Write Zero Generation CSV
-    zero_path = os.path.join(report_local_dir, "zero_generation.csv")
-    with open(zero_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["Consumer Number", "Consumer Name", "Capacity", "Generation"])
-        writer.writeheader()
-        writer.writerows(zero_gen)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    reports = {
+        f"zero_generation_{timestamp}.xlsx": zero_gen,
+        f"poor_generation_{timestamp}.xlsx": poor_gen,
+        f"export_greater_than_generation_{timestamp}.xlsx": export_gt_gen,
+        f"bill_status_other_than_normal_{timestamp}.xlsx": status_not_normal
+    }
+    
+    for filename, rows in reports.items():
+        filepath = os.path.join(report_local_dir, filename)
+        if rows:
+            df = pd.DataFrame(rows)
+        else:
+            df = pd.DataFrame(columns=["Consumer Number", "Consumer Name", "Capacity (kW)", "Generation (kWh)", "Export (kWh)", "Bill Status"])
         
-    # Write Poor Generation CSV
-    poor_path = os.path.join(report_local_dir, "poor_generation.csv")
-    with open(poor_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["Consumer Number", "Consumer Name", "Capacity", "Generation"])
-        writer.writeheader()
-        writer.writerows(poor_gen)
-        
-    logger.info(f"Generated reports in {report_local_dir}: {len(zero_gen)} zero, {len(poor_gen)} poor.")
+        try:
+            df.to_excel(filepath, index=False)
+            logger.info(f"Generated report: {filepath} with {len(rows)} rows.")
+        except Exception as ex_err:
+            logger.error(f"Failed to generate Excel report {filename}: {ex_err}")
 
 
 
@@ -900,6 +938,7 @@ def save_to_mysql(bill_data, conn=None):
             'export': export_units,
             'generated': generation_units,
             'amount': billing_amount,
+            'bill_status': bill_data.get('bill_status', 'Normal'),
         }
 
         cols_to_use = [c for c in bill_cols if c in val_map and val_map[c] is not None]
@@ -1003,7 +1042,16 @@ def get_all_bills():
         
         cursor.execute(query)
         rows = cursor.fetchall()
-        return _process_rows(rows)
+        
+        # Deduplicate bills by (consumer_number, month_year)
+        seen = set()
+        deduped = []
+        for r in rows:
+            key = (r.get("consumer_number"), r.get("month_year"))
+            if key not in seen:
+                seen.add(key)
+                deduped.append(r)
+        return _process_rows(deduped)
 
     except Exception as e:
         logger.error(f"MySQL fetch error: {e}")
@@ -1029,8 +1077,22 @@ def _process_rows(rows):
 def get_dashboard_stats():
     bills = get_all_bills()
     if not bills:
+        total_consumers = 0
+        conn = get_db_connection()
+        if conn:
+            try:
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(DISTINCT consumer_number) FROM customers")
+                total_consumers = cursor.fetchone()[0]
+                if total_consumers == 0:
+                    cursor.execute("SELECT COUNT(DISTINCT consumer_number) FROM customers_backup")
+                    total_consumers = cursor.fetchone()[0]
+            except Exception as e:
+                logger.error(f"Error getting total consumers count: {e}")
+            finally:
+                conn.close()
         return {
-            "totalConsumers": 0,
+            "totalConsumers": total_consumers,
             "totalBills": 0,
             "energySaved": "0 kWh",
             "pendingCount": 0,
@@ -1048,7 +1110,26 @@ def get_dashboard_stats():
         }
     
     total_bills = len(bills)
-    unique_consumers = len(set(b.get("consumer_number") for b in bills))
+    
+    # Calculate unique registered consumers directly from the customers table
+    total_consumers = 0
+    conn = get_db_connection()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(DISTINCT consumer_number) FROM customers")
+            total_consumers = cursor.fetchone()[0]
+            if total_consumers == 0:
+                cursor.execute("SELECT COUNT(DISTINCT consumer_number) FROM customers_backup")
+                total_consumers = cursor.fetchone()[0]
+        except Exception as e:
+            logger.error(f"Error getting total consumers count: {e}")
+            total_consumers = len(set(b.get("consumer_number") for b in bills))
+        finally:
+            conn.close()
+    else:
+        total_consumers = len(set(b.get("consumer_number") for b in bills))
+        
     total_amount = sum(float(b.get("billing_amount", 0)) for b in bills)
     
     # Simple mapping for UI compatibility
@@ -1070,7 +1151,7 @@ def get_dashboard_stats():
         })
 
     return {
-        "totalConsumers": unique_consumers,
+        "totalConsumers": total_consumers,
         "totalBills": total_bills,
         "energySaved": "N/A", # Calculated if needed
         "totalAmount": round(total_amount, 2),
@@ -1085,6 +1166,84 @@ def get_dashboard_stats():
         "areaRevenue": [],
         "hourlyActivity": []
     }
+
+def delete_customer_from_db(consumer_number):
+    """Deletes a customer profile and their associated bills from the database."""
+    conn = get_db_connection()
+    if not conn:
+        return False, "Failed to connect to database."
+    try:
+        cursor = conn.cursor()
+        
+        # 1. Delete from customers table
+        cursor.execute("DELETE FROM customers WHERE consumer_number = %s", (consumer_number,))
+        
+        # 2. Delete from customers_backup table
+        cursor.execute("DELETE FROM customers_backup WHERE consumer_number = %s", (consumer_number,))
+        
+        # 3. Delete associated bills from bill_generation_details
+        try:
+            cursor.execute("DELETE FROM bill_generation_details WHERE consumer_number = %s", (consumer_number,))
+        except Exception as e:
+            logger.warning(f"Could not delete bills by consumer_number: {e}")
+            try:
+                cursor.execute("DELETE FROM bill_generation_details WHERE customer_id = (SELECT id FROM customers WHERE consumer_number = %s)", (consumer_number,))
+            except Exception as e2:
+                logger.warning(f"Could not delete bills by customer_id: {e2}")
+                
+        conn.commit()
+        cursor.close()
+        logger.info(f"Successfully deleted customer {consumer_number} and all their associated data.")
+        return True, "Customer profile and bills deleted successfully."
+    except Exception as e:
+        logger.error(f"Error deleting customer {consumer_number}: {e}")
+        conn.rollback()
+        return False, str(e)
+    finally:
+        conn.close()
+
+def deduplicate_database_profiles():
+    """Finds all duplicate consumer profiles and deletes subsequent ones, keeping the oldest/first entry."""
+    conn = get_db_connection()
+    if not conn:
+        return False, "Failed to connect to database."
+    try:
+        cursor = conn.cursor(dictionary=True)
+        
+        # Find all duplicate consumer numbers
+        cursor.execute("""
+            SELECT consumer_number, GROUP_CONCAT(id ORDER BY id ASC) as ids_list, COUNT(*) as cnt
+            FROM customers
+            GROUP BY consumer_number
+            HAVING cnt > 1
+        """)
+        dupes = cursor.fetchall()
+        
+        deleted_count = 0
+        for d in dupes:
+            ids = [int(x) for x in d['ids_list'].split(',')]
+            # Keep the first ID (oldest), delete the rest
+            ids_to_delete = ids[1:]
+            
+            # Delete other duplicate records from customers
+            format_strings = ','.join(['%s'] * len(ids_to_delete))
+            cursor.execute(f"DELETE FROM customers WHERE id IN ({format_strings})", tuple(ids_to_delete))
+            deleted_count += cursor.rowcount
+            
+            # Clean up duplicate backups for this consumer_number as well
+            cnum = d['consumer_number']
+            cursor.execute("DELETE FROM customers_backup WHERE consumer_number = %s AND id NOT IN (SELECT id FROM customers WHERE consumer_number = %s)", (cnum, cnum))
+            
+        conn.commit()
+        cursor.close()
+        logger.info(f"Resolved duplicates: deleted {deleted_count} duplicate profiles.")
+        return True, f"Successfully resolved duplicates. Deleted {deleted_count} duplicate profiles."
+    except Exception as e:
+        logger.error(f"Deduplication failed: {e}")
+        conn.rollback()
+        return False, str(e)
+    finally:
+        conn.close()
 
 # Compatibility dummy
 collection = "MYSQL_MODE"

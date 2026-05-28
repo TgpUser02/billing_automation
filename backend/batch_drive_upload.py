@@ -142,7 +142,7 @@ if os.path.exists(report_folder_local):
         
         if report_date_folder_id:
             for rname in os.listdir(report_folder_local):
-                if rname.endswith(".csv"):
+                if rname.endswith((".csv", ".xlsx")):
                     rpath = os.path.join(report_folder_local, rname)
                     print(f"Uploading report: {rname} to Report/{formatted_date}/ ...")
                     success, msg = upload_file_to_drive(service, rpath, rname, report_date_folder_id)

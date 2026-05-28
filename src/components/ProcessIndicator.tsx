@@ -8,14 +8,15 @@ interface ProcessStep {
 
 interface ProcessIndicatorProps {
   currentStep: number;
+  isLoggedIn?: boolean;
 }
 
-const ProcessIndicator = ({ currentStep }: ProcessIndicatorProps) => {
+const ProcessIndicator = ({ currentStep, isLoggedIn }: ProcessIndicatorProps) => {
   const steps: ProcessStep[] = [
     { id: 1, label: "Select Date", status: currentStep > 1 ? "complete" : currentStep === 1 ? "active" : "pending" },
     { id: 2, label: "Launch Selenium", status: currentStep > 2 ? "complete" : currentStep === 2 ? "active" : "pending" },
-    { id: 3, label: "Manual OTP Entry", status: currentStep > 3 ? "complete" : currentStep === 3 ? "active" : "pending" },
-    { id: 4, label: "Downloading", status: currentStep > 4 ? "complete" : currentStep === 4 ? "active" : "pending" },
+    { id: 3, label: "Manual OTP Entry", status: isLoggedIn ? "complete" : currentStep === 3 ? "active" : "pending" },
+    { id: 4, label: "Downloading", status: currentStep === 4 ? "active" : currentStep > 4 ? "complete" : "pending" },
   ];
 
   return (

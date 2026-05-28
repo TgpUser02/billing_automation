@@ -8,6 +8,7 @@ import OutputPreview from "@/components/OutputPreview";
 import { api, API_BASE_URL } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import {
   DownloadCloud,
   FileText,
@@ -20,8 +21,13 @@ import {
   PanelBottom,
   Layers,
   EyeOff,
+  ArrowRight,
+  Settings,
+  LogIn,
+  Users,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -30,6 +36,7 @@ import {
 } from "@/components/ui/dialog";
 import { Loader2 } from "lucide-react";
 import { set } from "date-fns";
+import { confirmAction } from "@/lib/swal";
 
 interface LogEntry {
   id: number;
@@ -97,6 +104,16 @@ const Index = () => {
   const [excelData, setExcelData] = useState<any[]>(() =>
     safeSessionGet("arin_excelData", []),
   );
+  
+  const [selectedFailedToRetry, setSelectedFailedToRetry] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (downloadResults.failed.length > 0) {
+      setSelectedFailedToRetry(new Set(downloadResults.failed));
+    } else {
+      setSelectedFailedToRetry(new Set());
+    }
+  }, [downloadResults.failed]);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(() => {
     try {
       const saved = sessionStorage.getItem("arin_selectedDate");
@@ -130,6 +147,23 @@ const Index = () => {
     failed: string[];
     not_in_db: string[];
   }>({ success: [], failed: [], not_in_db: [] });
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  useEffect(() => {
+    if (!isRunning) {
+      setIsLoggedIn(false);
+    }
+  }, [isRunning]);
+
+  // Derived UI phase for step-wise progressive disclosure
+  const uiPhase: "SETUP" | "LOGIN" | "CONSUMER_SELECT" | "DOWNLOADING" =
+    !isRunning
+      ? "SETUP"
+      : currentStep >= 4
+        ? "DOWNLOADING"
+        : isLoggedIn
+          ? "CONSUMER_SELECT"
+          : "LOGIN";
 
   // Refs to safely manage interval and prevent double-firing handleProcess
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -148,11 +182,11 @@ const Index = () => {
 
     const escapeHtml = (value: string) =>
       value
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#39;");
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
 
     const token = sessionStorage.getItem("arin_jwt_token") || "";
     const logRows = [...logs]
@@ -613,6 +647,65 @@ const Index = () => {
     setCurrentStep(3); // Waiting for input / login
   };
 
+  const handleCustomIdChange = async (newId: string) => {
+    if (newId === currentCustomId) {
+      return;
+    }
+
+    if (isRunning) {
+      const confirmSwitch = await confirmAction({
+        title: "Switch Account & Reset?",
+        text: `A browser session is currently active. Switching accounts will close the active browser and reset the session. Do you want to switch to account "${newId}" and reset the session?`,
+        icon: "warning",
+        confirmButtonText: "Yes, Switch & Reset",
+        cancelButtonText: "No, Keep Active",
+      });
+      if (!confirmSwitch) {
+        return;
+      }
+    } else {
+      if (newId) {
+        const confirmSwitch = await confirmAction({
+          title: "Select Portal Account?",
+          text: currentCustomId
+            ? `Are you sure you want to switch the portal account from "${currentCustomId}" to "${newId}"?`
+            : `Are you sure you want to select the portal account "${newId}"?`,
+          icon: "question",
+          confirmButtonText: "Yes, Select",
+          cancelButtonText: "Cancel",
+        });
+        if (!confirmSwitch) {
+          return;
+        }
+      }
+    }
+
+    setCurrentCustomId(newId);
+    if (newId) {
+      sessionStorage.setItem("arin_customId", newId);
+    } else {
+      sessionStorage.removeItem("arin_customId");
+    }
+
+    if (isRunning) {
+      setLogs((prev) => [
+        ...prev,
+        {
+          id: Date.now(),
+          timestamp: new Date().toLocaleTimeString(),
+          message: `Portal ID changed to '${newId}'. Resetting active session...`,
+          type: "info",
+        },
+      ]);
+      await handleCompleteReset();
+      // Restore the newly selected ID after system reset
+      if (newId) {
+        setCurrentCustomId(newId);
+        sessionStorage.setItem("arin_customId", newId);
+      }
+    }
+  };
+
   const handleCompleteReset = async () => {
     try {
       await api.resetSystem();
@@ -640,6 +733,7 @@ const Index = () => {
     setCurrentCustomId(undefined);
     setShowSuccessModal(false);
     setIsDownloadPanelMinimized(false);
+    setIsLoggedIn(false);
     toast({
       title: "System Reset",
       description: "All sessions have been cleanly terminated.",
@@ -834,6 +928,69 @@ const Index = () => {
     }
   };
 
+  const handleRetrySelectedFailed = async () => {
+    const selectedIndices = consumers
+      .filter((c) => selectedFailedToRetry.has(c.consumerNumber))
+      .map((c) => c.index);
+
+    if (selectedIndices.length === 0) return;
+
+    setShowSuccessModal(false);
+
+    setConsumers((prev) =>
+      prev.map((c) => ({
+        ...c,
+        selected: selectedFailedToRetry.has(c.consumerNumber),
+      }))
+    );
+
+    setTotalBills(selectedIndices.length);
+    setCurrentStep(4);
+    setIsDone(false);
+    setIsDownloadPanelMinimized(false);
+
+    const workerCount =
+      selectedIndices.length > 12
+        ? Math.min(4, selectedIndices.length)
+        : selectedIndices.length > 1
+          ? Math.min(2, selectedIndices.length)
+          : 1;
+    setWorkers(workerCount);
+
+    setLogs((prev) => [
+      ...prev,
+      {
+        id: Date.now(),
+        timestamp: new Date().toLocaleTimeString(),
+        message: `Retrying ${selectedIndices.length} failed bills...`,
+        type: "process",
+      },
+    ]);
+
+    try {
+      await api.startDownload(workerCount, selectedIndices, currentCustomId);
+      setLogs((prev) => [
+        ...prev,
+        {
+          id: Date.now(),
+          timestamp: new Date().toLocaleTimeString(),
+          message: "Processing retry tabs in browser...",
+          type: "info",
+        },
+      ]);
+    } catch (e: any) {
+      setLogs((prev) => [
+        ...prev,
+        {
+          id: Date.now(),
+          timestamp: new Date().toLocaleTimeString(),
+          message: "Retry download start failed.",
+          type: "error",
+        },
+      ]);
+    }
+  };
+
   // Polling effect: only tracks download progress — does NOT call handleProcess (Issue #3, #7)
   useEffect(() => {
     if (currentStep >= 4 && !isDone) {
@@ -958,7 +1115,7 @@ const Index = () => {
                   id: Date.now(),
                   timestamp: new Date().toLocaleTimeString(),
                   message: `Analysis Finished: ${successCount} saved, ${notInDbCount} not in DB.`,
-                  type: successCount > 0 ? "success" : "warning",
+                  type: successCount > 0 ? "success" : "info",
                 },
               ]);
 
@@ -1074,114 +1231,301 @@ const Index = () => {
         </div>
       </div>
 
+      {/* Step Breadcrumb Indicator */}
+      <div className="flex items-center gap-1 mb-6 bg-white/60 backdrop-blur-sm border border-white/30 rounded-2xl px-5 py-3 shadow-sm w-fit">
+        {[
+          { key: "SETUP", label: "Setup", icon: Settings },
+          { key: "LOGIN", label: "Login", icon: LogIn },
+          { key: "CONSUMER_SELECT", label: "Select Consumers", icon: Users },
+          { key: "DOWNLOADING", label: "Download", icon: DownloadCloud },
+        ].map((step, idx, arr) => {
+          const phases = ["SETUP", "LOGIN", "CONSUMER_SELECT", "DOWNLOADING"];
+          const currentIdx = phases.indexOf(uiPhase);
+          const stepIdx = phases.indexOf(step.key);
+          const isActive = step.key === uiPhase;
+          const isDone = stepIdx < currentIdx;
+          const Icon = step.icon;
+          return (
+            <div key={step.key} className="flex items-center gap-1">
+              <div
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
+                  isActive
+                    ? "bg-arin-teal text-white shadow-md shadow-arin-teal/20"
+                    : isDone
+                      ? "bg-green-50 text-green-600 border border-green-200"
+                      : "text-slate-400 bg-slate-50 border border-slate-100"
+                )}
+              >
+                {isDone ? (
+                  <CheckCircle2 className="w-3 h-3" />
+                ) : (
+                  <Icon className="w-3 h-3" />
+                )}
+                <span className="hidden sm:inline">{step.label}</span>
+              </div>
+              {idx < arr.length - 1 && (
+                <ArrowRight className="w-3 h-3 text-slate-300 mx-0.5" />
+              )}
+            </div>
+          );
+        })}
+      </div>
+
       {/* Main Content Grid - Using 12-column layout for better control */}
       <div className="grid grid-cols-12 gap-8">
-        {/* Column 1: Config (3/12) */}
-        <div className="col-span-12 xl:col-span-3 space-y-6">
-          <ControlPanel
-            onLaunch={handleLaunch}
-            isRunning={isRunning}
-            currentStep={currentStep}
-            date={selectedDate}
-            setDate={setSelectedDate}
-          />
-        </div>
+        {/* Left Column: Input Config & Consumer Management (5/12) */}
+        <div className="col-span-12 xl:col-span-5 space-y-6">
+          {/* Full ControlPanel — only during SETUP */}
+          {uiPhase === "SETUP" && (
+            <ControlPanel
+              onLaunch={handleLaunch}
+              isRunning={isRunning}
+              currentStep={currentStep}
+              date={selectedDate}
+              setDate={setSelectedDate}
+              customId={currentCustomId}
+              onCustomIdChange={handleCustomIdChange}
+              isLoggedIn={isLoggedIn}
+            />
+          )}
 
-        {/* Column 2: Management (Middle - 6/12) */}
-        <div className="col-span-12 xl:col-span-6 space-y-8">
-          <ConsumerFilter
-            consumers={consumers}
-            setConsumers={setConsumers}
-            onFetch={handleFetchConsumers}
-            onExcelUpload={handleExcelUpload}
-            excelData={excelData}
-            selectedDate={selectedDate}
-          />
-
-          {/* Database ID Lookup Panel */}
-          <Card className="glass-card border-slate-200 shadow-xl rounded-2xl overflow-hidden bg-white/80">
-            <div className="p-6">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center">
-                  <Database className="w-6 h-6 text-blue-500" />
-                </div>
-                <h2 className="text-xl font-black text-[#1E293B] tracking-tight">
-                  Database ID Lookup
-                </h2>
-              </div>
-              <div className="flex flex-col gap-4">
-                <textarea
-                  className="w-full p-4 rounded-xl border border-slate-200 bg-slate-50 text-sm focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all resize-none shadow-inner font-mono text-xs"
-                  rows={3}
-                  placeholder="Paste consumer numbers (comma or newline separated)"
-                  value={dbSearchInput}
-                  onChange={(e) => setDbSearchInput(e.target.value)}
-                />
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <Button
-                    onClick={handleDbSearch}
-                    disabled={isSearchingDb || isFetchingAllDb}
-                    className="bg-slate-900 hover:bg-black text-white rounded-xl font-black uppercase tracking-widest text-[10px] w-full sm:w-auto self-start shadow-lg shadow-slate-900/20 py-6 px-8 transition-all active:scale-95 flex items-center justify-center"
-                  >
-                    {isSearchingDb ? (
-                      <>
-                        <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
-                        Searching...
-                      </>
-                    ) : (
-                      "Search Database"
-                    )}
-                  </Button>
-                  <Button
-                    onClick={handleViewAllConsumers}
-                    disabled={isSearchingDb || isFetchingAllDb}
-                    variant="outline"
-                    className="bg-white hover:bg-slate-50 text-slate-800 rounded-xl font-black uppercase tracking-widest text-[10px] w-full sm:w-auto self-start shadow-sm border-slate-200 py-6 px-8 transition-all active:scale-95 flex items-center justify-center"
-                  >
-                    {isFetchingAllDb ? (
-                      <>
-                        <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
-                        Loading...
-                      </>
-                    ) : (
-                      "View All Consumers"
-                    )}
-                  </Button>
-                </div>
-
-                {dbSearchResults.length > 0 && (
-                  <div className="mt-2 bg-[#F8FAFC] rounded-2xl border border-slate-200 p-1 animate-in fade-in slide-in-from-bottom-2">
-                    <div className="flex border-b border-slate-200 py-3 px-6">
-                      <div className="flex-1 text-xs font-black text-[#64748B] uppercase tracking-widest">
-                        Consumer Number
-                      </div>
-                      <div className="flex-1 text-xs font-black text-[#64748B] uppercase tracking-widest text-right">
-                        ARIN ID
-                      </div>
+          {/* Compact Session Summary — during LOGIN, CONSUMER_SELECT, DOWNLOADING */}
+          {uiPhase !== "SETUP" && (
+            <Card className="glass-card border-slate-200 shadow-lg rounded-2xl overflow-hidden bg-white/80 animate-in fade-in slide-in-from-top-2 duration-300">
+              <div className="p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-arin-teal/10 flex items-center justify-center">
+                      <Settings className="w-5 h-5 text-arin-teal" />
                     </div>
-                    <div className="max-h-64 overflow-y-auto divide-y divide-slate-100">
-                      {dbSearchResults.map((res: any, idx) => (
-                        <div
-                          key={idx}
-                          className="flex py-3 px-6 items-center hover:bg-white transition-colors"
-                        >
-                          <div className="flex-1 font-mono text-xs font-bold text-[#1E293B]">
-                            {res.consumer_number}
-                          </div>
-                          <div className="flex-1 text-right text-blue-500 font-black text-sm">
-                            {res.arin_id || res.id}
-                          </div>
-                        </div>
-                      ))}
+                    <div>
+                      <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">Active Session</h3>
+                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Configuration locked</p>
                     </div>
                   </div>
-                )}
+                  <span className={cn(
+                    "text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full flex items-center gap-1.5 border",
+                    isLoggedIn
+                      ? "bg-green-50 text-green-600 border-green-200"
+                      : "bg-orange-50 text-orange-600 border-orange-200 animate-pulse"
+                  )}>
+                    <span className={cn("w-1.5 h-1.5 rounded-full", isLoggedIn ? "bg-green-500" : "bg-orange-500 animate-pulse")} />
+                    {isLoggedIn ? "Authenticated" : "Authenticating..."}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
+                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Date</p>
+                    <p className="text-xs font-black text-slate-800">{selectedDate ? selectedDate.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "N/A"}</p>
+                  </div>
+                  <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
+                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Account</p>
+                    <p className="text-xs font-black text-slate-800 font-mono truncate">{currentCustomId || "Auto"}</p>
+                  </div>
+                </div>
               </div>
-            </div>
-          </Card>
+            </Card>
+          )}
 
-          {/* Progress Indicators - Prominent Central Position */}
-          {(totalBills > 0 || isProcessing) && (
+          {/* ConsumerFilter — only during CONSUMER_SELECT and DOWNLOADING */}
+          {(uiPhase === "CONSUMER_SELECT" || uiPhase === "DOWNLOADING") && (
+            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <ConsumerFilter
+                consumers={consumers}
+                setConsumers={setConsumers}
+                onFetch={handleFetchConsumers}
+                onExcelUpload={handleExcelUpload}
+                excelData={excelData}
+                selectedDate={selectedDate}
+              />
+            </div>
+          )}
+
+          {/* Database ID Lookup Panel — only during CONSUMER_SELECT and DOWNLOADING */}
+          {(uiPhase === "CONSUMER_SELECT" || uiPhase === "DOWNLOADING") && (
+            <Card className="glass-card border-slate-200 shadow-xl rounded-2xl overflow-hidden bg-white/80 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="p-6">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center">
+                    <Database className="w-6 h-6 text-blue-500" />
+                  </div>
+                  <h2 className="text-xl font-black text-[#1E293B] tracking-tight">
+                    Database ID Lookup
+                  </h2>
+                </div>
+                <div className="flex flex-col gap-4">
+                  <textarea
+                    className="w-full p-4 rounded-xl border border-slate-200 bg-slate-50 text-sm focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all resize-none shadow-inner font-mono text-xs"
+                    rows={3}
+                    placeholder="Paste consumer numbers (comma or newline separated)"
+                    value={dbSearchInput}
+                    onChange={(e) => setDbSearchInput(e.target.value)}
+                  />
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <Button
+                      onClick={handleDbSearch}
+                      disabled={isSearchingDb || isFetchingAllDb}
+                      className="bg-slate-900 hover:bg-black text-white rounded-xl font-black uppercase tracking-widest text-[10px] w-full sm:w-auto self-start shadow-lg shadow-slate-900/20 py-6 px-8 transition-all active:scale-95 flex items-center justify-center"
+                    >
+                      {isSearchingDb ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
+                          Searching...
+                        </>
+                      ) : (
+                        "Search Database"
+                      )}
+                    </Button>
+                    <Button
+                      onClick={handleViewAllConsumers}
+                      disabled={isSearchingDb || isFetchingAllDb}
+                      variant="outline"
+                      className="bg-white hover:bg-slate-50 text-slate-800 rounded-xl font-black uppercase tracking-widest text-[10px] w-full sm:w-auto self-start shadow-sm border-slate-200 py-6 px-8 transition-all active:scale-95 flex items-center justify-center"
+                    >
+                      {isFetchingAllDb ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
+                          Loading...
+                        </>
+                      ) : (
+                        "View All Consumers"
+                      )}
+                    </Button>
+                  </div>
+
+                  {dbSearchResults.length > 0 && (
+                    <div className="mt-2 bg-[#F8FAFC] rounded-2xl border border-slate-200 p-1 animate-in fade-in slide-in-from-bottom-2">
+                      <div className="flex border-b border-slate-200 py-3 px-6">
+                        <div className="flex-1 text-xs font-black text-[#64748B] uppercase tracking-widest">
+                          Consumer Number
+                        </div>
+                        <div className="flex-1 text-xs font-black text-[#64748B] uppercase tracking-widest text-right">
+                          ARIN ID
+                        </div>
+                      </div>
+                      <div className="max-h-64 overflow-y-auto divide-y divide-slate-100">
+                        {dbSearchResults.map((res: any, idx) => (
+                          <div
+                            key={idx}
+                            className="flex py-3 px-6 items-center hover:bg-white transition-colors"
+                          >
+                            <div className="flex-1 font-mono text-xs font-bold text-[#1E293B]">
+                              {res.consumer_number}
+                            </div>
+                            <div className="flex-1 text-right text-blue-500 font-black text-sm">
+                              {res.arin_id || res.id}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </Card>
+          )}
+        </div>
+
+        {/* Right Column: Execution Engine Cockpit, Progress, Logs & Output (7/12) */}
+        <div className="col-span-12 xl:col-span-7 space-y-6">
+          {/* Active Browser Engine Cockpit */}
+          {uiPhase === "LOGIN" && (
+            <RemoteBrowser
+              isRunning={isRunning}
+              date={selectedDate}
+              customId={currentCustomId}
+              onReset={handleCompleteReset}
+              onFetchConsumers={handleFetchConsumers}
+              onStatusChange={(browserStatus) => {
+                setIsLoggedIn(browserStatus === "SUCCESS");
+              }}
+              compact={false}
+            />
+          )}
+
+          {/* Compact Remote Browser — during CONSUMER_SELECT */}
+          {uiPhase === "CONSUMER_SELECT" && (
+            <RemoteBrowser
+              isRunning={isRunning}
+              date={selectedDate}
+              customId={currentCustomId}
+              onReset={handleCompleteReset}
+              onFetchConsumers={handleFetchConsumers}
+              onStatusChange={(browserStatus) => {
+                setIsLoggedIn(browserStatus === "SUCCESS");
+              }}
+              compact={true}
+            />
+          )}
+
+          {/* Offline placeholder — during SETUP */}
+          {uiPhase === "SETUP" && (
+            <Card className="glass-card rounded-[2rem] p-8 shadow-2xl border-white/20 bg-white/70 backdrop-blur-xl flex flex-col items-center justify-center text-center py-14">
+              <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-400 mb-4 shadow-inner">
+                <Monitor className="w-8 h-8 animate-pulse" />
+              </div>
+              <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">Automation Engine Offline</h3>
+              <p className="text-xs text-slate-500 max-w-sm mt-1 leading-relaxed">
+                Choose a date and portal account credential on the left, then click <strong>"Initialize Portal"</strong> to launch the automated browser session.
+              </p>
+            </Card>
+          )}
+
+          {/* Action Dashboard controls — only when logged in */}
+          {(uiPhase === "CONSUMER_SELECT" || uiPhase === "DOWNLOADING") && (
+            <Card className="glass-card rounded-[2rem] p-6 shadow-2xl border-white/20 bg-white/70 backdrop-blur-xl animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-orange-500/10 flex items-center justify-center">
+                    <Zap className="w-5 h-5 text-arin-orange fill-arin-orange/20 animate-pulse" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-black text-slate-800 uppercase tracking-tight">Execution Controls</h4>
+                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">
+                      Engine status:{" "}
+                      <span className={cn(
+                        "font-black",
+                        isLoggedIn ? "text-green-500" : isRunning ? "text-orange-500 animate-pulse" : "text-slate-400"
+                      )}>
+                        {isLoggedIn ? "Ready to Download" : isRunning ? "Awaiting Authentication" : "Offline"}
+                      </span>
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2.5 w-full sm:w-auto">
+                  <Button
+                    onClick={handleDownloadAndProcess}
+                    disabled={!isLoggedIn}
+                    className="flex-1 sm:flex-initial bg-gradient-to-r from-arin-orange to-arin-orange/80 text-white rounded-xl font-black text-[10px] shadow-lg shadow-arin-orange/20 hover:scale-[1.02] active:scale-95 transition-all border-0 uppercase tracking-wider py-4 px-6 disabled:opacity-50"
+                  >
+                    <DownloadCloud className="mr-1.5 h-3.5 w-3.5" />
+                    Start Batch
+                  </Button>
+                  <Button
+                    onClick={handleProcess}
+                    variant="outline"
+                    className="flex-1 sm:flex-initial rounded-xl font-bold bg-white/50 border-slate-200 text-slate-600 hover:text-arin-teal hover:bg-slate-50 transition-all shadow-sm uppercase text-[10px] tracking-widest py-4 px-6"
+                  >
+                    <FileText className="mr-1.5 h-3.5 w-3.5" />
+                    Save Data
+                  </Button>
+                  <Button
+                    onClick={openDebugTab}
+                    variant="outline"
+                    className="flex-1 sm:flex-initial rounded-xl font-bold bg-white/50 border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-all shadow-sm uppercase text-[10px] tracking-widest py-4 px-6"
+                  >
+                    <Monitor className="mr-1.5 h-3.5 w-3.5" />
+                    Open Debug
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          )}
+
+          {/* Progress Indicators — only during DOWNLOADING or when data present */}
+          {(uiPhase === "CONSUMER_SELECT" || uiPhase === "DOWNLOADING") && (totalBills > 0 || isProcessing) && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
               {totalBills > 0 && (
                 <Card className="p-6 border-arin-teal/20 bg-arin-teal/5 backdrop-blur-sm shadow-lg">
@@ -1189,23 +1533,23 @@ const Index = () => {
                     <div className="flex justify-between items-end">
                       <div className="flex items-center gap-2">
                         <DownloadCloud className="w-5 h-5 text-arin-teal" />
-                        <span className="text-sm font-black text-slate-700 uppercase tracking-widest">
+                        <span className="text-xs font-black text-slate-700 uppercase tracking-widest">
                           Download Progress
                         </span>
                       </div>
-                      <span className="text-xl font-black text-arin-teal">
+                      <span className="text-lg font-black text-arin-teal">
                         {Math.round((downloadCount / totalBills) * 100)}%
                       </span>
                     </div>
-                    <div className="w-full h-4 bg-white rounded-full overflow-hidden border border-arin-teal/30 p-1">
+                    <div className="w-full h-3 bg-white rounded-full overflow-hidden border border-arin-teal/30 p-0.5">
                       <div
-                        className="h-full bg-gradient-to-r from-arin-teal to-arin-green rounded-full transition-all duration-500 ease-out shadow-[0_0_10px_rgba(45,212,191,0.5)]"
+                        className="h-full bg-gradient-to-r from-arin-teal to-arin-green rounded-full transition-all duration-500 ease-out"
                         style={{
                           width: `${(downloadCount / totalBills) * 100}%`,
                         }}
                       />
                     </div>
-                    <div className="flex justify-between text-[10px] font-bold text-slate-500">
+                    <div className="flex justify-between text-[9px] font-bold text-slate-500">
                       <span>{downloadCount} Bills Saved</span>
                       {failedCount > 0 && (
                         <span className="text-red-500 font-black">
@@ -1224,15 +1568,15 @@ const Index = () => {
                     <div className="flex justify-between items-end">
                       <div className="flex items-center gap-2">
                         <Database className="w-5 h-5 text-arin-orange" />
-                        <span className="text-sm font-black text-slate-700 uppercase tracking-widest">
+                        <span className="text-xs font-black text-slate-700 uppercase tracking-widest">
                           Saving to DB
                         </span>
                       </div>
-                      <span className="text-xl font-black text-arin-orange">
+                      <span className="text-lg font-black text-arin-orange">
                         {processingProgress}%
                       </span>
                     </div>
-                    <div className="w-full h-4 bg-white rounded-full overflow-hidden border border-arin-orange/30 p-1">
+                    <div className="w-full h-3 bg-white rounded-full overflow-hidden border border-arin-orange/30 p-0.5">
                       <div
                         className="h-full bg-gradient-to-r from-arin-orange to-arin-orange/60 rounded-full transition-all duration-1000 ease-out animate-pulse"
                         style={{ width: `${processingProgress}%` }}
@@ -1244,83 +1588,24 @@ const Index = () => {
             </div>
           )}
 
-          <div className="grid gap-8 lg:grid-cols-1">
-            <ExecutionConsole logs={logs} isRunning={isRunning} />
-          </div>
-        </div>
-
-        {/* Column 3: Engine (3/12) */}
-        <div className="col-span-12 xl:col-span-3 space-y-6">
-          <RemoteBrowser
-            isRunning={isRunning}
-            date={selectedDate}
-            customId={currentCustomId}
-            onReset={handleCompleteReset}
-          />
-
-          <Card className="glass-card rounded-[2rem] p-8 shadow-2xl border-white/20 bg-white/70 backdrop-blur-xl">
-            <div className="flex items-center gap-4 mb-6">
-              <div className="w-12 h-12 rounded-2xl bg-[#FFF8E7] flex items-center justify-center shadow-inner">
-                <Zap className="w-6 h-6 text-arin-orange fill-arin-orange/20" />
-              </div>
-              <h3 className="text-xl font-black tracking-tight text-[#0F172A]">
-                Turbo Mode
-              </h3>
+          {/* Execution Console — only during CONSUMER_SELECT and DOWNLOADING */}
+          {(uiPhase === "CONSUMER_SELECT" || uiPhase === "DOWNLOADING") && (
+            <div className="grid gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <ExecutionConsole logs={logs} isRunning={isRunning} />
             </div>
+          )}
 
-            <div className="space-y-6">
-              <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-                <span className="text-[10px] font-black text-[#64748B] uppercase tracking-[0.1em]">
-                  Engine Status
-                </span>
-                <div className="flex flex-col items-end">
-                  <span className="text-sm font-black text-arin-teal mt-1">
-                    Ready
-                  </span>
-                </div>
-              </div>
-              <div className="pt-2">
-                <p className="text-[10px] font-medium text-slate-500 leading-relaxed italic">
-                  Note: The system now reuses your active session for all
-                  consumers. No more browser restarts or repeated logins!
-                </p>
-              </div>
+          {/* Output Preview — only during CONSUMER_SELECT and DOWNLOADING */}
+          {(uiPhase === "CONSUMER_SELECT" || uiPhase === "DOWNLOADING") && (
+            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <OutputPreview
+                downloadedFiles={downloadedFiles}
+                totalDownloaded={downloadCount}
+                totalConsumers={totalBills}
+                storagePath={storagePath}
+              />
             </div>
-
-            <div className="grid gap-3 pt-6 mt-6 border-t border-slate-100">
-              <Button
-                onClick={handleDownloadAndProcess}
-                disabled={currentStep < 3}
-                className="w-full py-6 bg-gradient-to-br from-arin-orange to-arin-orange/80 text-white rounded-[1.25rem] font-black text-sm shadow-xl shadow-arin-orange/30 hover:scale-[1.02] active:scale-95 transition-all border-0 uppercase tracking-wider disabled:opacity-50"
-              >
-                <DownloadCloud className="mr-2 h-5 w-5" />
-                Start Batch
-              </Button>
-              <Button
-                onClick={handleProcess}
-                variant="outline"
-                className="w-full py-5 rounded-[1.25rem] font-bold bg-white/50 border-slate-200 text-slate-400 hover:text-arin-teal transition-all shadow-sm uppercase text-[10px] tracking-widest"
-              >
-                <FileText className="mr-2 h-4 w-4" />
-                Save Data
-              </Button>
-              <Button
-                onClick={openDebugTab}
-                variant="outline"
-                className="w-full py-5 rounded-[1.25rem] font-bold bg-slate-900/5 border-slate-200 text-slate-700 hover:text-slate-900 hover:bg-slate-900/10 transition-all shadow-sm uppercase text-[10px] tracking-widest"
-              >
-                <Monitor className="mr-2 h-4 w-4" />
-                Open Debug Tab
-              </Button>
-            </div>
-          </Card>
-
-          <OutputPreview
-            downloadedFiles={downloadedFiles}
-            totalDownloaded={downloadCount}
-            totalConsumers={totalBills}
-            storagePath={storagePath}
-          />
+          )}
         </div>
       </div>
 
@@ -1333,13 +1618,16 @@ const Index = () => {
               : "rounded-[2rem] sm:max-w-[440px] border-none bg-white/90 backdrop-blur-2xl shadow-[0_32px_64px_-12px_rgba(0,0,0,0.15)] overflow-hidden p-0"
           }
           onPointerDownOutside={(e) => e.preventDefault()}
-          onEscapeKeyDown={(e) => {
+          onEscapeKeyDown={async (e) => {
             e.preventDefault();
-            if (
-              window.confirm(
-                "A download is currently in progress. Are you sure you want to exit? This will stop all operations.",
-              )
-            ) {
+            const confirmExit = await confirmAction({
+              title: "Stop Operations?",
+              text: "A download is currently in progress. Are you sure you want to exit? This will stop all operations.",
+              icon: "warning",
+              confirmButtonText: "Yes, Exit",
+              cancelButtonText: "No, Continue",
+            });
+            if (confirmExit) {
               setIsDone(true);
               setShowSuccessModal(false);
               handleCompleteReset();
@@ -1504,9 +1792,19 @@ const Index = () => {
                     {downloadResults.failed.map((num, i) => (
                       <div
                         key={`f-${i}`}
-                        className="text-xs font-mono font-bold text-red-600"
+                        className="flex items-center gap-2 text-xs font-mono font-bold text-red-600"
                       >
-                        - {num}
+                        <Checkbox
+                          id={`retry-failed-${num}`}
+                          checked={selectedFailedToRetry.has(num)}
+                          onCheckedChange={(checked) => {
+                            const newSet = new Set(selectedFailedToRetry);
+                            if (checked) newSet.add(num);
+                            else newSet.delete(num);
+                            setSelectedFailedToRetry(newSet);
+                          }}
+                        />
+                        <label htmlFor={`retry-failed-${num}`} className="cursor-pointer select-none">{num}</label>
                       </div>
                     ))}
                   </div>
@@ -1514,7 +1812,19 @@ const Index = () => {
               )}
             </div>
 
-            <div className="mt-6 shrink-0">
+            {downloadResults.failed.length > 0 && (
+              <div className="mt-4 shrink-0">
+                <Button
+                  onClick={handleRetrySelectedFailed}
+                  disabled={selectedFailedToRetry.size === 0}
+                  className="w-full h-12 rounded-2xl bg-orange-500 hover:bg-orange-600 text-white font-black uppercase tracking-widest text-xs shadow-xl transition-all active:scale-95 mb-2"
+                >
+                  Retry Selected Failed ({selectedFailedToRetry.size})
+                </Button>
+              </div>
+            )}
+
+            <div className="mt-2 shrink-0">
               <Button
                 onClick={() => {
                   setShowSuccessModal(false);

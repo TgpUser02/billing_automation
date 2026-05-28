@@ -63,6 +63,75 @@ class EndpointNoiseFilter(logging.Filter):
 
 logging.getLogger("uvicorn.access").addFilter(EndpointNoiseFilter())
 
+def run_migrations():
+    """Add columns for panel/system/general warranties, blacklist reasons, and portal credentials."""
+    from processing import get_db_connection
+    conn = get_db_connection()
+    if not conn:
+        logger.error("Failed to connect to database for migrations.")
+        return
+    try:
+        cursor = conn.cursor()
+        
+        # 1. Add columns to customers
+        columns_to_add = [
+            ("panel_warranty_expiry_date", "DATE NULL"),
+            ("system_warranty_expiry_date", "DATE NULL"),
+            ("general_warranty_expiry_date", "DATE NULL"),
+            ("blacklisted_reason", "VARCHAR(255) NULL"),
+            ("portal_username", "VARCHAR(100) NULL"),
+            ("portal_password", "VARCHAR(100) NULL")
+        ]
+        
+        for col_name, col_type in columns_to_add:
+            try:
+                cursor.execute(f"ALTER TABLE customers ADD COLUMN {col_name} {col_type}")
+                logger.info(f"Migration: Added column {col_name} to customers.")
+            except Exception:
+                pass
+                
+        # 2. Add columns to customers_backup
+        for col_name, col_type in columns_to_add:
+            try:
+                cursor.execute(f"ALTER TABLE customers_backup ADD COLUMN {col_name} {col_type}")
+                logger.info(f"Migration: Added column {col_name} to customers_backup.")
+            except Exception:
+                pass
+                
+        # 3. Add bill_status to bill_generation_details
+        try:
+            cursor.execute("ALTER TABLE bill_generation_details ADD COLUMN bill_status VARCHAR(50) DEFAULT 'Normal'")
+            logger.info("Migration: Added column bill_status to bill_generation_details.")
+        except Exception:
+            pass
+            
+        # 4. Create portal_credentials table
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS portal_credentials (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    username VARCHAR(100) UNIQUE NOT NULL,
+                    password VARCHAR(100) NOT NULL,
+                    description VARCHAR(255) NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """)
+            logger.info("Migration: Created/verified table portal_credentials.")
+        except Exception as e:
+            logger.error(f"Migration: portal_credentials creation/seeding failed: {e}")
+            
+        conn.commit()
+        cursor.close()
+        logger.info("Migrations successfully completed/verified.")
+    except Exception as e:
+        logger.error(f"Migration error: {e}")
+    finally:
+        conn.close()
+
+# Run database migrations
+run_migrations()
+
 app = FastAPI(title="BillBot API")
 
 def get_arin_storage_root():
@@ -108,6 +177,11 @@ class ChangePasswordRequest(BaseModel):
     currentPassword: str
     newPassword: str
 
+class PortalCredentialReq(BaseModel):
+    username: str
+    password: str
+    description: Optional[str] = None
+
 class CustomerModel(BaseModel):
     arin_id: Optional[str] = None
     customer_name: str
@@ -134,6 +208,12 @@ class CustomerModel(BaseModel):
     total_visits_in_5_years: Optional[int] = 10
     is_blacklisted: Optional[int] = 0
     inverter_warranty_expiry_date: Optional[str] = None
+    panel_warranty_expiry_date: Optional[str] = None
+    system_warranty_expiry_date: Optional[str] = None
+    general_warranty_expiry_date: Optional[str] = None
+    blacklisted_reason: Optional[str] = None
+    portal_username: Optional[str] = None
+    portal_password: Optional[str] = None
 
 @app.post("/api/auth/login")
 async def login(request: LoginRequest, req: Request):
@@ -217,6 +297,68 @@ async def get_recaptcha_config():
     """Returns the reCAPTCHA site key for the frontend."""
     return {"siteKey": RECAPTCHA_SITE_KEY}
 
+@app.get("/api/portal-credentials")
+def get_portal_credentials(user=Depends(get_current_user)):
+    from processing import get_db_connection
+    conn = get_db_connection()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Database connection failed.")
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT id, username, password, description FROM portal_credentials ORDER BY username ASC")
+        res = cursor.fetchall()
+        return {"status": "success", "data": res}
+    except Exception as e:
+        logger.error(f"Failed to fetch portal credentials: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+@app.post("/api/portal-credentials")
+def save_portal_credential(req: PortalCredentialReq, user=Depends(get_current_user)):
+    from processing import get_db_connection
+    conn = get_db_connection()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Database connection failed.")
+    try:
+        cursor = conn.cursor()
+        query = """
+            INSERT INTO portal_credentials (username, password, description)
+            VALUES (%s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                password = VALUES(password),
+                description = VALUES(description)
+        """
+        cursor.execute(query, (req.username.strip(), req.password.strip(), req.description))
+        conn.commit()
+        return {"status": "success", "message": f"Saved credentials for {req.username.strip()}."}
+    except Exception as e:
+        logger.error(f"Failed to save portal credential: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+@app.delete("/api/portal-credentials/{username}")
+def delete_portal_credential(username: str, user=Depends(get_current_user)):
+    from processing import get_db_connection
+    conn = get_db_connection()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Database connection failed.")
+    try:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM portal_credentials WHERE username = %s", (username.strip(),))
+        conn.commit()
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Credential not found.")
+        return {"status": "success", "message": f"Deleted credentials for {username.strip()}."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete portal credential: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
 # Global instances
 primary_automation = BillAutomation(port=9222)
 global_total_bills = 0
@@ -295,7 +437,7 @@ def search_consumers_db(request: SearchRequest, user=Depends(get_current_user)):
 
 class ReportRequest(BaseModel):
     filename: str
-    data: List[dict] # Expected: [{consumer_no, consumer_name}, ...]
+    data: List[dict]
     dateStr: str
 
 @app.post("/api/save-reports")
@@ -316,9 +458,20 @@ async def save_reports(request: ReportRequest, user=Depends(get_current_user)):
         # Centralized local path: arin/Report/[Date]/
         target_dir = os.path.join(desktop_path, 'Report', formatted_date)
         os.makedirs(target_dir, exist_ok=True)
-        
-        file_path = os.path.join(target_dir, request.filename)
-        ext = os.path.splitext(request.filename)[1].lower()
+
+        # Implement non-overwriting filename increment logic
+        base, ext = os.path.splitext(request.filename)
+        # Append timestamp to the filename base
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename_with_timestamp = f"{base}_{timestamp}{ext}"
+        file_path = os.path.join(target_dir, filename_with_timestamp)
+        counter = 1
+        while os.path.exists(file_path):
+            file_path = os.path.join(target_dir, f"{base}_{timestamp} ({counter}){ext}")
+            counter += 1
+            
+        final_filename = os.path.basename(file_path)
+        ext = ext.lower()
         
         # Standardize data for processing
         df_list = []
@@ -329,7 +482,8 @@ async def save_reports(request: ReportRequest, user=Depends(get_current_user)):
                     "Consumer Number": row.get("consumer_no") or row.get("consumer_number") or row.get("number") or row.get("consumerNumber") or "N/A",
                     "Consumer Name": row.get("consumer_name") or row.get("customer_name") or row.get("name") or row.get("consumerName") or "N/A",
                     "Generation": row.get("generated") or row.get("generation") or 0,
-                    "Capacity": row.get("capacity") or 0
+                    "Capacity": row.get("capacity") or 0,
+                    "Export": row.get("export") or 0
                 })
         
         if not df_list:
@@ -345,33 +499,55 @@ async def save_reports(request: ReportRequest, user=Depends(get_current_user)):
             pdf.add_page()
             # Title
             pdf.set_font("Arial", 'B', 16)
-            pdf.cell(0, 10, request.filename.replace("_", " ").replace(".pdf", "").upper(), ln=True, align='C')
+            title_text = final_filename.replace("_", " ").replace(".pdf", "").upper()
+            pdf.cell(0, 10, title_text, ln=True, align='C')
             pdf.ln(10)
+            
+            # Check if dataset contains Export data (non-zero exports exist)
+            has_export = any("Export" in row and row["Export"] > 0 for row in df_list) or "export" in request.filename.lower()
             
             # Header
             pdf.set_font("Arial", 'B', 9)
             pdf.set_fill_color(240, 240, 240)
-            pdf.cell(25, 10, "Arin ID", 1, 0, 'C', True)
-            pdf.cell(35, 10, "Consumer No", 1, 0, 'C', True)
-            pdf.cell(75, 10, "Consumer Name", 1, 0, 'C', True)
-            pdf.cell(25, 10, "Gen", 1, 0, 'C', True)
-            pdf.cell(30, 10, "Cap (KW)", 1, 0, 'C', True)
+            if has_export:
+                pdf.cell(20, 10, "Arin ID", 1, 0, 'C', True)
+                pdf.cell(30, 10, "Consumer No", 1, 0, 'C', True)
+                pdf.cell(65, 10, "Consumer Name", 1, 0, 'C', True)
+                pdf.cell(25, 10, "Generation", 1, 0, 'C', True)
+                pdf.cell(25, 10, "Capacity", 1, 0, 'C', True)
+                pdf.cell(25, 10, "Export", 1, 0, 'C', True)
+            else:
+                pdf.cell(25, 10, "Arin ID", 1, 0, 'C', True)
+                pdf.cell(35, 10, "Consumer No", 1, 0, 'C', True)
+                pdf.cell(75, 10, "Consumer Name", 1, 0, 'C', True)
+                pdf.cell(25, 10, "Gen", 1, 0, 'C', True)
+                pdf.cell(30, 10, "Cap (KW)", 1, 0, 'C', True)
             pdf.ln()
             
             # Rows
             pdf.set_font("Arial", '', 8)
             for _, row in df.iterrows():
-                pdf.cell(25, 10, str(row.get("Arin ID", "N/A")), 1)
-                pdf.cell(35, 10, str(row.get("Consumer Number", "N/A")), 1)
-                pdf.cell(75, 10, str(row.get("Consumer Name", "N/A"))[:40], 1)
-                pdf.cell(25, 10, str(row.get("Generation", "0")), 1, 0, 'R')
-                pdf.cell(30, 10, str(row.get("Capacity", "0")), 1, 0, 'R')
+                if has_export:
+                    pdf.cell(20, 10, str(row.get("Arin ID", "N/A")), 1)
+                    pdf.cell(30, 10, str(row.get("Consumer Number", "N/A")), 1)
+                    pdf.cell(65, 10, str(row.get("Consumer Name", "N/A"))[:32], 1)
+                    pdf.cell(25, 10, str(row.get("Generation", "0")), 1, 0, 'R')
+                    pdf.cell(25, 10, str(row.get("Capacity", "0")), 1, 0, 'R')
+                    pdf.cell(25, 10, str(row.get("Export", "0")), 1, 0, 'R')
+                else:
+                    pdf.cell(25, 10, str(row.get("Arin ID", "N/A")), 1)
+                    pdf.cell(35, 10, str(row.get("Consumer Number", "N/A")), 1)
+                    pdf.cell(75, 10, str(row.get("Consumer Name", "N/A"))[:40], 1)
+                    pdf.cell(25, 10, str(row.get("Generation", "0")), 1, 0, 'R')
+                    pdf.cell(30, 10, str(row.get("Capacity", "0")), 1, 0, 'R')
                 pdf.ln()
             pdf.output(file_path)
         else: # Default to CSV
             # Rule: Don't include Arin ID in CSV as requested
             if "Arin ID" in df.columns:
                 df = df.drop(columns=["Arin ID"])
+            if "Export" in df.columns and "export" not in request.filename.lower():
+                df = df.drop(columns=["Export"])
             df.to_csv(file_path, index=False)
                 
         logger.info(f"✓ Local report saved: {file_path}")
@@ -390,9 +566,9 @@ async def save_reports(request: ReportRequest, user=Depends(get_current_user)):
                     report_date_folder_id = get_or_create_date_folder(service, formatted_date, report_root_id)
                     
                     if report_date_folder_id:
-                        success, g_msg = upload_file_to_drive(service, file_path, request.filename, report_date_folder_id)
+                        success, g_msg = upload_file_to_drive(service, file_path, final_filename, report_date_folder_id)
                         if success:
-                            drive_status = f"Successfully uploaded to Drive: {formatted_date}/{request.filename}"
+                            drive_status = f"Successfully uploaded to Drive: {formatted_date}/{final_filename}"
                             logger.info(f"✓ {drive_status}")
                         else:
                             drive_status = f"Drive upload failed: {g_msg}"
@@ -410,6 +586,59 @@ async def save_reports(request: ReportRequest, user=Depends(get_current_user)):
         }
     except Exception as e:
         logger.error(f"Failed to save report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/reports/list")
+async def list_reports(user=Depends(get_current_user)):
+    try:
+        root = os.path.join(get_arin_storage_root(), 'Report')
+        if not os.path.exists(root):
+            return {"status": "success", "reports": []}
+            
+        reports = []
+        for root_dir, dirs, files in os.walk(root):
+            for file in files:
+                if file.startswith('.'):
+                    continue
+                full_path = os.path.join(root_dir, file)
+                rel_path = os.path.relpath(full_path, root)
+                parts = rel_path.split(os.sep)
+                # Structure: [DateFolder, filename]
+                date_folder = parts[0] if len(parts) > 1 else "General"
+                filename = parts[-1]
+                stat = os.stat(full_path)
+                reports.append({
+                    "date": date_folder,
+                    "filename": filename,
+                    "size": stat.st_size,
+                    "modified": stat.st_mtime,
+                    "path": rel_path
+                })
+        # Sort by modified time descending
+        reports.sort(key=lambda x: x["modified"], reverse=True)
+        return {"status": "success", "reports": reports}
+    except Exception as e:
+        logger.error(f"Failed to list reports: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+from fastapi.responses import FileResponse
+
+@app.get("/api/reports/download")
+async def download_report(path: str, user=Depends(get_current_user)):
+    try:
+        # Prevent Directory Traversal
+        root = os.path.abspath(os.path.join(get_arin_storage_root(), 'Report'))
+        target_file = os.path.abspath(os.path.join(root, path))
+        if not target_file.startswith(root) or not os.path.exists(target_file) or os.path.isdir(target_file):
+            raise HTTPException(status_code=404, detail="File not found")
+            
+        return FileResponse(target_file, filename=os.path.basename(target_file))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to download report: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -456,8 +685,17 @@ async def upload_excel(file: UploadFile = File(...), user=Depends(get_current_us
                     "date": row_date
                 })
                 
-        logger.info(f"Excel parsed: Found {len(data)} consumer entries.")
-        return {"status": "success", "data": data}
+        # Deduplicate records
+        seen = set()
+        deduped_data = []
+        for item in data:
+            key = (item["consumerNumber"], item["date"])
+            if key not in seen:
+                seen.add(key)
+                deduped_data.append(item)
+                
+        logger.info(f"Excel parsed: Found {len(data)} consumer entries (deduplicated to {len(deduped_data)}).")
+        return {"status": "success", "data": deduped_data}
     except Exception as e:
         logger.error(f"Excel error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to process Excel: {str(e)}")
@@ -502,7 +740,13 @@ async def import_consumers(file: UploadFile = File(...), user=Depends(get_curren
             'visits_per_year': ['visits per year', 'visits_per_year', 'visits'],
             'total_visits_in_5_years': ['total visits in 5 years', 'total_visits_in_5_years', 'total visits', 'total_visits'],
             'is_blacklisted': ['is blacklisted', 'is_blacklisted', 'blacklisted'],
-            'inverter_warranty_expiry_date': ['inverter warranty expiry date', 'inverter_warranty_expiry_date', 'warranty expiry', 'inverter warranty expiry']
+            'inverter_warranty_expiry_date': ['inverter warranty expiry date', 'inverter_warranty_expiry_date', 'warranty expiry', 'inverter warranty expiry'],
+            'panel_warranty_expiry_date': ['panel warranty expiry date', 'panel_warranty_expiry_date', 'panel warranty', 'panel_warranty'],
+            'system_warranty_expiry_date': ['system warranty expiry date', 'system_warranty_expiry_date', 'system warranty', 'system_warranty'],
+            'general_warranty_expiry_date': ['general warranty expiry date', 'general_warranty_expiry_date', 'general warranty', 'general_warranty', 'warranty'],
+            'blacklisted_reason': ['blacklisted reason', 'blacklisted_reason', 'blacklist reason', 'blacklist_reason'],
+            'portal_username': ['portal username', 'portal_username', 'portal id', 'portal_id', 'username'],
+            'portal_password': ['portal password', 'portal_password', 'password']
         }
         
         # Clean DataFrame column names: lowercase, strip spaces and underscores for mapping
@@ -521,6 +765,17 @@ async def import_consumers(file: UploadFile = File(...), user=Depends(get_curren
         if 'consumer_number' not in mapped_columns:
             raise HTTPException(status_code=400, detail="Missing required column: 'consumer_number' (or variations like 'Consumer No', 'Consumer Number') was not found in the file.")
         
+        # Deduplicate dataframe based on normalized consumer number
+        consumer_col = mapped_columns['consumer_number']
+        def _normalize_excel_cnum(val):
+            if pd.isna(val):
+                return ""
+            return str(val).split('.')[0].replace(" ", "").strip()
+            
+        df['_normalized_cnum'] = df[consumer_col].apply(_normalize_excel_cnum)
+        df = df[df['_normalized_cnum'] != ""]
+        df = df.drop_duplicates(subset=['_normalized_cnum'], keep='first')
+
         from processing import get_db_connection
         conn = get_db_connection()
         if not conn:
@@ -618,6 +873,12 @@ async def import_consumers(file: UploadFile = File(...), user=Depends(get_curren
             is_blacklisted = get_val('is_blacklisted', 0, is_bool=True)
             
             inverter_warranty_expiry_date = get_val('inverter_warranty_expiry_date', is_date=True)
+            panel_warranty_expiry_date = get_val('panel_warranty_expiry_date', is_date=True)
+            system_warranty_expiry_date = get_val('system_warranty_expiry_date', is_date=True)
+            general_warranty_expiry_date = get_val('general_warranty_expiry_date', is_date=True)
+            blacklisted_reason = get_val('blacklisted_reason')
+            portal_username = get_val('portal_username')
+            portal_password = get_val('portal_password')
 
             # Upsert into customers table
             query = """
@@ -627,9 +888,10 @@ async def import_consumers(file: UploadFile = File(...), user=Depends(get_curren
                     solar_panel_count, solar_capacity_kw, panel_capacity_kw, inverter_name, 
                     inverter_name_other, inverter_capacity, commission_date, wifi_available, 
                     wifi_id, wifi_password, visits_per_year, total_visits_in_5_years, is_blacklisted, 
-                    inverter_warranty_expiry_date
+                    inverter_warranty_expiry_date, panel_warranty_expiry_date, system_warranty_expiry_date,
+                    general_warranty_expiry_date, blacklisted_reason, portal_username, portal_password
                 ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                 ) ON DUPLICATE KEY UPDATE 
                     arin_id = VALUES(arin_id),
                     customer_name = VALUES(customer_name),
@@ -654,7 +916,13 @@ async def import_consumers(file: UploadFile = File(...), user=Depends(get_curren
                     visits_per_year = VALUES(visits_per_year),
                     total_visits_in_5_years = VALUES(total_visits_in_5_years),
                     is_blacklisted = VALUES(is_blacklisted),
-                    inverter_warranty_expiry_date = VALUES(inverter_warranty_expiry_date)
+                    inverter_warranty_expiry_date = VALUES(inverter_warranty_expiry_date),
+                    panel_warranty_expiry_date = VALUES(panel_warranty_expiry_date),
+                    system_warranty_expiry_date = VALUES(system_warranty_expiry_date),
+                    general_warranty_expiry_date = VALUES(general_warranty_expiry_date),
+                    blacklisted_reason = VALUES(blacklisted_reason),
+                    portal_username = VALUES(portal_username),
+                    portal_password = VALUES(portal_password)
             """
             
             try:
@@ -664,7 +932,8 @@ async def import_consumers(file: UploadFile = File(...), user=Depends(get_curren
                     solar_panel_count, solar_capacity_kw, panel_capacity_kw, inverter_name,
                     inverter_name_other, inverter_capacity, commission_date, wifi_available,
                     wifi_id, wifi_password, visits_per_year, total_visits_in_5_years, is_blacklisted,
-                    inverter_warranty_expiry_date
+                    inverter_warranty_expiry_date, panel_warranty_expiry_date, system_warranty_expiry_date,
+                    general_warranty_expiry_date, blacklisted_reason, portal_username, portal_password
                 ))
                 # Check if it was an insert or update
                 if cursor.rowcount == 1:
@@ -723,9 +992,10 @@ def save_customer_endpoint(customer: CustomerModel, user=Depends(get_current_use
                 solar_panel_count, solar_capacity_kw, panel_capacity_kw, inverter_name, 
                 inverter_name_other, inverter_capacity, commission_date, wifi_available, 
                 wifi_id, wifi_password, visits_per_year, total_visits_in_5_years, is_blacklisted, 
-                inverter_warranty_expiry_date
+                inverter_warranty_expiry_date, panel_warranty_expiry_date, system_warranty_expiry_date,
+                general_warranty_expiry_date, blacklisted_reason, portal_username, portal_password
             ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
             ) ON DUPLICATE KEY UPDATE 
                 arin_id = VALUES(arin_id),
                 customer_name = VALUES(customer_name),
@@ -750,7 +1020,13 @@ def save_customer_endpoint(customer: CustomerModel, user=Depends(get_current_use
                 visits_per_year = VALUES(visits_per_year),
                 total_visits_in_5_years = VALUES(total_visits_in_5_years),
                 is_blacklisted = VALUES(is_blacklisted),
-                inverter_warranty_expiry_date = VALUES(inverter_warranty_expiry_date)
+                inverter_warranty_expiry_date = VALUES(inverter_warranty_expiry_date),
+                panel_warranty_expiry_date = VALUES(panel_warranty_expiry_date),
+                system_warranty_expiry_date = VALUES(system_warranty_expiry_date),
+                general_warranty_expiry_date = VALUES(general_warranty_expiry_date),
+                blacklisted_reason = VALUES(blacklisted_reason),
+                portal_username = VALUES(portal_username),
+                portal_password = VALUES(portal_password)
         """
         
         cursor.execute(query, (
@@ -762,7 +1038,9 @@ def save_customer_endpoint(customer: CustomerModel, user=Depends(get_current_use
             customer.inverter_capacity, comm_date, customer.wifi_available,
             customer.wifi_id, customer.wifi_password, customer.visits_per_year,
             customer.total_visits_in_5_years, customer.is_blacklisted,
-            customer.inverter_warranty_expiry_date
+            customer.inverter_warranty_expiry_date, customer.panel_warranty_expiry_date,
+            customer.system_warranty_expiry_date, customer.general_warranty_expiry_date,
+            customer.blacklisted_reason, customer.portal_username, customer.portal_password
         ))
         
         conn.commit()
@@ -932,7 +1210,29 @@ async def save_bill_data(request: Request, user=Depends(get_current_user)):
 def get_billing_analysis(consumerNumber: str, month: str, user=Depends(get_current_user)):
     """
     Fetches the analyzed data for a specific consumer and month from MySQL.
+    Blocks generation if customer is blacklisted.
     """
+    # Check if blacklisted in database first
+    from processing import get_db_connection
+    conn = get_db_connection()
+    if conn:
+        try:
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("SELECT is_blacklisted, blacklisted_reason FROM customers WHERE consumer_number = %s", (consumerNumber,))
+            cust_row = cursor.fetchone()
+            if cust_row and cust_row.get("is_blacklisted"):
+                reason = cust_row.get("blacklisted_reason") or "No reason provided"
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Bill analysis cannot be generated: Customer is blacklisted. Reason: {reason}"
+                )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error checking blacklist status: {e}")
+        finally:
+            conn.close()
+
     bills = get_all_bills()
     
     # Try to find the record
@@ -956,7 +1256,9 @@ def get_billing_analysis(consumerNumber: str, month: str, user=Depends(get_curre
             "prev_banked": 0, "curr_banked": 0,
             "system_health": "UNKNOWN", "bill_status": "No Data",
             "reading_date": "N/A", "capacity": 0, "commission_date": "N/A",
-            "customer_name": "N/A"
+            "customer_name": "N/A",
+            "is_blacklisted": 0,
+            "blacklisted_reason": ""
         }
     
     # Map database keys to frontend-expected keys
@@ -971,10 +1273,12 @@ def get_billing_analysis(consumerNumber: str, month: str, user=Depends(get_curre
         "prev_banked": target_bill.get("prev_bank_units") or target_bill.get("prev_banked", 0),
         "curr_banked": target_bill.get("bank_solar_units") or target_bill.get("curr_banked", 0),
         "system_health": "Analyzed",
-        "bill_status": "Analyzed",
+        "bill_status": target_bill.get("bill_status") or "Normal",
         "reading_date": target_bill.get("reading_date"),
         "capacity": target_bill.get("solar_capacity_kw") or target_bill.get("capacity", 0),
         "commission_date": target_bill.get("commission_date"),
+        "is_blacklisted": target_bill.get("is_blacklisted") or 0,
+        "blacklisted_reason": target_bill.get("blacklisted_reason") or "",
         "full_record": target_bill # Fallback for any other missing fields
     }
 
@@ -988,6 +1292,34 @@ def get_all_customers_endpoint(user=Depends(get_current_user)):
     except Exception as e:
         logger.error(f"Failed to fetch all customers: {e}")
         return {"status": "error", "message": str(e)}
+
+@app.delete("/api/customers/{consumer_number}")
+def delete_customer_endpoint(consumer_number: str, user=Depends(get_current_user)):
+    """Deletes a customer profile and their associated bills from the database."""
+    try:
+        from processing import delete_customer_from_db
+        success, message = delete_customer_from_db(consumer_number)
+        if not success:
+            raise HTTPException(status_code=500, detail=message)
+        return {"status": "success", "message": message}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete customer: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/customers/deduplicate")
+def deduplicate_customers_endpoint(user=Depends(get_current_user)):
+    """Resolves and removes duplicate consumer profiles keeping the oldest entry."""
+    try:
+        from processing import deduplicate_database_profiles
+        success, message = deduplicate_database_profiles()
+        if not success:
+            raise HTTPException(status_code=500, detail=message)
+        return {"status": "success", "message": message}
+    except Exception as e:
+        logger.error(f"Failed to deduplicate customers: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/")
 def read_root():
@@ -1021,6 +1353,17 @@ def close_browser(user=Depends(get_current_user)):
     """Closes the primary browser session."""
     primary_automation.close()
     return {"status": "success", "message": "Browser closed."}
+
+@app.post("/api/refresh-tab")
+def refresh_tab(user=Depends(get_current_user)):
+    """Refreshes the current active page in the primary browser session."""
+    if not primary_automation.driver:
+        raise HTTPException(status_code=400, detail="Primary browser not active.")
+    try:
+        primary_automation.driver.refresh()
+        return {"status": "success", "message": "Tab refreshed successfully."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/stats")
 def get_stats(user=Depends(get_current_user)):
@@ -1135,7 +1478,25 @@ async def api_start_login(req: LoginStartReq, user=Depends(get_current_user)):
     global active_login_date, active_login_custom_id
     active_login_date = req.dateStr
     active_login_custom_id = req.customId
-    res = await login_automator.start_login(req.username, req.password)
+    
+    password_to_use = req.password
+    if req.password == req.username:
+        from processing import get_db_connection
+        conn = get_db_connection()
+        if conn:
+            try:
+                cursor = conn.cursor()
+                cursor.execute("SELECT password FROM portal_credentials WHERE username = %s", (req.username.strip(),))
+                row = cursor.fetchone()
+                if row:
+                    password_to_use = row[0]
+                    logger.info(f"Using database password for portal user {req.username}")
+            except Exception as e:
+                logger.error(f"Error looking up portal password for {req.username}: {e}")
+            finally:
+                conn.close()
+
+    res = await login_automator.start_login(req.username, password_to_use)
     handoff_res = handoff_to_selenium(res)
     if handoff_res is not res and handoff_res.get("status") == "ERROR":
         return handoff_res
@@ -1165,7 +1526,62 @@ async def api_reset(user=Depends(get_current_user)):
     return {"status": "success"}
 
 
-def process_data_task(storage_path):
+class AddConsumerRequest(BaseModel):
+    consumerNumber: str
+    billingUnit: str
+
+
+class AddConsumerCaptchaReq(BaseModel):
+    captcha: str
+
+
+class AddConsumerOtpReq(BaseModel):
+    otp: str
+
+
+@app.post("/api/portal/add-consumer/start")
+async def add_consumer_start(request: AddConsumerRequest, user=Depends(get_current_user)):
+    cnum = request.consumerNumber.strip()
+    bu = request.billingUnit.strip()
+    
+    if not cnum or not bu:
+        raise HTTPException(status_code=400, detail="Consumer Number and Billing Unit are required.")
+    
+    try:
+        res = await login_automator.start_add_consumer(cnum, bu)
+        return res
+    except Exception as e:
+        logger.error(f"Failed to start add consumer: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/portal/add-consumer/captcha")
+async def add_consumer_captcha(request: AddConsumerCaptchaReq, user=Depends(get_current_user)):
+    try:
+        res = await login_automator.submit_add_consumer_captcha(request.captcha.strip())
+        return res
+    except Exception as e:
+        logger.error(f"Failed to submit add consumer captcha: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/portal/add-consumer/otp")
+async def add_consumer_otp(request: AddConsumerOtpReq, user=Depends(get_current_user)):
+    try:
+        res = await login_automator.submit_add_consumer_otp(request.otp.strip())
+        return res
+    except Exception as e:
+        logger.error(f"Failed to submit add consumer otp: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
+class ProcessRequest(BaseModel):
+    threshold: Optional[int] = 75
+
+
+def process_data_task(storage_path, threshold=75):
     global process_in_progress, process_results, total_process_count, current_process_count
     process_in_progress = True
     process_results = {"success": [], "failed": []}
@@ -1178,7 +1594,7 @@ def process_data_task(storage_path):
         total_process_count = total
         
     try:
-        results = process_downloads(storage_path, progress_callback=progress_callback)
+        results = process_downloads(storage_path, progress_callback=progress_callback, threshold=threshold)
         if isinstance(results, dict):
             process_results = results
         else:
@@ -1199,8 +1615,12 @@ def process_data_task(storage_path):
             logger.error(f"Failed to trigger post-process batch upload: {e}")
 
 @app.post("/api/process")
-def process_data(background_tasks: BackgroundTasks, user=Depends(get_current_user)):
+def process_data(background_tasks: BackgroundTasks, request: Optional[ProcessRequest] = None, user=Depends(get_current_user)):
     """Triggers PDF processing and MySQL storage asynchronously."""
+    threshold = 75
+    if request:
+        threshold = request.threshold or 75
+        
     from datetime import datetime, timedelta
     if primary_automation.process_date:
         date_str = primary_automation.process_date
@@ -1224,7 +1644,7 @@ def process_data(background_tasks: BackgroundTasks, user=Depends(get_current_use
         
     storage_path = get_arin_storage_path(date_str)
     
-    background_tasks.add_task(process_data_task, storage_path)
+    background_tasks.add_task(process_data_task, storage_path, threshold)
     return {"status": "success", "message": "Processing started in background"}
 
 @app.get("/api/process-status")

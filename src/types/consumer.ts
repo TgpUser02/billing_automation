@@ -11,7 +11,7 @@ export interface Consumer {
   readingDate: string;
   amount: number;
   previousUnit: number;
-  currentUnit: number;
+  currentUnit?: number;
 }
 
 export interface ConsumerHistory {
@@ -23,5 +23,5 @@ export interface ConsumerHistory {
   amount: number;
   readingDate: string;
   previousUnit: number;
-  currentUnit: number;
+  currentUnit?: number;
 }
