@@ -103,6 +103,20 @@ class LoginAutomation:
             self.current_login_username = None
 
     async def start_login(self, username, password):
+        if self.page and self.status == "SUCCESS":
+            try:
+                state_res = await self.check_post_login_state()
+                if state_res.get("status") == "SUCCESS":
+                    logger.info(f"✓ Reuse active valid browser session for {username}. Skipping login.")
+                    self.current_login_username = username
+                    return {
+                        "status": "SUCCESS",
+                        "message": "Reused active session.",
+                        "session": await self.context.cookies()
+                    }
+            except Exception as check_err:
+                logger.warning(f"Failed to verify active browser session state: {check_err}")
+
         await self.close_browser()  # Clean up any existing session
         
         # Try to reuse an existing stored cookie session
@@ -250,6 +264,21 @@ class LoginAutomation:
             except:
                 pass
 
+            # Detect and recover from transient MSEDCL account load error
+            try:
+                body_text = await self.page.locator("body").text_content()
+                if body_text and "error occured while getting account details" in body_text.lower():
+                    logger.warning("Detected MSEDCL account load error. Reloading page...")
+                    await self.page.reload(wait_until="networkidle")
+                    await asyncio.sleep(2)
+                    body_text = await self.page.locator("body").text_content()
+                    if body_text and "error occured while getting account details" in body_text.lower():
+                        logger.warning("Account load error persists. Re-navigating to getMyAccount...")
+                        await self.page.goto("https://wss.mahadiscom.in/wss/wss?uiActionName=getMyAccount", wait_until="networkidle")
+                        await asyncio.sleep(2)
+            except Exception as ref_err:
+                logger.debug(f"Failed to reload on account load error: {ref_err}")
+
             dashboard_ready = False
             try:
                 grd_cust_list = await self.page.query_selector("#grdCustList")
@@ -294,51 +323,112 @@ class LoginAutomation:
                         save_session_cookies(username, cookies)
                     return {"status": "SUCCESS", "session": cookies}
 
-                return {"status": "ERROR", "message": "Portal stayed on the base page with the login form still visible."}
+                # Try to extract actual error message from the page
+                error_msg = "Portal stayed on the base page with the login form still visible."
+                try:
+                    for err_sel in [".errorMessage", "#lblMessage", "#errorLabel", ".text-danger", "font[color='red']", "span[style*='color:Red']", "span[style*='color:red']"]:
+                        err_el = await self.page.query_selector(err_sel)
+                        if err_el and await err_el.is_visible():
+                            text = (await err_el.text_content()).strip()
+                            if text:
+                                error_msg = f"Portal Error: {text}"
+                                break
+                except Exception as check_err:
+                    logger.warning(f"Failed to scan for page errors: {check_err}")
+
+                return {"status": "ERROR", "message": error_msg}
                 
             # If we are still on the login page but no OTP, maybe wrong credentials?
             if "getCustAccountLogin" in url:
-                # Check for error labels
-                return {"status": "ERROR", "message": "Login failed, returned to login page"}
+                error_msg = "Login failed, returned to login page"
+                try:
+                    for err_sel in [".errorMessage", "#lblMessage", "#errorLabel", ".text-danger", "font[color='red']", "span[style*='color:Red']", "span[style*='color:red']"]:
+                        err_el = await self.page.query_selector(err_sel)
+                        if err_el and await err_el.is_visible():
+                            text = (await err_el.text_content()).strip()
+                            if text:
+                                error_msg = f"Portal Error: {text}"
+                                break
+                except:
+                    pass
+                return {"status": "ERROR", "message": error_msg}
 
             # Unknown state
             return {"status": "ERROR", "message": f"Unexpected state: {url}"}
         except Exception as e:
             return {"status": "ERROR", "message": f"State check failed: {str(e)}"}
 
-    async def start_add_consumer(self, consumer_number, billing_unit):
+    async def start_add_consumer(self, consumer_number, billing_unit, consumer_type="1"):
         if not self.page:
             return {"status": "ERROR", "message": "No active browser session. Please login first."}
         
         self.last_alert_msg = None
         try:
-            logger.info(f"Navigating to Add Consumer page...")
-            await self.page.goto("https://wss.mahadiscom.in/wss/wss?uiActionName=getAddConsumer", wait_until="networkidle")
+            logger.info("Accessing Add Connection form from dashboard...")
+            # Always ensure we are on getMyAccount page first
+            current_url = self.page.url
+            if "getMyAccount" not in current_url:
+                logger.info("Redirecting browser to getMyAccount dashboard...")
+                await self.page.goto("https://wss.mahadiscom.in/wss/wss?uiActionName=getMyAccount", wait_until="networkidle")
+
+            # Check if connection form input exists, if not try to click menu link to reveal it
+            form_visible = await self.page.query_selector("#consumerNo")
+            if not form_visible:
+                logger.info("Form input #consumerNo not visible, clicking Add Consumer/Connection menu link to reveal...")
+                clicked_menu = False
+                try:
+                    links = await self.page.locator("a").all()
+                    for link in links:
+                        text = await link.text_content()
+                        href = await link.get_attribute("href")
+                        if text and ("add consumer" in text.lower() or "add connection" in text.lower() or (href and "getaddconsumer" in href.lower())):
+                            logger.info(f"Clicking link: text='{text.strip()}'")
+                            await link.click()
+                            clicked_menu = True
+                            await asyncio.sleep(2)
+                            break
+                except Exception as menu_err:
+                    logger.debug(f"Failed to click menu: {menu_err}")
             
-            # Select Consumer Type (LT Consumer)
+            # Select Consumer Type
+            selected_type = False
             for selector in ["select#consumerType", "select", "select[name='consumerType']"]:
                 try:
-                    await self.page.select_option(selector, label="LT Consumer")
+                    await self.page.select_option(selector, value=str(consumer_type))
+                    selected_type = True
+                    logger.info(f"Selected Consumer Type value={consumer_type} in {selector}")
                     break
                 except:
-                    try:
-                        await self.page.select_option(selector, value="1") # 1 is LT Consumer
-                        break
-                    except:
-                        pass
+                    pass
+            if not selected_type:
+                logger.warning(f"Could not select Consumer Type value={consumer_type}")
 
             # Fill Consumer Number
-            await self.page.fill("#consumerNo", consumer_number)
+            filled_cnum = False
+            for selector in ["#consumerNumber", "#consumerNo"]:
+                if await self.page.query_selector(selector):
+                    await self.page.fill(selector, consumer_number)
+                    try:
+                        await self.page.locator(selector).dispatch_event("change")
+                        await self.page.locator(selector).dispatch_event("blur")
+                    except Exception as ev_err:
+                        logger.debug(f"Failed to dispatch events on {selector}: {ev_err}")
+                    filled_cnum = True
+                    break
+            if not filled_cnum:
+                logger.warning("Could not find any Consumer Number input field selector")
 
             # Select BU / Subdivision
             selected_bu = False
-            for selector in ["#subdivision", "select#billingUnit", "select#subdivision"]:
+            selected_selector = None
+            for selector in ["#BU", "#subdivision", "select#billingUnit", "select#subdivision"]:
                 el = await self.page.query_selector(selector)
                 if el:
                     # Try selecting by value (e.g. "4151")
                     try:
                         await self.page.select_option(selector, value=billing_unit)
                         selected_bu = True
+                        selected_selector = selector
                         logger.info(f"Selected BU {billing_unit} in {selector} by value")
                         break
                     except:
@@ -353,6 +443,7 @@ class LoginAutomation:
                             if billing_unit.lower() in label_text.lower() or (opt_value and billing_unit == opt_value):
                                 await self.page.select_option(selector, value=opt_value)
                                 selected_bu = True
+                                selected_selector = selector
                                 logger.info(f"Selected BU in {selector} by matching label: {label_text}")
                                 break
                         if selected_bu:
@@ -360,8 +451,43 @@ class LoginAutomation:
                     except:
                         pass
 
-            # Wait a moment for captcha image to load
-            await asyncio.sleep(1)
+            if selected_bu and selected_selector:
+                try:
+                    await self.page.locator(selected_selector).dispatch_event("change")
+                    await self.page.locator(selected_selector).dispatch_event("blur")
+                except Exception as ev_err:
+                    logger.debug(f"Failed to dispatch events on subdivision select: {ev_err}")
+
+            # Manually trigger validation AJAX requests in page context to be 100% sure the backend session registers the consumer number and BU
+            logger.info("Executing validateSession and validateConsumerNumberHTLT in page context...")
+            try:
+                validation_script = f"""
+                (async () => {{
+                    try {{
+                        await fetch("https://wss.mahadiscom.in/wss/wss?uiActionName=validateSession&IsAjax=true", {{
+                            "method": "POST",
+                            "credentials": "include"
+                        }});
+                        await fetch("https://wss.mahadiscom.in/wss/wss?uiActionName=validateConsumerNumberHTLT&IsAjax=true", {{
+                            "headers": {{
+                                "content-type": "application/x-www-form-urlencoded"
+                            }},
+                            "body": "ConsumerNo={consumer_number}&BuNumber={billing_unit}&consumerType={consumer_type}",
+                            "method": "POST",
+                            "credentials": "include"
+                        }});
+                    }} catch (e) {{
+                        console.error("AJAX validation failed:", e);
+                    }}
+                }})();
+                """
+                await self.page.evaluate(validation_script)
+                logger.info("Validation requests evaluated successfully.")
+            except Exception as js_err:
+                logger.warning(f"Failed to execute manual validation fetches: {js_err}")
+
+            # Wait a moment for captcha image to load / refresh after validation
+            await asyncio.sleep(2)
 
             # Look for captcha element
             captcha_el = None
@@ -372,7 +498,18 @@ class LoginAutomation:
                     break
 
             if not captcha_el:
-                return {"status": "ERROR", "message": "CAPTCHA image not found on Add Consumer page"}
+                err_msg = "CAPTCHA image not found on Add Consumer page."
+                try:
+                    for err_sel in [".errorMessage", "#lblMessage", "#errorLabel", ".text-danger", "font[color='red']", "span[style*='color:Red']", "span[style*='color:red']"]:
+                        err_el = await self.page.query_selector(err_sel)
+                        if err_el and await err_el.is_visible():
+                            text = (await err_el.text_content()).strip()
+                            if text:
+                                err_msg = f"Portal Error: {text}"
+                                break
+                except Exception as check_err:
+                    logger.warning(f"Failed to scan for page errors on missing captcha: {check_err}")
+                return {"status": "ERROR", "message": err_msg}
 
             captcha_buffer = await captcha_el.screenshot()
             captcha_b64 = base64.b64encode(captcha_buffer).decode("utf-8")
@@ -385,6 +522,62 @@ class LoginAutomation:
 
         except Exception as e:
             logger.error(f"Error in start_add_consumer: {e}")
+            return {"status": "ERROR", "message": str(e)}
+
+    async def get_add_consumer_options(self, consumer_type="1"):
+        if not self.page:
+            return {"status": "ERROR", "message": "No active browser session. Please login first."}
+        try:
+            # Always ensure we are on getMyAccount page first
+            current_url = self.page.url
+            if "getMyAccount" not in current_url:
+                logger.info("Redirecting browser to getMyAccount dashboard to fetch options...")
+                await self.page.goto("https://wss.mahadiscom.in/wss/wss?uiActionName=getMyAccount", wait_until="networkidle")
+
+            # Check if subdivision input exists, if not click to reveal
+            subdiv_visible = await self.page.query_selector("#BU") or await self.page.query_selector("#subdivision")
+            if not subdiv_visible:
+                logger.info("Subdivision dropdown not visible, clicking Add Consumer/Connection menu link to reveal...")
+                clicked_menu = False
+                try:
+                    links = await self.page.locator("a").all()
+                    for link in links:
+                        text = await link.text_content()
+                        href = await link.get_attribute("href")
+                        if text and ("add consumer" in text.lower() or "add connection" in text.lower() or (href and "getaddconsumer" in href.lower())):
+                            logger.info(f"Clicking link for options: text='{text.strip()}'")
+                            await link.click()
+                            clicked_menu = True
+                            await asyncio.sleep(2)
+                            break
+                except Exception as menu_err:
+                    logger.debug(f"Failed to click menu for options: {menu_err}")
+            
+            # Select Consumer Type to populate subdivision list
+            for selector in ["select#consumerType", "select", "select[name='consumerType']"]:
+                try:
+                    await self.page.select_option(selector, value=str(consumer_type))
+                    break
+                except:
+                    pass
+            
+            await asyncio.sleep(1)
+
+            options_list = []
+            for selector in ["#BU", "#subdivision", "select#billingUnit", "select#subdivision"]:
+                el = await self.page.query_selector(selector)
+                if el:
+                    options = await self.page.locator(f"{selector} option").all()
+                    for opt in options:
+                        val = await opt.get_attribute("value")
+                        text = await opt.text_content()
+                        if val and val.strip() and val != "0" and "select" not in text.lower():
+                            options_list.append({"value": val.strip(), "label": text.strip()})
+                    if options_list:
+                        break
+            return {"status": "SUCCESS", "options": options_list}
+        except Exception as e:
+            logger.error(f"Error fetching subdivision options: {e}")
             return {"status": "ERROR", "message": str(e)}
 
     async def submit_add_consumer_captcha(self, captcha_text):
@@ -508,6 +701,18 @@ class LoginAutomation:
 
         except Exception as e:
             logger.error(f"Error in submit_add_consumer_otp: {e}")
+            return {"status": "ERROR", "message": str(e)}
+
+    async def return_to_dashboard(self):
+        if not self.page:
+            return {"status": "ERROR", "message": "No active browser session."}
+        try:
+            logger.info("Returning to dashboard (getMyAccount)...")
+            await self.page.goto("https://wss.mahadiscom.in/wss/wss?uiActionName=getMyAccount", wait_until="networkidle")
+            self.status = "SUCCESS"
+            return {"status": "SUCCESS"}
+        except Exception as e:
+            logger.error(f"Error returning to dashboard: {e}")
             return {"status": "ERROR", "message": str(e)}
 
 # Global instance for the FastAPI app to use

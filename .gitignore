@@ -1,50 +1,108 @@
-# Logs
-logs
+# =============================================================================
+# ARIN BILLING AUTOMATION — .gitignore
+# =============================================================================
+
+# ── Secrets & Environment ─────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+backend/.env
+backend/secrets/
+backend/credentials.json
+backend/token.json
+secrets/
+
+# ── Log Files ────────────────────────────────────────────────────────────────
+logs/
 *.log
+*.log.*
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+backend/app.log
+backend/launch_error.txt
+backend/test_out.txt
+launch_error.txt
 
-node_modules
-dist
-dist-ssr
+# ── Runtime / Download Artifacts (production-only) ───────────────────────────
+downloads/
+backend/downloads/
+*.pdf
+*.crdownload
+*.part
+
+# ── Chrome Browser Profiles (generated at runtime) ───────────────────────────
+backend/chrome_profile_*/
+chrome_profile_*/
+
+# ── Debug / Development Dumps ────────────────────────────────────────────────
+backend/debug_*.png
+backend/debug_*.html
+backend/page_dump_*.html
+page_dump*.html
+debug_log.txt
+*.html.bak
+
+# ── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+venv/
+.venv/
+env/
+ENV/
+.eggs/
+*.egg-info/
+dist/
+build/
+*.egg
+pip-wheel-metadata/
+
+# ── Node / Frontend ──────────────────────────────────────────────────────────
+node_modules/
+dist/
+dist-ssr/
 *.local
+.cache/
+.parcel-cache/
 
-# Editor directories and files
+# ── Build Output ─────────────────────────────────────────────────────────────
+dist/
+build/
+out/
+
+# ── Backend Runtime State ─────────────────────────────────────────────────────
+backend/job_state.json
+backend/*.csv
+backend/billing_data.json
+billing_data.json
+
+# ── OS & Editor ───────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
 .vscode/*
 !.vscode/extensions.json
-.idea
-.DS_Store
+.idea/
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+*.swp
 
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-venv/
-.venv/
-env/
-
-# Secrets and environment
-.env
-backend/.env
-backend/secrets/
-token.json
-
-# Project specific data and artifacts
-backend/chrome_profile_*/
-backend/debug_*.png
-backend/debug_*.html
-backend/job_state.json
-backend/*.csv
-
-
-*.pdf
-# Credentials
-backend/credentials.json
+# ── Test & Debug Scripts (not for production repo) ───────────────────────────
+test_selenium*.py
+test_auth*.py
+verify_login.py
+get_source.py
+inspect_dump.py
+CREATE_SHAREABLE_ZIP.bat

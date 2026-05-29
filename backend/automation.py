@@ -350,9 +350,9 @@ class BillAutomation:
             self.driver = webdriver.Chrome(service=service, options=options)
             logger.info("✅ Chrome Driver initialized successfully!")
             
-            # Set aggressive timeouts to prevent hanging
-            self.driver.set_page_load_timeout(15)  # Max 15 seconds per page
-            self.driver.set_script_timeout(10)     # Max 10 seconds for JS execution
+            # Set safe timeouts to prevent hanging on slow portal responses
+            self.driver.set_page_load_timeout(90)  # Max 90 seconds per page
+            self.driver.set_script_timeout(30)     # Max 30 seconds for JS execution
             
             # If not headless, position and focus window aggressively
             if not use_headless:
@@ -835,13 +835,13 @@ class BillAutomation:
             logger.error(f"Error in get_consumer_list: {outer_err}")
             return False, str(outer_err)
 
-    def download_bills(self, start_index=0, end_index=None, selective_indices=None):
-        """Triggers the download of bills. If selective_indices is provided, only those are downloaded."""
+    def download_bills(self, start_index=0, end_index=None, selective_indices=None):  # BURST_REWRITE
+        """Triggers the download of bills using concurrent tab bursting for maximum speed."""
         if not self.driver:
             return False, "Browser not running."
 
         try:
-            # 0. Wait for dashboard to be ready
+            # ── 0. Wait for dashboard to be ready ──────────────────────────────────────
             wait = WebDriverWait(self.driver, 20)
             try:
                 wait.until(EC.presence_of_element_located((By.XPATH, "//img[@title='View Bill']")))
@@ -850,39 +850,43 @@ class BillAutomation:
                 self.driver.get("https://wss.mahadiscom.in/wss/wss?uiActionName=getMyAccount")
                 wait.until(EC.presence_of_element_located((By.XPATH, "//img[@title='View Bill']")))
 
-            # 1. Prepare Download Directory
+            # ── 1. Prepare Download Directory ─────────────────────────────────────────
             date_str = self.process_date if self.process_date else "unknown_date"
             from datetime import datetime, timedelta
             try:
-                # If it's already YYYY-MM-DD, we use it directly
-                # If it's ISO, we parse but keep as local as possible
                 if "T" in date_str:
                     dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
-                    # If coming from frontend with ISO, adjust for IST
                     dt = dt + timedelta(hours=5, minutes=30)
                     date_str = dt.strftime("%Y-%m-%d")
                 elif len(date_str) == 10 and date_str[4] == "-" and date_str[7] == "-":
-                    # Hardcoded: ensure it's exactly YYYY-MM-DD
                     pass
                 else:
-                    # Fallback parsing
                     dt = datetime.strptime(date_str, "%Y-%m-%d")
                     date_str = dt.strftime("%Y-%m-%d")
             except:
                 pass
-                
+
             storage_root = os.environ.get('ARIN_STORAGE_PATH', '/var/arin')
             target_dir = os.path.join(storage_root, date_str)
             if not os.path.exists(target_dir):
                 os.makedirs(target_dir)
             logger.info(f"[{self.port}] Target download directory: {target_dir}")
 
-            # 2. Identify potential bills
+            # ── 2. Concurrent burst size (env-configurable) ───────────────────────────
+            # DOWNLOAD_BURST_SIZE controls how many bill tabs open simultaneously.
+            # Higher = faster, but risks portal rate-limiting. Safe default: 5.
+            try:
+                BURST_SIZE = int(os.environ.get("DOWNLOAD_BURST_SIZE", "5"))
+                BURST_SIZE = max(1, min(BURST_SIZE, 15))  # Clamp to 1-15
+            except:
+                BURST_SIZE = 5
+            logger.info(f"[{self.port}] Burst size: {BURST_SIZE} concurrent tabs per round")
+
+            # ── 3. Identify which bills to process ────────────────────────────────────
             potential_buttons = self.driver.find_elements(By.XPATH, "//img[@title='View Bill']")
             count = len(potential_buttons)
             logger.info(f"[{self.port}] Found {count} bill buttons on page.")
-            
-            # Determine which indices to process
+
             if selective_indices is not None:
                 indices_to_process = [i for i in selective_indices if i < count]
             else:
@@ -893,23 +897,18 @@ class BillAutomation:
             if real_count == 0:
                 return True, "No bills to download."
 
-            logger.info(f"[{self.port}] Processing {real_count} specific bills...")
-            
-            downloaded = 0
-            main_window = self.driver.current_window_handle
-            
-            # Load Balancing: Each worker handles 5 bills initially for controlled parallel
-            BATCH_SIZE = 50 # Each worker processes 5 bills at a time
-            
-            import glob, time
+            logger.info(f"[{self.port}] Processing {real_count} bills in bursts of {BURST_SIZE}...")
+
+            import glob, re, json
+            from concurrent.futures import ThreadPoolExecutor, as_completed
             from processing import extract_data_from_pdf
             dashboard_url = "https://wss.mahadiscom.in/wss/wss?uiActionName=getMyAccount"
 
+            # ── 4. Skip-set: already downloaded consumers ─────────────────────────────
             existing_consumers = set()
             cache_path = os.path.join(target_dir, "extracted_cache.json")
             if os.path.exists(cache_path):
                 try:
-                    import json
                     with open(cache_path, "r") as cache_file:
                         cache_data = json.load(cache_file)
                     for item in cache_data:
@@ -920,20 +919,19 @@ class BillAutomation:
                     pass
 
             for existing_pdf in glob.glob(os.path.join(target_dir, "*.pdf")):
-                import re
                 existing_match = re.search(r"(\d{10,12})", os.path.basename(existing_pdf))
                 if existing_match:
                     existing_consumers.add(existing_match.group(1))
 
+            # ── 5. Helpers ────────────────────────────────────────────────────────────
             def _ensure_dashboard_ready():
                 try:
                     self.driver.get(dashboard_url)
                 except Exception:
                     pass
-
-                wait = WebDriverWait(self.driver, 20)
+                w = WebDriverWait(self.driver, 20)
                 try:
-                    wait.until(EC.any_of(
+                    w.until(EC.any_of(
                         EC.presence_of_element_located((By.XPATH, "//img[@title='View Bill']")),
                         EC.presence_of_element_located((By.XPATH, "//table[@id='grdCustList']//tr[position()>1]")),
                     ))
@@ -947,7 +945,6 @@ class BillAutomation:
                     f"//tr[contains(normalize-space(.), '{c_num}')]//img[@title='View Bill']",
                     "//img[@title='View Bill']",
                 ]
-
                 for _ in range(2):
                     for selector in selectors:
                         try:
@@ -955,377 +952,323 @@ class BillAutomation:
                             return btn
                         except Exception:
                             continue
-
                     _ensure_dashboard_ready()
-
                 return None
 
-            def _save_current_tab_pdf(dest_path):
-                """Try to save the current tab URL as a PDF without relying on the browser viewer."""
+            def _fast_fetch_pdf_from_url(url, cookies_list, user_agent, dest_path):
+                """Thread-safe: download a PDF from a URL using requests (no browser involvement)."""
                 try:
-                    import requests
-
-                    tab_url = self.driver.current_url
-                    session = requests.Session()
-
-                    for cookie in self.driver.get_cookies():
+                    import requests as _req
+                    session = _req.Session()
+                    for cookie in cookies_list:
                         session.cookies.set(
-                            cookie.get("name"),
-                            cookie.get("value"),
-                            domain=cookie.get("domain"),
-                            path=cookie.get("path", "/"),
+                            cookie.get("name"), cookie.get("value"),
+                            domain=cookie.get("domain"), path=cookie.get("path", "/"),
                         )
-
-                    user_agent = "Mozilla/5.0"
-                    try:
-                        user_agent = self.driver.execute_script("return navigator.userAgent") or user_agent
-                    except Exception:
-                        pass
-
                     response = session.get(
-                        tab_url,
-                        headers={"User-Agent": user_agent, "Referer": tab_url},
-                        timeout=30,
-                        allow_redirects=True,
+                        url,
+                        headers={"User-Agent": user_agent, "Referer": url},
+                        timeout=20, allow_redirects=True,
                     )
-                    content_type = (response.headers.get("Content-Type") or "").lower()
-                    content_disposition = (response.headers.get("Content-Disposition") or "").lower()
+                    ct = (response.headers.get("Content-Type") or "").lower()
+                    cd = (response.headers.get("Content-Disposition") or "").lower()
+                    if "pdf" in ct or "attachment" in cd or response.content[:4] == b"%PDF":
+                        with open(dest_path, "wb") as fh:
+                            fh.write(response.content)
+                        return True, dest_path
+                    return False, dest_path
+                except Exception as e:
+                    logger.debug(f"[{self.port}] HTTP fetch failed for {url}: {e}")
+                    return False, dest_path
 
-                    if "pdf" in content_type or "attachment" in content_disposition or response.content.startswith(b"%PDF"):
-                        with open(dest_path, "wb") as handle:
-                            handle.write(response.content)
-                        logger.info(f"[{self.port}] Saved PDF directly from URL for {dest_path}")
-                        return True
+            # ── 6. Collect row metadata for all indices ───────────────────────────────
+            _ensure_dashboard_ready()
+            main_window = self.driver.current_window_handle
+            current_rows = self.driver.find_elements(By.XPATH, "//table[@id='grdCustList']//tr[position()>1]")
+            trans_table = str.maketrans("\u0966\u0967\u0968\u0969\u096a\u096b\u096c\u096d\u096e\u096f", "0123456789")
 
-                    logger.debug(f"[{self.port}] Direct fetch for {tab_url} returned {content_type}; falling back to in-page click.")
-                except Exception as fetch_err:
-                    logger.warning(f"[{self.port}] Direct PDF fetch failed for {dest_path}: {fetch_err}")
+            all_meta = []
+            for idx in indices_to_process:
+                try:
+                    if idx >= len(current_rows):
+                        continue
+                    row = current_rows[idx]
+                    cells = row.find_elements(By.TAG_NAME, "td")
+                    if len(cells) < 4:
+                        continue
+                    raw_cnum = cells[1].text.strip().translate(trans_table)
+                    c_num = "".join([c for c in raw_cnum if c.isdigit()])
+                    raw_name = cells[3].text
+                    c_name = "".join([c for c in raw_name if c.isalnum() or c in (' ', '_', '-')]).strip()
+                    if not c_num:
+                        continue
+                    if c_num in existing_consumers:
+                        logger.info(f"[{self.port}] Skip already-done: {c_num}")
+                        continue
+                    # Clean up stale un-renamed files for this consumer
+                    for s in glob.glob(os.path.join(target_dir, "*.pdf")):
+                        if c_num in os.path.basename(s) and "_" not in os.path.basename(s):
+                            try: os.remove(s)
+                            except: pass
+                    all_meta.append({"index": idx, "c_num": c_num, "c_name": c_name})
+                except Exception as map_err:
+                    logger.warning(f"[{self.port}] Meta map error for idx {idx}: {map_err}")
 
-                return False
-            
-            for i in range(0, real_count, BATCH_SIZE):
-                batch_indices = indices_to_process[i:i+BATCH_SIZE]
-                logger.info(f"[{self.port}] Batch: Triggering {len(batch_indices)} downloads...")
+            logger.info(f"[{self.port}] {len(all_meta)} bills queued after skip-set filtering.")
 
+            # ── 7. Capture user-agent once ────────────────────────────────────────────
+            user_agent = "Mozilla/5.0"
+            try:
+                user_agent = self.driver.execute_script("return navigator.userAgent") or user_agent
+            except Exception:
+                pass
+
+            downloaded = 0
+
+            def _chunks(lst, n):
+                for i in range(0, len(lst), n):
+                    yield lst[i:i + n]
+
+            # ── 8. Main burst loop ────────────────────────────────────────────────────
+            for burst_meta in _chunks(all_meta, BURST_SIZE):
                 _ensure_dashboard_ready()
-                current_rows = self.driver.find_elements(By.XPATH, "//table[@id='grdCustList']//tr[position()>1]")
-                
-                batch_metadata = []
-                for idx in batch_indices:
-                    try:
-                        row_meta = None
-                        if idx < len(current_rows):
-                            try:
-                                row = current_rows[idx]
-                                cells = row.find_elements(By.TAG_NAME, "td")
-                                if len(cells) >= 4:
-                                    raw_cnum = cells[1].text.strip()
-                                    trans_table = str.maketrans("०१२३४५६७८९", "0123456789")
-                                    raw_cnum = raw_cnum.translate(trans_table)
-                                    c_num = "".join([c for c in raw_cnum if c.isdigit()])
-                                    raw_name = cells[3].text
-                                    c_name = "".join([c for c in raw_name if c.isalnum() or c in (' ', '_', '-')]).strip()
-                                    row_meta = {"c_num": c_num, "c_name": c_name}
-                            except Exception:
-                                row_meta = None
+                main_window = self.driver.current_window_handle
+                before_handles = set(self.driver.window_handles)
+                before_pdfs = set(glob.glob(os.path.join(target_dir, "*.pdf")))
 
-                        if not row_meta:
-                            logger.warning(f"[{self.port}] No live row found for index {idx}; skipping.")
-                            continue
-
-                        c_num = row_meta["c_num"]
-                        c_name = row_meta["c_name"]
-
-                        if c_num in existing_consumers:
-                            logger.info(f"[{self.port}] Skipping already downloaded/processed consumer {c_num}.")
-                            continue
-
-                        target_filename = f"{c_num}_{c_name}.pdf"
-                        target_filepath = os.path.join(target_dir, target_filename)
-
-                        # 1. OVERWRITE LOGIC: Delete the target file if it already exists
-                        if os.path.exists(target_filepath):
-                            try:
-                                os.remove(target_filepath)
-                                logger.info(f"[{self.port}] Overwriting existing file: {target_filename}")
-                            except Exception as e:
-                                logger.warning(f"Could not delete existing target {target_filename}: {e}")
-
-                        # 2. OVERWRITE LOGIC: Delete archaic or stale EB raw files for this consumer
-                        stale_files = [f for f in glob.glob(os.path.join(target_dir, "*.pdf")) if c_num in os.path.basename(f) and "_" not in os.path.basename(f)]
-                        for stale in stale_files:
-                            try:
-                                os.remove(stale)
-                            except:
-                                pass
-
-                        batch_metadata.append({
-                            "index": idx,
-                            "c_num": c_num,
-                            "c_name": c_name,
-                            "target": target_filename,
-                        })
-                    except Exception as map_err:
-                        logger.warning(f"[{self.port}] Failed to map metadata for index {idx}: {map_err}")
-                
-                # Sequential Download per consumer — handles new tab popup
-                # FAST DOWNLOAD LOGIC: We will trigger downloads rapidly and defer slow renames
-                for meta in batch_metadata:
-                    idx = meta["index"]
+                # Step A: click all View Bill buttons in the burst rapidly ─────────────
+                clicked_meta = []
+                for meta in burst_meta:
                     c_num = meta["c_num"]
                     c_name = meta["c_name"]
-                    target_filename = meta["target"]
-                    target_filepath = os.path.join(target_dir, target_filename)
-                    
                     try:
-                        _ensure_dashboard_ready()
-                        main_window = self.driver.current_window_handle
-                        before_handles = set(self.driver.window_handles)
-                        before_pdfs = set(glob.glob(os.path.join(target_dir, "*.pdf")))
-                        
-                        # Step 1: Click View Bill button
                         btn = _find_view_bill_button(c_num, c_name)
                         if btn is None:
-                            raise Exception(f"View Bill button not found for consumer {c_num}")
+                            logger.warning(f"[{self.port}] View Bill not found for {c_num}")
+                            continue
                         self.driver.execute_script("arguments[0].scrollIntoView(true);", btn)
-                        time.sleep(0.3)
                         self.driver.execute_script("arguments[0].click();", btn)
-                        
-                        # Wait dynamically for a new tab to appear (up to 10 seconds)
-                        # Consumers 3 and 5 often take much longer to route on the government portal
-                        new_tab_handles = set()
-                        for _ in range(20):
-                            time.sleep(0.5)
-                            try:
-                                alert = self.driver.switch_to.alert
-                                alert_text = alert.text
-                                alert.accept()
-                                logger.warning(f"[{self.port}] Alert intercepted for {c_num}: {alert_text}")
-                                # If it's a genuine 'not generated' alert, we can stop waiting
+                        clicked_meta.append(meta)
+                        logger.info(f"[{self.port}] Clicked View Bill for {c_num}")
+                    except Exception as click_err:
+                        logger.warning(f"[{self.port}] Click failed for {c_num}: {click_err}")
+
+                if not clicked_meta:
+                    continue
+
+                # Step B: wait for all burst tabs to open (max 8s, tight polling) ──────
+                deadline = time.time() + 8
+                while time.time() < deadline:
+                    # Dismiss any alert blocking tab opening
+                    try:
+                        alert = self.driver.switch_to.alert
+                        logger.warning(f"[{self.port}] Alert dismissed: {alert.text}")
+                        alert.accept()
+                    except Exception:
+                        pass
+                    new_handles = set(self.driver.window_handles) - before_handles
+                    if len(new_handles) >= len(clicked_meta):
+                        break
+                    time.sleep(0.05)
+
+                new_handles = set(self.driver.window_handles) - before_handles
+                logger.info(f"[{self.port}] Burst opened {len(new_handles)} tabs for {len(clicked_meta)} bills")
+
+                # Step C: collect bill URLs from every new tab ─────────────────────────
+                tab_url_map = {}  # handle -> url
+                for handle in new_handles:
+                    try:
+                        self.driver.switch_to.window(handle)
+                        poll_deadline = time.time() + 3
+                        while time.time() < poll_deadline:
+                            url = self.driver.current_url
+                            if url and url != "about:blank" and "mahadiscom" in url.lower():
                                 break
-                            except:
-                                pass
-                                
-                            after_handles = set(self.driver.window_handles)
-                            new_tab_handles = after_handles - before_handles
-                            if new_tab_handles:
-                                break
-                        
-                        if new_tab_handles:
-                            # Case A: A new tab opened — switch to it
-                            new_tab = list(new_tab_handles)[0]
-                            self.driver.switch_to.window(new_tab)
-                            logger.info(f"[{self.port}] Switched to bill tab for {c_num}")
+                            time.sleep(0.05)
+                        tab_url_map[handle] = self.driver.current_url
+                    except Exception as url_err:
+                        logger.debug(f"[{self.port}] Could not get URL for tab {handle}: {url_err}")
+                self.driver.switch_to.window(main_window)
 
-                            # If the tab URL is already the bill/PDF, save it directly instead of relying on the viewer.
-                            direct_saved = _save_current_tab_pdf(target_filepath)
-                            if direct_saved:
-                                self.driver.close()
-                                self.driver.switch_to.window(main_window)
-                            else:
-                                # Wait for the tab content to be ready
-                                try:
-                                    WebDriverWait(self.driver, 5).until(lambda d: d.execute_script("return document.readyState") == "complete")
-                                except: pass
-                            
-                                # Optimized JS to find and click download button instantly
-                                self.driver.execute_script("""
-                                    function clickDownload() {
-                                        const selectors = [
-                                            'button[id*="download"]', 'a[href*="download"]', 
-                                            'img[title*="Download"]', '.btn-download',
-                                            'input[value*="Download"]'
-                                        ];
-                                        for (let s of selectors) {
-                                            let el = document.querySelector(s);
-                                            if (el) { el.click(); return true; }
-                                        }
-                                        // Deep search if not found
-                                        let all = document.querySelectorAll('*');
-                                        for (let el of all) {
-                                            if (el.innerText && el.innerText.toLowerCase().includes('download') && el.tagName !== 'BODY') {
-                                                el.click(); return true;
-                                            }
-                                        }
-                                        return false;
-                                    }
-                                    clickDownload();
-                                """)
-                            
-                            # Wait for download to start (check for crdownload or new pdf)
-                            download_started = False
-                            for _ in range(10): # Max 5 seconds wait for START
-                                time.sleep(0.5)
-                                if glob.glob(os.path.join(target_dir, "*.crdownload")) or (set(glob.glob(os.path.join(target_dir, "*.pdf"))) - before_pdfs):
-                                    download_started = True
-                                    break
-                            
-                            if download_started:
-                                logger.info(f"[{self.port}] Download started for {c_num}, closing tab.")
-                                self.driver.close()
-                                self.driver.switch_to.window(main_window)
-                            else:
-                                logger.warning(f"[{self.port}] Download didn't start for {c_num}, keeping tab for a bit...")
-                                time.sleep(2)
-                                self.driver.close()
-                                self.driver.switch_to.window(main_window)
-                            
-                        else:
-                            # Case B: Popup/Download in same window
-                            time.sleep(1) # Minimal wait for same-window trigger
-                        
-                        # FAST QUEUE: Wait max 3 seconds. If it's a large bill (2-3MB), let it download in background!
-                        t0 = time.time()
-                        download_finished = False
-                        while time.time() - t0 < 3:
-                            if not glob.glob(os.path.join(target_dir, "*.crdownload")):
-                                download_finished = True
-                                break
-                            time.sleep(0.5)
-                            
-                        if not download_finished:
-                            logger.info(f"[{self.port}] Bill for {c_num} is large. Letting it download in background. Moving to next...")
-                            continue # Skip renaming for now, we will bulk-rename at the end!
-                        
-                        # Find the newly downloaded PDF and rename it
-                        all_current_pdfs = set(glob.glob(os.path.join(target_dir, "*.pdf")))
-                        new_pdfs = all_current_pdfs - before_pdfs
-                        
-                        # Also try matching by consumer number in existing files
-                        if not new_pdfs:
-                            new_pdfs = {f for f in all_current_pdfs if c_num in os.path.basename(f) and f != target_filepath}
-                        
-                        if new_pdfs:
-                            # Pick newest file
-                            new_pdfs_list = sorted(list(new_pdfs), key=os.path.getmtime, reverse=True)
-                            current_file = new_pdfs_list[0]
-                            
-                            try:
-                                # 1. Extract data from the newly downloaded file (might be EB... or something similar)
-                                extracted_data = extract_data_from_pdf(current_file, default_date=date_str)
-                                
-                                month_year_str = "UNKNOWN_MONTH"
-                                if extracted_data:
-                                    if extracted_data.get("consumer_number", "N/A") == "N/A":
-                                        extracted_data["consumer_number"] = c_num
-                                    if extracted_data.get("consumer_name", "N/A") == "N/A":
-                                        extracted_data["consumer_name"] = c_name
-                                    b_date = extracted_data.get("bill_month_date")
-                                    if b_date:
-                                        try:
-                                            dt = datetime.strptime(b_date, "%Y-%m-%d")
-                                            month_year_str = f"{dt.strftime('%b').capitalize()}_{dt.strftime('%Y')}"
-                                        except: pass
-                                else:
-                                    extracted_data = {"consumer_number": c_num, "consumer_name": c_name}
-                                    logger.warning(f"[{self.port}] Extraction failed for {c_num}, using defaults.")
-                                
-                                # 2. Determine final local name: [RealConsumerNum]_MMM_YYYY.pdf (Rule #3)
-                                # This name allows batch_drive_upload.py to find the real consumer folder
-                                final_c_num = extracted_data.get("consumer_number", c_num)
-                                final_local_name = f"{final_c_num}_{month_year_str}.pdf"
-                                final_target_path = os.path.join(target_dir, final_local_name)
-                                
-                                # --- BILL FILTERING REMOVED (User requested ALL bills) ---
-                                # Previous filter for Zero/Normal generation has been disabled.
+                # Step D: parallel HTTP PDF fetch for all tabs in ThreadPoolExecutor ────
+                cookies_snapshot = self.driver.get_cookies()
+                handle_list = list(new_handles)
+                fetch_tasks = {}  # future -> (handle, dest_path, meta)
 
-                                # 3. Perform the rename (Only reached if it's Poor Generation)
-                                try:
+                with ThreadPoolExecutor(max_workers=max(len(handle_list), 1)) as pool:
+                    for i, handle in enumerate(handle_list):
+                        url = tab_url_map.get(handle, "")
+                        meta = clicked_meta[i] if i < len(clicked_meta) else None
+                        if not meta or not url or "mahadiscom" not in url.lower():
+                            continue
+                        c_num = meta["c_num"]
+                        dest_path = os.path.join(target_dir, f"_tmp_{c_num}.pdf")
+                        future = pool.submit(
+                            _fast_fetch_pdf_from_url,
+                            url, cookies_snapshot, user_agent, dest_path
+                        )
+                        fetch_tasks[future] = (handle, dest_path, meta)
 
-                                    if current_file != final_target_path:
-                                        # If final target already exists, delete it first
-                                        if os.path.exists(final_target_path):
-                                            os.remove(final_target_path)
-                                        os.replace(current_file, final_target_path)
-                                    logger.info(f"[{self.port}] Final Rename: {final_local_name}")
-                                    
-                                    # Update count for progress reporting (Rule #9)
-                                    downloaded += 1
-                                    
-                                    # Cleanup any other files containing the internal ID or EB prefix
-                                    for pattern in [f"*{c_num}*.pdf", "EB*.pdf"]:
-                                        for stale in glob.glob(os.path.join(target_dir, pattern)):
-                                            if os.path.basename(stale) != final_local_name:
-                                                try: os.remove(stale)
-                                                except: pass
-                                                
-                                    # Save to JSON cache for UI progress tracking
-                                    self._update_cache_and_stats(target_dir, extracted_data)
-
-                                    
-                                except Exception as rename_err:
-                                    logger.error(f"[{self.port}] Could not rename/cache {c_num}: {rename_err}")
-                                    
-                            except Exception as proc_err:
-                                logger.error(f"[{self.port}] Processing error for {c_num}: {proc_err}")
-                        else:
-                            logger.error(f"[{self.port}] NO PDF downloaded for consumer {c_num}")
-                            
-                    except Exception as e:
-                        logger.error(f"[{self.port}] Failed to download for index {idx} ({c_num}): {e}")
-                        # Failsafe cleanup: If we crashed in a new tab, force close it and return to main
+                    # Collect HTTP-fetch results
+                    http_saved = {}  # c_num -> dest_path
+                    for future in as_completed(fetch_tasks):
+                        handle, dest_path, meta = fetch_tasks[future]
                         try:
-                            curr_handles = self.driver.window_handles
-                            if len(curr_handles) > 1 and 'main_window' in locals():
-                                for h in curr_handles:
-                                    if h != main_window:
-                                        self.driver.switch_to.window(h)
-                                        self.driver.close()
-                                self.driver.switch_to.window(main_window)
+                            ok, path = future.result()
+                            if ok:
+                                http_saved[meta["c_num"]] = path
+                                logger.info(f"[{self.port}] HTTP fetch OK: {meta['c_num']}")
+                        except Exception as fe:
+                            logger.debug(f"[{self.port}] HTTP fetch exception: {fe}")
+
+                # Step E: browser fallback for tabs NOT fetched via HTTP ────────────────
+                for i, handle in enumerate(handle_list):
+                    meta = clicked_meta[i] if i < len(clicked_meta) else None
+                    if not meta:
+                        try:
+                            self.driver.switch_to.window(handle)
+                            self.driver.close()
                         except: pass
-                    
-                    time.sleep(0.5)  # Small gap between consumers
-                    
-                # =====================================================================
-                # PHASE 2: BULK RENAME BACKGROUND DOWNLOADS
-                # =====================================================================
-                pending_crdownloads = glob.glob(os.path.join(target_dir, "*.crdownload"))
-                if pending_crdownloads:
-                    logger.info(f"[{self.port}] Waiting for {len(pending_crdownloads)} background downloads to finish (Max 120s)...")
-                    t0 = time.time()
-                    while time.time() - t0 < 120:
-                        if not glob.glob(os.path.join(target_dir, "*.crdownload")):
-                            break
-                        time.sleep(2)
-                
-                # Find all PDFs that haven't been renamed yet (no underscore in name)
-                # and process them just like the fast ones.
-                straggler_pdfs = [f for f in glob.glob(os.path.join(target_dir, "*.pdf")) if "_" not in os.path.basename(f)]
-                if straggler_pdfs:
-                    logger.info(f"[{self.port}] Bulk renaming {len(straggler_pdfs)} background downloads...")
-                    for pdf_file in straggler_pdfs:
+                        continue
+                    c_num = meta["c_num"]
+                    if c_num in http_saved:
+                        # Already saved via HTTP — just close the tab
                         try:
-                            extracted_data = extract_data_from_pdf(pdf_file, default_date=date_str)
-                            if extracted_data and extracted_data.get("consumer_number") != "N/A":
-                                final_c_num = extracted_data["consumer_number"]
-                                month_year_str = "UNKNOWN_MONTH"
-                                b_date = extracted_data.get("bill_month_date")
-                                if b_date:
-                                    try:
-                                        dt = datetime.strptime(b_date, "%Y-%m-%d")
-                                        month_year_str = f"{dt.strftime('%b').capitalize()}_{dt.strftime('%Y')}"
+                            self.driver.switch_to.window(handle)
+                            self.driver.close()
+                        except: pass
+                        continue
+                    # Fallback: trigger in-browser download button
+                    try:
+                        self.driver.switch_to.window(handle)
+                        # Wait for page ready (max 3s, tight polling)
+                        poll_deadline = time.time() + 3
+                        while time.time() < poll_deadline:
+                            try:
+                                if self.driver.execute_script("return document.readyState") == "complete":
+                                    break
+                            except: pass
+                            time.sleep(0.05)
+                        # Click any download button on the page
+                        self.driver.execute_script("""
+                            (function() {
+                                var sels = ['button[id*="download"]','a[href*="download"]',
+                                    'img[title*="Download"]','.btn-download','input[value*="Download"]'];
+                                for (var s of sels) {
+                                    var el = document.querySelector(s);
+                                    if (el) { el.click(); return; }
+                                }
+                                var all = document.querySelectorAll('*');
+                                for (var el of all) {
+                                    if (el.innerText && el.innerText.toLowerCase().includes('download')
+                                        && el.tagName !== 'BODY') { el.click(); return; }
+                                }
+                            })();
+                        """)
+                        # Wait for download to start (max 3s, tight polling)
+                        poll_deadline = time.time() + 3
+                        while time.time() < poll_deadline:
+                            if glob.glob(os.path.join(target_dir, "*.crdownload")) or \
+                               (set(glob.glob(os.path.join(target_dir, "*.pdf"))) - before_pdfs):
+                                break
+                            time.sleep(0.05)
+                        self.driver.close()
+                    except Exception as dl_err:
+                        logger.warning(f"[{self.port}] Browser fallback failed for {c_num}: {dl_err}")
+                        try: self.driver.close()
+                        except: pass
+
+                self.driver.switch_to.window(main_window)
+
+                # Step F: process & rename HTTP-fetched PDFs immediately ─────────────
+                for c_num, tmp_path in http_saved.items():
+                    meta = next((m for m in clicked_meta if m["c_num"] == c_num), None)
+                    if not meta or not os.path.exists(tmp_path):
+                        continue
+                    c_name = meta.get("c_name", "")
+                    try:
+                        extracted_data = extract_data_from_pdf(tmp_path, default_date=date_str)
+                        month_year_str = "UNKNOWN_MONTH"
+                        if extracted_data:
+                            if extracted_data.get("consumer_number", "N/A") == "N/A":
+                                extracted_data["consumer_number"] = c_num
+                            if extracted_data.get("consumer_name", "N/A") == "N/A":
+                                extracted_data["consumer_name"] = c_name
+                            b_date = extracted_data.get("bill_month_date")
+                            if b_date:
+                                try:
+                                    dt = datetime.strptime(b_date, "%Y-%m-%d")
+                                    month_year_str = f"{dt.strftime('%b').capitalize()}_{dt.strftime('%Y')}"
+                                except: pass
+                        else:
+                            extracted_data = {"consumer_number": c_num, "consumer_name": c_name}
+
+                        final_c_num = extracted_data.get("consumer_number", c_num)
+                        final_local_name = f"{final_c_num}_{month_year_str}.pdf"
+                        final_target_path = os.path.join(target_dir, final_local_name)
+
+                        if os.path.exists(final_target_path):
+                            os.remove(final_target_path)
+                        os.replace(tmp_path, final_target_path)
+                        logger.info(f"[{self.port}] Renamed: {final_local_name}")
+                        downloaded += 1
+                        # Cleanup stale files
+                        for pattern in [f"*{c_num}*.pdf", "EB*.pdf"]:
+                            for stale in glob.glob(os.path.join(target_dir, pattern)):
+                                if os.path.basename(stale) != final_local_name:
+                                    try: os.remove(stale)
                                     except: pass
-                                
-                                final_local_name = f"{final_c_num}_{month_year_str}.pdf"
-                                final_target_path = os.path.join(target_dir, final_local_name)
-                                
-                                if pdf_file != final_target_path:
-                                    if os.path.exists(final_target_path):
-                                        os.remove(final_target_path)
-                                    os.replace(pdf_file, final_target_path)
-                                
-                                downloaded += 1
-                                self._update_cache_and_stats(target_dir, extracted_data)
-                        except Exception as e:
-                            logger.error(f"[{self.port}] Failed to bulk rename {pdf_file}: {e}")
-                
+                        self._update_cache_and_stats(target_dir, extracted_data)
+                    except Exception as proc_err:
+                        logger.error(f"[{self.port}] Processing error for HTTP {c_num}: {proc_err}")
+
+            # ── 9. Phase 2: Wait for background browser downloads & bulk-rename ──────
+            pending = glob.glob(os.path.join(target_dir, "*.crdownload"))
+            if pending:
+                logger.info(f"[{self.port}] Waiting for {len(pending)} background downloads (max 120s)...")
+                t0 = time.time()
+                while time.time() - t0 < 120:
+                    if not glob.glob(os.path.join(target_dir, "*.crdownload")):
+                        break
+                    time.sleep(1)
+
+            straggler_pdfs = [f for f in glob.glob(os.path.join(target_dir, "*.pdf"))
+                              if "_" not in os.path.basename(f) and not os.path.basename(f).startswith("_tmp_")]
+            if straggler_pdfs:
+                logger.info(f"[{self.port}] Bulk renaming {len(straggler_pdfs)} browser-downloaded PDFs...")
+                for pdf_file in straggler_pdfs:
+                    try:
+                        extracted_data = extract_data_from_pdf(pdf_file, default_date=date_str)
+                        if extracted_data and extracted_data.get("consumer_number") != "N/A":
+                            final_c_num = extracted_data["consumer_number"]
+                            month_year_str = "UNKNOWN_MONTH"
+                            b_date = extracted_data.get("bill_month_date")
+                            if b_date:
+                                try:
+                                    dt = datetime.strptime(b_date, "%Y-%m-%d")
+                                    month_year_str = f"{dt.strftime('%b').capitalize()}_{dt.strftime('%Y')}"
+                                except: pass
+                            final_local_name = f"{final_c_num}_{month_year_str}.pdf"
+                            final_target_path = os.path.join(target_dir, final_local_name)
+                            if pdf_file != final_target_path:
+                                if os.path.exists(final_target_path):
+                                    os.remove(final_target_path)
+                                os.replace(pdf_file, final_target_path)
+                            downloaded += 1
+                            self._update_cache_and_stats(target_dir, extracted_data)
+                    except Exception as e:
+                        logger.error(f"[{self.port}] Failed to bulk rename {pdf_file}: {e}")
+
+            # ── 10. Clean up any leftover _tmp_ files ─────────────────────────────────
+            for tmp in glob.glob(os.path.join(target_dir, "_tmp_*.pdf")):
+                try: os.remove(tmp)
+                except: pass
+
             return True, f"[{self.port}] Finished. Downloaded and saved {downloaded}/{real_count} bills locally; Drive upload runs after completion."
-            
 
         except Exception as e:
             logger.error(f"[{self.port}] Error in download_bills: {e}")
             return False, str(e)
-
     def _update_cache_and_stats(self, target_dir, extracted_data):
         """Helper to save extracted data to local JSON cache for UI and CSV reporting."""
         try:

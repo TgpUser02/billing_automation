@@ -12,6 +12,12 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 interface RemoteBrowserProps {
   isRunning: boolean;
@@ -21,6 +27,8 @@ interface RemoteBrowserProps {
   onFetchConsumers?: () => Promise<void>;
   onStatusChange?: (status: string) => void;
   compact?: boolean;
+  linkModalOpen?: boolean;
+  onLinkModalOpenChange?: (open: boolean) => void;
 }
 
 export function RemoteBrowser({
@@ -31,7 +39,13 @@ export function RemoteBrowser({
   onFetchConsumers,
   onStatusChange,
   compact = false,
+  linkModalOpen,
+  onLinkModalOpenChange,
 }: RemoteBrowserProps) {
+  const [localShowLinkModal, setLocalShowLinkModal] = useState(false);
+  const showLinkModal = linkModalOpen !== undefined ? linkModalOpen : localShowLinkModal;
+  const setShowLinkModal = onLinkModalOpenChange !== undefined ? onLinkModalOpenChange : setLocalShowLinkModal;
+
   const [status, setStatus] = useState<
     | "IDLE"
     | "STARTING"
@@ -73,7 +87,7 @@ export function RemoteBrowser({
   const [remoteViewImage, setRemoteViewImage] = useState<string>("");
   const [remoteViewMeta, setRemoteViewMeta] = useState<{ title?: string; url?: string }>({});
   const [isFetchingRemoteView, setIsFetchingRemoteView] = useState(false);
-  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(true);
   const [isFetchingConsumers, setIsFetchingConsumers] = useState(false);
   const [isRefreshingTab, setIsRefreshingTab] = useState(false);
 
@@ -84,12 +98,51 @@ export function RemoteBrowser({
 
   const [linkConsumerNo, setLinkConsumerNo] = useState("");
   const [linkBillingUnit, setLinkBillingUnit] = useState("");
+  const [linkConsumerType, setLinkConsumerType] = useState<string>("1");
   const [isLinking, setIsLinking] = useState(false);
   const [linkStatus, setLinkStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [linkStage, setLinkStage] = useState<"INPUT" | "CAPTCHA" | "OTP">("INPUT");
   const [linkCaptchaImage, setLinkCaptchaImage] = useState<string>("");
   const [linkCaptchaInput, setLinkCaptchaInput] = useState<string>("");
   const [linkOtpInput, setLinkOtpInput] = useState<string>("");
+
+  const [subdivisions, setSubdivisions] = useState<{ value: string; label: string }[]>([]);
+  const [isFetchingSubdivisions, setIsFetchingSubdivisions] = useState(false);
+  const [subdivisionSearch, setSubdivisionSearch] = useState("");
+
+  const filteredSubdivisions = subdivisions.filter((sub) =>
+    sub.label.toLowerCase().includes(subdivisionSearch.toLowerCase()) ||
+    sub.value.toLowerCase().includes(subdivisionSearch.toLowerCase())
+  );
+
+  const fetchSubdivisions = async (consumerType: string = "1") => {
+    setIsFetchingSubdivisions(true);
+    try {
+      const res = await api.getAddConsumerOptions(consumerType);
+      if (res.status === "SUCCESS" && res.options) {
+        setSubdivisions(res.options);
+      } else {
+        console.error("Failed to load subdivisions:", res.message);
+      }
+    } catch (err) {
+      console.error("Error fetching subdivisions:", err);
+    } finally {
+      setIsFetchingSubdivisions(false);
+    }
+  };
+
+  const handleConsumerTypeChange = async (val: string) => {
+    setLinkConsumerType(val);
+    setLinkBillingUnit("");
+    setSubdivisionSearch("");
+    await fetchSubdivisions(val);
+  };
+
+  useEffect(() => {
+    if (status === "SUCCESS" && subdivisions.length === 0 && (showLinkModal || !compact)) {
+      fetchSubdivisions(linkConsumerType);
+    }
+  }, [status, showLinkModal, compact, subdivisions.length, linkConsumerType]);
 
   const handleFetchConsumersFromSite = async () => {
     setIsFetchingConsumers(true);
@@ -136,12 +189,29 @@ export function RemoteBrowser({
 
   const handleLinkConnection = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!linkConsumerNo.trim() || !linkBillingUnit.trim()) return;
+    const cleanNo = linkConsumerNo.trim();
+    const cleanBu = linkBillingUnit.trim();
+    if (!cleanNo || !cleanBu) return;
+
+    if (!/^\d+$/.test(cleanNo)) {
+      setLinkStatus({ type: "error", message: "Consumer number must contain only numeric digits." });
+      return;
+    }
+
+    if (linkConsumerType === "1" && cleanNo.length !== 12) {
+      setLinkStatus({ type: "error", message: "LT Consumer number must be exactly 12 digits." });
+      return;
+    }
+
+    if (linkConsumerType === "2" && cleanNo.length !== 10) {
+      setLinkStatus({ type: "error", message: "HT Consumer number must be exactly 10 digits." });
+      return;
+    }
 
     setIsLinking(true);
     setLinkStatus(null);
     try {
-      const res = await api.startAddConsumer(linkConsumerNo.trim(), linkBillingUnit.trim());
+      const res = await api.startAddConsumer(cleanNo, cleanBu, linkConsumerType);
       if (res.status === "CAPTCHA_REQUIRED") {
         setLinkCaptchaImage(res.captchaImage || "");
         setLinkStage("CAPTCHA");
@@ -150,6 +220,10 @@ export function RemoteBrowser({
         setLinkStatus({ type: "success", message: res.message || "Consumer linked successfully!" });
         setLinkConsumerNo("");
         setLinkBillingUnit("");
+        setTimeout(() => {
+          setShowLinkModal(false);
+          setLinkStatus(null);
+        }, 2000);
       } else {
         setLinkStatus({ type: "error", message: res.message || "Failed to initiate consumer link." });
       }
@@ -177,6 +251,10 @@ export function RemoteBrowser({
         setLinkStage("INPUT");
         setLinkConsumerNo("");
         setLinkBillingUnit("");
+        setTimeout(() => {
+          setShowLinkModal(false);
+          setLinkStatus(null);
+        }, 2000);
       } else {
         setLinkStatus({ type: "error", message: res.message || "CAPTCHA verification failed." });
       }
@@ -201,6 +279,10 @@ export function RemoteBrowser({
         setLinkStage("INPUT");
         setLinkConsumerNo("");
         setLinkBillingUnit("");
+        setTimeout(() => {
+          setShowLinkModal(false);
+          setLinkStatus(null);
+        }, 2000);
       } else {
         setLinkStatus({ type: "error", message: res.message || "OTP verification failed." });
       }
@@ -212,13 +294,42 @@ export function RemoteBrowser({
     }
   };
 
-  const handleCancelLink = () => {
+  const handleCancelLink = async () => {
     setLinkStage("INPUT");
     setLinkStatus(null);
     setLinkCaptchaImage("");
     setLinkCaptchaInput("");
     setLinkOtpInput("");
+    try {
+      await api.cancelAddConsumer();
+      await fetchRemoteViewSilent();
+    } catch (err) {
+      console.error("Failed to return to dashboard:", err);
+    }
   };
+
+  const handleGoToMyAccount = async () => {
+    try {
+      await api.cancelAddConsumer();
+      await fetchRemoteViewSilent();
+    } catch (err) {
+      console.error("Failed to navigate to my account:", err);
+    }
+  };
+
+  useEffect(() => {
+    let active = true;
+    if (compact && !showLinkModal && status === "SUCCESS") {
+      api.cancelAddConsumer().then(() => {
+        if (active) fetchRemoteViewSilent();
+      }).catch(err => {
+        console.error("Failed to cancel add consumer on modal close:", err);
+      });
+    }
+    return () => {
+      active = false;
+    };
+  }, [showLinkModal, compact, status]);
 
   useEffect(() => {
     const fetchCreds = async () => {
@@ -346,6 +457,19 @@ export function RemoteBrowser({
         setRemoteViewImage(res.image);
         setRemoteViewMeta({ title: res.title, url: res.url });
 
+        const currentUrl = (res.url || "").toLowerCase();
+        const pageTitle = (res.title || "").toLowerCase();
+        if (
+          currentUrl.includes("getmyaccount") ||
+          currentUrl.includes("getaddconsumer") ||
+          pageTitle.includes("माझे खाते") ||
+          pageTitle.includes("my account")
+        ) {
+          if (status !== "SUCCESS") {
+            setStatus("SUCCESS");
+          }
+        }
+
         const viewer = window.open("about:blank", "_blank", "width=1280,height=900");
         if (viewer) {
           const title = res.title || "Remote View";
@@ -423,6 +547,22 @@ export function RemoteBrowser({
       if (res.status === "success" && res.image) {
         setRemoteViewImage(res.image);
         setRemoteViewMeta({ title: res.title, url: res.url });
+
+        const currentUrl = (res.url || "").toLowerCase();
+        const pageTitle = (res.title || "").toLowerCase();
+        if (
+          currentUrl.includes("getmyaccount") ||
+          currentUrl.includes("getaddconsumer") ||
+          currentUrl.includes("viewbill") ||
+          (currentUrl.includes("wss/wss") && !currentUrl.includes("getcustaccountlogin")) ||
+          pageTitle.includes("माझे खाते") ||
+          pageTitle.includes("my account") ||
+          pageTitle.includes("view bill")
+        ) {
+          if (status !== "SUCCESS") {
+            setStatus("SUCCESS");
+          }
+        }
       }
     } catch (err) {
       // Ignore background errors silently
@@ -435,7 +575,7 @@ export function RemoteBrowser({
       fetchRemoteViewSilent();
       interval = setInterval(() => {
         fetchRemoteViewSilent();
-      }, 3000);
+      }, 1000);
     }
     return () => {
       if (interval) clearInterval(interval);
@@ -465,6 +605,23 @@ export function RemoteBrowser({
         </div>
 
         <div className="flex items-center gap-2">
+          {compact && status === "SUCCESS" && (
+            <div className="flex items-center gap-1.5 mr-1">
+              <Button
+                onClick={() => setShowLinkModal(true)}
+                className="h-7 px-2.5 bg-arin-teal hover:bg-arin-teal/90 text-white font-black text-[9px] uppercase tracking-widest rounded-lg shadow-sm flex items-center justify-center"
+              >
+                Link Consumer
+              </Button>
+              <Button
+                onClick={handleGoToMyAccount}
+                variant="outline"
+                className="h-7 px-2.5 border-slate-200 text-slate-600 hover:text-slate-800 hover:bg-slate-50 font-black text-[9px] uppercase tracking-widest rounded-lg shadow-sm flex items-center justify-center"
+              >
+                Go to My Account
+              </Button>
+            </div>
+          )}
           <span className={cn(
             "text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full flex items-center gap-1.5 border",
             status === "SUCCESS" ? "bg-green-50 text-green-600 border-green-200" :
@@ -753,7 +910,7 @@ export function RemoteBrowser({
                   <Button
                     onClick={handleFetchConsumersFromSite}
                     disabled={isFetchingConsumers}
-                    className="bg-arin-teal hover:bg-arin-teal/90 text-white font-black text-[9px] uppercase tracking-widest rounded-xl h-11 shadow-md shadow-arin-teal/10 flex items-center justify-center text-center leading-normal"
+                    className="bg-arin-teal hover:bg-arin-teal/90 text-white font-black text-[9px] uppercase tracking-widest rounded-xl h-11 shadow-md shadow-arin-teal/10 flex items-center justify-center text-center leading-normal col-span-2 md:col-span-1"
                   >
                     {isFetchingConsumers ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -765,13 +922,20 @@ export function RemoteBrowser({
                     onClick={handleRefreshRemoteTab}
                     disabled={isRefreshingTab}
                     variant="outline"
-                    className="border-slate-200 text-slate-600 hover:text-slate-800 hover:bg-slate-50 font-black text-[9px] uppercase tracking-widest rounded-xl h-11 flex items-center justify-center text-center leading-normal"
+                    className="border-slate-200 text-slate-600 hover:text-slate-800 hover:bg-slate-50 font-black text-[9px] uppercase tracking-widest rounded-xl h-11 flex items-center justify-center text-center leading-normal col-span-2 md:col-span-1"
                   >
                     {isRefreshingTab ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
                     ) : (
                       "Refresh Current Remote Tab"
                     )}
+                  </Button>
+                  <Button
+                    onClick={handleGoToMyAccount}
+                    variant="secondary"
+                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-black text-[9px] uppercase tracking-widest rounded-xl h-11 flex items-center justify-center text-center leading-normal col-span-2"
+                  >
+                    Go to My Account (Dashboard)
                   </Button>
                 </div>
 
@@ -783,6 +947,21 @@ export function RemoteBrowser({
 
                   {linkStage === "INPUT" && (
                     <form onSubmit={handleLinkConnection} className="space-y-3">
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">
+                          Consumer Type
+                        </label>
+                        <select
+                          required
+                          value={linkConsumerType}
+                          onChange={(e) => handleConsumerTypeChange(e.target.value)}
+                          className="w-full bg-white h-9 rounded-xl px-3 text-xs font-bold border border-slate-200 outline-none focus:border-arin-teal"
+                        >
+                          <option value="1">LT Consumer</option>
+                          <option value="2">HT Consumer</option>
+                        </select>
+                      </div>
+
                       <div className="space-y-1">
                         <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">
                           Consumer Number
@@ -801,14 +980,44 @@ export function RemoteBrowser({
                         <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">
                           Billing Unit / Subdivision
                         </label>
-                        <input
-                          type="text"
-                          required
-                          value={linkBillingUnit}
-                          onChange={(e) => setLinkBillingUnit(e.target.value)}
-                          className="w-full bg-white h-9 rounded-xl px-3 font-mono text-xs font-bold border border-slate-200 outline-none focus:border-arin-teal"
-                          placeholder="e.g. 4151 or subdivision name"
-                        />
+                        {isFetchingSubdivisions ? (
+                          <div className="flex items-center gap-2 h-9 px-3 bg-white border border-slate-200 rounded-xl text-xs text-slate-400 font-bold">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-arin-teal" />
+                            Loading subdivisions...
+                          </div>
+                        ) : subdivisions.length > 0 ? (
+                          <div className="space-y-1.5">
+                            <input
+                              type="text"
+                              value={subdivisionSearch}
+                              onChange={(e) => setSubdivisionSearch(e.target.value)}
+                              className="w-full bg-white h-9 rounded-xl px-3 text-xs font-bold border border-slate-200 outline-none focus:border-arin-teal"
+                              placeholder="Type to search subdivisions..."
+                            />
+                            <select
+                              required
+                              value={linkBillingUnit}
+                              onChange={(e) => setLinkBillingUnit(e.target.value)}
+                              className="w-full bg-white h-9 rounded-xl px-3 text-xs font-bold border border-slate-200 outline-none focus:border-arin-teal"
+                            >
+                              <option value="">-- Select Subdivision ({filteredSubdivisions.length} matches) --</option>
+                              {filteredSubdivisions.map((sub) => (
+                                <option key={sub.value} value={sub.value}>
+                                  {sub.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        ) : (
+                          <input
+                            type="text"
+                            required
+                            value={linkBillingUnit}
+                            onChange={(e) => setLinkBillingUnit(e.target.value)}
+                            className="w-full bg-white h-9 rounded-xl px-3 font-mono text-xs font-bold border border-slate-200 outline-none focus:border-arin-teal"
+                            placeholder="e.g. 4151 or subdivision name"
+                          />
+                        )}
                       </div>
 
                       {linkStatus && (
@@ -954,6 +1163,232 @@ export function RemoteBrowser({
           </div>
         </div>}
       </div>
+      {compact && (
+        <Dialog open={showLinkModal} onOpenChange={setShowLinkModal}>
+          <DialogContent className="glass-card shadow-2xl border-white/20 sm:max-w-md rounded-2xl p-6 bg-white/95 backdrop-blur-md">
+            <DialogHeader>
+              <DialogTitle className="text-base font-black bg-clip-text text-transparent bg-gradient-to-r from-arin-teal to-arin-green uppercase tracking-wider">
+                Link Connection to Portal
+              </DialogTitle>
+            </DialogHeader>
+
+            <div className="space-y-3 bg-slate-50 p-4 rounded-2xl border border-slate-100 w-full text-left mt-3">
+              {linkStage === "INPUT" && (
+                <form onSubmit={handleLinkConnection} className="space-y-3">
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">
+                      Consumer Type
+                    </label>
+                    <select
+                      required
+                      value={linkConsumerType}
+                      onChange={(e) => handleConsumerTypeChange(e.target.value)}
+                      className="w-full bg-white h-9 rounded-xl px-3 text-xs font-bold border border-slate-200 outline-none focus:border-arin-teal"
+                    >
+                      <option value="1">LT Consumer</option>
+                      <option value="2">HT Consumer</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">
+                      Consumer Number
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={linkConsumerNo}
+                      onChange={(e) => setLinkConsumerNo(e.target.value)}
+                      className="w-full bg-white h-9 rounded-xl px-3 font-mono text-xs font-bold border border-slate-200 outline-none focus:border-arin-teal"
+                      placeholder="e.g. 425320007691"
+                    />
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">
+                      Billing Unit / Subdivision
+                    </label>
+                    {isFetchingSubdivisions ? (
+                      <div className="flex items-center gap-2 h-9 px-3 bg-white border border-slate-200 rounded-xl text-xs text-slate-400 font-bold">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-arin-teal" />
+                        Loading subdivisions...
+                      </div>
+                    ) : subdivisions.length > 0 ? (
+                      <div className="space-y-1.5">
+                        <input
+                          type="text"
+                          value={subdivisionSearch}
+                          onChange={(e) => setSubdivisionSearch(e.target.value)}
+                          className="w-full bg-white h-9 rounded-xl px-3 text-xs font-bold border border-slate-200 outline-none focus:border-arin-teal"
+                          placeholder="Type to search subdivisions..."
+                        />
+                        <select
+                          required
+                          value={linkBillingUnit}
+                          onChange={(e) => setLinkBillingUnit(e.target.value)}
+                          className="w-full bg-white h-9 rounded-xl px-3 text-xs font-bold border border-slate-200 outline-none focus:border-arin-teal"
+                        >
+                          <option value="">-- Select Subdivision ({filteredSubdivisions.length} matches) --</option>
+                          {filteredSubdivisions.map((sub) => (
+                            <option key={sub.value} value={sub.value}>
+                              {sub.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : (
+                      <input
+                        type="text"
+                        required
+                        value={linkBillingUnit}
+                        onChange={(e) => setLinkBillingUnit(e.target.value)}
+                        className="w-full bg-white h-9 rounded-xl px-3 font-mono text-xs font-bold border border-slate-200 outline-none focus:border-arin-teal"
+                        placeholder="e.g. 4151 or subdivision name"
+                      />
+                    )}
+                  </div>
+
+                  {linkStatus && (
+                    <div className={cn(
+                      "p-2.5 rounded-xl text-[10px] font-bold border leading-normal",
+                      linkStatus.type === "success" 
+                        ? "bg-green-50 text-green-600 border-green-200" 
+                        : "bg-red-50 text-red-600 border-red-200"
+                    )}>
+                      {linkStatus.message}
+                    </div>
+                  )}
+
+                  <Button
+                    type="submit"
+                    disabled={isLinking || !linkConsumerNo.trim() || !linkBillingUnit.trim()}
+                    className="w-full h-10 bg-arin-teal hover:bg-arin-teal/90 text-white font-black text-xs uppercase tracking-widest rounded-xl shadow-md transition-all active:scale-95"
+                  >
+                    {isLinking ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : "Link Connection"}
+                  </Button>
+                </form>
+              )}
+
+              {linkStage === "CAPTCHA" && (
+                <form onSubmit={handleSubmitLinkCaptcha} className="space-y-3">
+                  <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">
+                    Step 1: Enter Link Captcha
+                  </p>
+                  
+                  <div className="bg-white p-2 rounded-xl shadow-sm border border-slate-200 flex justify-center min-h-[60px]">
+                    {linkCaptchaImage ? (
+                      <img
+                        src={linkCaptchaImage}
+                        alt="Link Captcha"
+                        className="max-h-16 object-contain rounded"
+                      />
+                    ) : (
+                      <p className="text-xs text-slate-400 self-center">
+                        Loading Link CAPTCHA...
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">
+                      Enter CAPTCHA
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      autoFocus
+                      value={linkCaptchaInput}
+                      onChange={(e) => setLinkCaptchaInput(e.target.value)}
+                      className="w-full bg-white h-9 rounded-xl px-3 text-center font-mono text-sm font-bold tracking-widest border border-slate-200 focus:border-arin-teal outline-none"
+                      placeholder="Type captcha"
+                    />
+                  </div>
+
+                  {linkStatus && (
+                    <div className="p-2.5 rounded-xl text-[10px] font-bold border leading-normal bg-red-50 text-red-600 border-red-200">
+                      {linkStatus.message}
+                    </div>
+                  )}
+
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={handleCancelLink}
+                      className="flex-1 h-10 border border-slate-200 text-xs font-bold text-slate-500 hover:text-slate-700"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="submit"
+                      disabled={isLinking || !linkCaptchaInput.trim()}
+                      className="flex-1 h-10 bg-arin-teal hover:bg-arin-teal/90 text-white font-black text-xs uppercase tracking-widest rounded-xl shadow-md transition-all"
+                    >
+                      {isLinking ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : "Verify Captcha"}
+                    </Button>
+                  </div>
+                </form>
+              )}
+
+              {linkStage === "OTP" && (
+                <form onSubmit={handleSubmitLinkOtp} className="space-y-3">
+                  <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">
+                    Step 2: Enter OTP Code
+                  </p>
+                  
+                  <div className="bg-orange-50 text-orange-800 p-3 rounded-xl border border-orange-100">
+                    <p className="text-[9px] font-bold uppercase tracking-wide text-orange-700">
+                      Verification Required
+                    </p>
+                    <p className="text-[10px] mt-0.5 leading-relaxed font-semibold">
+                      OTP has been sent to the registered mobile/email of this connection.
+                    </p>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">
+                      Enter OTP Code
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      autoFocus
+                      value={linkOtpInput}
+                      onChange={(e) => setLinkOtpInput(e.target.value)}
+                      className="w-full bg-white h-9 rounded-xl px-3 text-center font-mono text-sm font-bold tracking-widest border border-slate-200 focus:border-arin-teal outline-none"
+                      placeholder="OTP Code"
+                    />
+                  </div>
+
+                  {linkStatus && (
+                    <div className="p-2.5 rounded-xl text-[10px] font-bold border leading-normal bg-red-50 text-red-600 border-red-200">
+                      {linkStatus.message}
+                    </div>
+                  )}
+
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={handleCancelLink}
+                      className="flex-1 h-10 border border-slate-200 text-xs font-bold text-slate-500 hover:text-slate-700"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="submit"
+                      disabled={isLinking || !linkOtpInput.trim()}
+                      className="flex-1 h-10 bg-arin-teal hover:bg-arin-teal/90 text-white font-black text-xs uppercase tracking-widest rounded-xl shadow-md transition-all"
+                    >
+                      {isLinking ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : "Verify & Link"}
+                    </Button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </Card>
   );
 }

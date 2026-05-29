@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { format } from "date-fns";
-import { Trash2, Upload, Edit2, X, RefreshCw, Layers } from "lucide-react";
+import { Trash2, Upload, Edit2, X, RefreshCw, Layers, Plus, ExternalLink } from "lucide-react";
 import { api } from "@/lib/api";
 import { useToast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
@@ -40,9 +40,10 @@ interface ConsumerFilterProps {
   onExcelUpload: (file: File) => void;
   excelData: any[];
   selectedDate?: Date;
+  onLinkConsumerClick?: () => void;
 }
 
-const ConsumerFilter = ({ consumers, setConsumers, onFetch, onExcelUpload, excelData, selectedDate }: ConsumerFilterProps) => {
+const ConsumerFilter = ({ consumers, setConsumers, onFetch, onExcelUpload, excelData, selectedDate, onLinkConsumerClick }: ConsumerFilterProps) => {
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [bulkNumbers, setBulkNumbers] = useState("");
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -310,6 +311,15 @@ const ConsumerFilter = ({ consumers, setConsumers, onFetch, onExcelUpload, excel
           </div>
 
           <div className="flex items-center gap-2">
+            {onLinkConsumerClick && (
+              <Button
+                onClick={onLinkConsumerClick}
+                className="bg-arin-teal hover:bg-arin-teal/90 text-white font-black text-[10px] uppercase tracking-widest rounded-xl h-8 px-3.5 shadow-md shadow-arin-teal/10 flex items-center gap-1.5"
+              >
+                <Plus className="w-3 h-3" />
+                Add Consumer to 3rd Party
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="sm"
@@ -370,6 +380,17 @@ const ConsumerFilter = ({ consumers, setConsumers, onFetch, onExcelUpload, excel
                   <Button variant="outline" size="sm" className="h-8 px-2 rounded-lg border-slate-200 font-bold text-[9px] uppercase tracking-tighter" onClick={() => toggleAll(true)}>Select All</Button>
                   <Button variant="outline" size="sm" className="h-8 px-2 rounded-lg border-slate-200 font-bold text-[9px] uppercase tracking-tighter" onClick={() => toggleAll(false)}>None</Button>
                   <Button variant="outline" size="sm" className="h-8 px-2 rounded-lg border-arin-orange/20 text-arin-orange hover:bg-arin-orange hover:text-white font-black text-[9px] uppercase tracking-tighter" onClick={() => setIsBulkModalOpen(true)}>Bulk Paste</Button>
+                  {onLinkConsumerClick && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 px-2 rounded-lg border-arin-teal/20 text-arin-teal hover:bg-arin-teal hover:text-white font-black text-[9px] uppercase tracking-tighter flex items-center gap-1"
+                      onClick={onLinkConsumerClick}
+                    >
+                      <Plus className="h-3 w-3" />
+                      Add to 3rd Party Portal
+                    </Button>
+                  )}
                   <Button variant="ghost" size="sm" className="h-8 w-8 px-0 rounded-lg border border-slate-200 text-slate-400 hover:text-red-500 hover:bg-red-50 hover:border-red-200 disabled:opacity-30 transition-all" onClick={handleDeleteSelected} disabled={selectedCount === 0} title="Clear Selection"><Trash2 className="h-3 w-3" /></Button>
                 </div>
               </div>
@@ -402,8 +423,18 @@ const ConsumerFilter = ({ consumers, setConsumers, onFetch, onExcelUpload, excel
                 ))}
               </div>
             ) : (
-              <div className="py-12 flex flex-col items-center justify-center text-center opacity-40">
+              <div className="py-12 flex flex-col items-center justify-center text-center gap-3">
                 <p className="text-sm font-black text-slate-400 uppercase tracking-tighter">Fetch consumers to begin</p>
+                {onLinkConsumerClick && (
+                  <Button
+                    onClick={onLinkConsumerClick}
+                    variant="outline"
+                    className="text-[10px] font-black uppercase tracking-widest text-arin-teal border-arin-teal/20 hover:bg-arin-teal/5 flex items-center gap-1.5"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Add Consumer on 3rd Party Website
+                  </Button>
+                )}
               </div>
             )}
           </div>

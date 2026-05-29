@@ -104,6 +104,7 @@ const Index = () => {
   const [excelData, setExcelData] = useState<any[]>(() =>
     safeSessionGet("arin_excelData", []),
   );
+  const [linkModalOpen, setLinkModalOpen] = useState(false);
   
   const [selectedFailedToRetry, setSelectedFailedToRetry] = useState<Set<string>>(new Set());
 
@@ -1338,6 +1339,7 @@ const Index = () => {
                 onExcelUpload={handleExcelUpload}
                 excelData={excelData}
                 selectedDate={selectedDate}
+                onLinkConsumerClick={() => setLinkModalOpen(true)}
               />
             </div>
           )}
@@ -1430,7 +1432,7 @@ const Index = () => {
         {/* Right Column: Execution Engine Cockpit, Progress, Logs & Output (7/12) */}
         <div className="col-span-12 xl:col-span-7 space-y-6">
           {/* Active Browser Engine Cockpit */}
-          {uiPhase === "LOGIN" && (
+          {(uiPhase === "LOGIN" || uiPhase === "CONSUMER_SELECT") && (
             <RemoteBrowser
               isRunning={isRunning}
               date={selectedDate}
@@ -1440,22 +1442,9 @@ const Index = () => {
               onStatusChange={(browserStatus) => {
                 setIsLoggedIn(browserStatus === "SUCCESS");
               }}
-              compact={false}
-            />
-          )}
-
-          {/* Compact Remote Browser — during CONSUMER_SELECT */}
-          {uiPhase === "CONSUMER_SELECT" && (
-            <RemoteBrowser
-              isRunning={isRunning}
-              date={selectedDate}
-              customId={currentCustomId}
-              onReset={handleCompleteReset}
-              onFetchConsumers={handleFetchConsumers}
-              onStatusChange={(browserStatus) => {
-                setIsLoggedIn(browserStatus === "SUCCESS");
-              }}
-              compact={true}
+              compact={uiPhase === "CONSUMER_SELECT"}
+              linkModalOpen={linkModalOpen}
+              onLinkModalOpenChange={setLinkModalOpen}
             />
           )}
 

@@ -18,15 +18,19 @@ logger = logging.getLogger(__name__)
 
 # MySQL Configuration
 DB_CONFIG = {
-    'host': os.getenv('DB_HOST', '166.62.28.141'),
-    'port': int(os.getenv('DB_PORT', 3306)),
-    'user': os.getenv('DB_USER', 'Arin'),
-    'password': os.getenv('DB_PASSWORD', 'Arin@098123'),
-    'database': os.getenv('DB_NAME', 'Arin_Energy')
+    'host': os.getenv('DB_HOST'),
+    'port': int(os.getenv('DB_PORT', 3306)) if os.getenv('DB_PORT') else 3306,
+    'user': os.getenv('DB_USER'),
+    'password': os.getenv('DB_PASSWORD'),
+    'database': os.getenv('DB_NAME')
 }
 
 def get_db_connection(retry_count=3, retry_delay=2):
     """Connect to MySQL with retry logic and timeout."""
+    if not all([DB_CONFIG['host'], DB_CONFIG['user'], DB_CONFIG['password'], DB_CONFIG['database']]):
+        logger.error("Missing database environment variables (DB_HOST, DB_USER, DB_PASSWORD, DB_NAME). Please set them in your .env file.")
+        return None
+
     config = {
         **DB_CONFIG,
         'connection_timeout': 10,  # 10 second timeout

@@ -275,10 +275,10 @@ export const api = {
         return checkResponse(response);
     },
 
-    startAddConsumer: async (consumerNumber: string, billingUnit: string) => {
+    startAddConsumer: async (consumerNumber: string, billingUnit: string, consumerType: string = "1") => {
         const response = await authFetch(`${API_BASE_URL}/portal/add-consumer/start`, {
             method: "POST",
-            body: JSON.stringify({ consumerNumber, billingUnit }),
+            body: JSON.stringify({ consumerNumber, billingUnit, consumerType }),
         });
         return checkResponse(response);
     },
@@ -295,6 +295,21 @@ export const api = {
         const response = await authFetch(`${API_BASE_URL}/portal/add-consumer/otp`, {
             method: "POST",
             body: JSON.stringify({ otp }),
+        });
+        return checkResponse(response);
+    },
+
+    getAddConsumerOptions: async (consumerType?: string) => {
+        const url = consumerType 
+            ? `${API_BASE_URL}/portal/add-consumer/options?consumerType=${encodeURIComponent(consumerType)}`
+            : `${API_BASE_URL}/portal/add-consumer/options`;
+        const response = await authFetch(url);
+        return checkResponse(response);
+    },
+
+    cancelAddConsumer: async () => {
+        const response = await authFetch(`${API_BASE_URL}/portal/add-consumer/cancel`, {
+            method: "POST",
         });
         return checkResponse(response);
     },

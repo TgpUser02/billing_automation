@@ -1086,7 +1086,6 @@ def worker_task_selective(worker_index, date, indices, cookies=None, custom_id=N
             wait.until(EC.presence_of_element_located((By.ID, "grdCustList")))
         except:
             worker.driver.get("https://wss.mahadiscom.in/wss/wss?uiActionName=getMyAccount")
-            time.sleep(0.1) # Minimized wait
         worker.download_bills(selective_indices=indices)
     except Exception as e:
         logger.error(f"Worker {worker_index} failed: {e}")
@@ -1523,12 +1522,27 @@ async def api_reset(user=Depends(get_current_user)):
     await login_automator.close_browser()
     # also reset old automation if present
     primary_automation.close()
+    
+    # Delete saved session cookie files so next login is guaranteed to be fresh
+    try:
+        import glob
+        files = glob.glob("backend/secrets/session_cookies_*.json")
+        for f in files:
+            try:
+                os.remove(f)
+                logger.info(f"Deleted saved session cookie file {f} on reset request")
+            except Exception as fe:
+                logger.warning(f"Failed to remove file {f}: {fe}")
+    except Exception as e:
+        logger.error(f"Failed to delete session cookie files on reset: {e}")
+        
     return {"status": "success"}
 
 
 class AddConsumerRequest(BaseModel):
     consumerNumber: str
     billingUnit: str
+    consumerType: Optional[str] = "1"
 
 
 class AddConsumerCaptchaReq(BaseModel):
@@ -1543,15 +1557,36 @@ class AddConsumerOtpReq(BaseModel):
 async def add_consumer_start(request: AddConsumerRequest, user=Depends(get_current_user)):
     cnum = request.consumerNumber.strip()
     bu = request.billingUnit.strip()
+    ctype = (request.consumerType or "1").strip()
     
     if not cnum or not bu:
         raise HTTPException(status_code=400, detail="Consumer Number and Billing Unit are required.")
     
     try:
-        res = await login_automator.start_add_consumer(cnum, bu)
+        res = await login_automator.start_add_consumer(cnum, bu, ctype)
         return res
     except Exception as e:
         logger.error(f"Failed to start add consumer: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/portal/add-consumer/options")
+async def add_consumer_options(consumerType: Optional[str] = "1", user=Depends(get_current_user)):
+    try:
+        res = await login_automator.get_add_consumer_options(consumerType)
+        return res
+    except Exception as e:
+        logger.error(f"Failed to get add consumer options: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/portal/add-consumer/cancel")
+async def add_consumer_cancel(user=Depends(get_current_user)):
+    try:
+        res = await login_automator.return_to_dashboard()
+        return res
+    except Exception as e:
+        logger.error(f"Failed to cancel add consumer navigation: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
