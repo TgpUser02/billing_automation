@@ -20,7 +20,7 @@ import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 
 const downloadCSVClient = (data: any[], filename: string) => {
-    if (!data || data.length === 0) return;
+    if (!data) data = [];
     const headers = ["Consumer Number", "Consumer Name", "Arin ID", "Generation", "Capacity (kW)"];
     const rows = data.map(item => [
         item.consumer_no || "",
@@ -45,7 +45,10 @@ const downloadCSVClient = (data: any[], filename: string) => {
 };
 
 const downloadXLSXClient = (data: any[], filename: string) => {
-    if (!data || data.length === 0) return;
+    if (!data) data = [];
+    if (data.length === 0) {
+        data = [{ "Consumer Number": "", "Consumer Name": "", "Arin ID": "", "Generation": 0, "Capacity (kW)": 0, "Export": 0 }];
+    }
     const worksheet = XLSX.utils.json_to_sheet(data.map(item => ({
         "Consumer Number": item.consumer_no || "",
         "Consumer Name": item.consumer_name || "",
@@ -450,23 +453,18 @@ export default function ArinBillGenerator() {
 
             // ── 3. AUTOMATED REPORT PERSISTENCE (Rule #1 & #2) ──
             // Always create/update reports in the background on the server
-            // identifying them as csv/xlsx format specifically
-            if (zeroGenList.length > 0) {
-                await api.saveReports("zero_generation_consumers.csv", zeroGenList, dayStr);
-                downloadCSVClient(zeroGenList, `zero_generation_consumers_${dayStr}.csv`);
-            }
-            if (poorStatusList.length > 0) {
-                await api.saveReports("poor_consumers.csv", poorStatusList, dayStr);
-                downloadCSVClient(poorStatusList, `poor_consumers_${dayStr}.csv`);
-            }
-            if (genLessThanExportList.length > 0) {
-                await api.saveReports(`generation_less_than_export.pdf`, genLessThanExportList, dayStr);
-                downloadPDFClient(genLessThanExportList, `generation_less_than_export_${dayStr}.pdf`);
-            }
-            if (genEqualToExportList.length > 0) {
-                await api.saveReports(`generation_equal_to_export.pdf`, genEqualToExportList, dayStr);
-                downloadPDFClient(genEqualToExportList, `generation_equal_to_export_${dayStr}.pdf`);
-            }
+            // identifying them as csv/xlsx format specifically, even if empty
+            await api.saveReports("zero_generation_consumers.csv", zeroGenList, dayStr);
+            downloadCSVClient(zeroGenList, `zero_generation_consumers_${dayStr}.csv`);
+
+            await api.saveReports("poor_consumers.csv", poorStatusList, dayStr);
+            downloadCSVClient(poorStatusList, `poor_consumers_${dayStr}.csv`);
+
+            await api.saveReports(`generation_less_than_export.xlsx`, genLessThanExportList, dayStr);
+            downloadXLSXClient(genLessThanExportList, `generation_less_than_export_${dayStr}.xlsx`);
+
+            await api.saveReports(`generation_equal_to_export.xlsx`, genEqualToExportList, dayStr);
+            downloadXLSXClient(genEqualToExportList, `generation_equal_to_export_${dayStr}.xlsx`);
 
             // ── 4. COMPLETION SUMMARY POPUP (User Request) ──
             toast({

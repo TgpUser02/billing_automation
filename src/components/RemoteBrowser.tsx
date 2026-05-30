@@ -216,6 +216,9 @@ export function RemoteBrowser({
         setLinkCaptchaImage(res.captchaImage || "");
         setLinkStage("CAPTCHA");
         setLinkCaptchaInput("");
+      } else if (res.status === "OTP_REQUIRED") {
+        setLinkStage("OTP");
+        setLinkOtpInput("");
       } else if (res.status === "SUCCESS") {
         setLinkStatus({ type: "success", message: res.message || "Consumer linked successfully!" });
         setLinkConsumerNo("");

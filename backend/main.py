@@ -1342,9 +1342,47 @@ def launch_automation(request: LaunchRequest, user=Depends(get_current_user)):
 def fetch_consumers(user=Depends(get_current_user)):
     """Scrapes the consumer list from the primary browser session."""
     success, data = primary_automation.get_consumer_list()
-    print(f"Fetched consumers: {data}")
+    # print(f"Fetched consumers: {data}")
     if not success:
         raise HTTPException(status_code=500, detail=data)
+        
+    # Auto-insert missing consumers with "Data yet to fill"
+    try:
+        from processing import get_db_connection
+        conn = get_db_connection()
+        if conn:
+            cursor = conn.cursor(dictionary=True)
+            # Ensure columns exist dynamically
+            try:
+                cursor.execute("ALTER TABLE customers ADD COLUMN billing_unit VARCHAR(50) DEFAULT NULL")
+            except Exception: pass
+            try:
+                cursor.execute("ALTER TABLE customers ADD COLUMN label VARCHAR(50) DEFAULT NULL")
+            except Exception: pass
+            
+            for consumer in data:
+                cnum = consumer.get("consumerNumber")
+                cname = consumer.get("name")
+                bu = consumer.get("bu")
+                if cnum:
+                    cursor.execute("SELECT id FROM customers WHERE consumer_number = %s", (cnum,))
+                    if not cursor.fetchone():
+                        # Also check backup
+                        try:
+                            cursor.execute("SELECT id FROM customers_backup WHERE consumer_number = %s", (cnum,))
+                            if cursor.fetchone(): continue
+                        except Exception: pass
+                        
+                        logger.info(f"Adding missing consumer {cnum} from portal to database.")
+                        cursor.execute(
+                            "INSERT INTO customers (consumer_number, customer_name, billing_unit, label) VALUES (%s, %s, %s, %s)",
+                            (cnum, cname, bu, "Data yet to fill")
+                        )
+            conn.commit()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error saving missing consumers: {e}")
+        
     return data
 
 @app.post("/api/close")

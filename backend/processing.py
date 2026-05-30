@@ -636,8 +636,28 @@ def process_downloads(download_dir="downloads", progress_callback=None, threshol
         idx_counter += 1
         if progress_callback: progress_callback(idx_counter, total_files)
     
-    # Generate Reports
-    generate_generation_reports(download_dir, all_extracted_data, threshold=threshold)
+    # Generate Reports for the entire month
+    try:
+        if default_d and conn:
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute("""
+                SELECT b.*, c.customer_name as consumer_name, c.solar_capacity_kw as capacity
+                FROM bill_generation_details b
+                LEFT JOIN customers c ON b.consumer_number = c.consumer_number
+                WHERE b.month_year = %s
+            """, (default_d,))
+            full_month_data = cursor.fetchall()
+            if full_month_data:
+                logger.info(f"Generating reports using {len(full_month_data)} total records from DB for month {default_d}")
+                generate_generation_reports(download_dir, full_month_data, threshold=threshold)
+            else:
+                generate_generation_reports(download_dir, all_extracted_data, threshold=threshold)
+            cursor.close()
+        else:
+            generate_generation_reports(download_dir, all_extracted_data, threshold=threshold)
+    except Exception as e:
+        logger.error(f"Error fetching full month data for reports: {e}")
+        generate_generation_reports(download_dir, all_extracted_data, threshold=threshold)
 
     # Final results lists (unique)
     success_list = sorted(list(set([c for c, status in results_map.items() if status == "success"])))
@@ -666,7 +686,7 @@ def generate_generation_reports(target_dir, data_list, threshold=75):
     zero_gen = []
     poor_gen = []
     export_gt_gen = []
-    status_not_normal = []
+    gen_equal_to_exp = []
     
     logger.info(f"Generating Excel reports for {len(data_list)} records (threshold: {threshold})...")
     for item in data_list:
@@ -702,9 +722,9 @@ def generate_generation_reports(target_dir, data_list, threshold=75):
             if exp > gen:
                 export_gt_gen.append(row)
                 
-            # d) Bill status other than Normal
-            if status != "Normal":
-                status_not_normal.append(row)
+            # d) Generation equal to Export
+            if gen == exp and gen > 0:
+                gen_equal_to_exp.append(row)
                 
         except Exception as e:
             logger.error(f"Error processing item for report: {e}")
@@ -727,10 +747,10 @@ def generate_generation_reports(target_dir, data_list, threshold=75):
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     reports = {
-        f"zero_generation_{timestamp}.xlsx": zero_gen,
-        f"poor_generation_{timestamp}.xlsx": poor_gen,
-        f"export_greater_than_generation_{timestamp}.xlsx": export_gt_gen,
-        f"bill_status_other_than_normal_{timestamp}.xlsx": status_not_normal
+        f"zero_generation_consumers_{timestamp}.csv": zero_gen,
+        f"poor_consumers_{timestamp}.csv": poor_gen,
+        f"generation_less_than_export_{timestamp}.xlsx": export_gt_gen,
+        f"generation_equal_to_export_{timestamp}.xlsx": gen_equal_to_exp
     }
     
     for filename, rows in reports.items():
@@ -741,8 +761,32 @@ def generate_generation_reports(target_dir, data_list, threshold=75):
             df = pd.DataFrame(columns=["Consumer Number", "Consumer Name", "Capacity (kW)", "Generation (kWh)", "Export (kWh)", "Bill Status"])
         
         try:
-            df.to_excel(filepath, index=False)
+            if filename.endswith(".csv"):
+                df.to_csv(filepath, index=False)
+            else:
+                df.to_excel(filepath, index=False)
             logger.info(f"Generated report: {filepath} with {len(rows)} rows.")
+            
+            # Upload to Google Drive
+            try:
+                from gdrive_utils import get_drive_service, get_or_create_date_folder, upload_file_to_drive
+                drive_root_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
+                if drive_root_id:
+                    service = get_drive_service()
+                    if service:
+                        bill_gen_root_id = get_or_create_date_folder(service, "billing_automation", drive_root_id)
+                        report_root_id = get_or_create_date_folder(service, "Report", bill_gen_root_id)
+                        report_date_folder_id = get_or_create_date_folder(service, formatted_date, report_root_id)
+                        
+                        if report_date_folder_id:
+                            success, g_msg = upload_file_to_drive(service, filepath, filename, report_date_folder_id)
+                            if success:
+                                logger.info(f"✓ Successfully uploaded report {filename} to Google Drive")
+                            else:
+                                logger.error(f"Drive upload failed for {filename}: {g_msg}")
+            except Exception as drive_err:
+                logger.error(f"Exception during Drive upload for {filename}: {drive_err}")
+                
         except Exception as ex_err:
             logger.error(f"Failed to generate Excel report {filename}: {ex_err}")
 

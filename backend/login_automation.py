@@ -58,7 +58,10 @@ class LoginAutomation:
     async def _handle_dialog(self, dialog):
         logger.warning(f"Browser Alert: {dialog.message}")
         self.last_alert_msg = dialog.message
-        await dialog.dismiss()
+        try:
+            await dialog.accept()
+        except:
+            pass
 
     async def init_browser(self):
         if self.playwright is not None:
@@ -498,7 +501,42 @@ class LoginAutomation:
                     break
 
             if not captcha_el:
-                err_msg = "CAPTCHA image not found on Add Consumer page."
+                logger.info("No CAPTCHA found on Add Consumer page. Proceeding directly to OTP...")
+                
+                # Click submit/request OTP button
+                clicked = False
+                for selector in ["#addButton", "#btnSubmit", "#btnSearch", "#submitBtn", "#submitButton:visible", "#Submit:visible", "input[type='submit']:visible", "button[type='submit']:visible"]:
+                    btn = self.page.locator(selector)
+                    if await btn.count() > 0:
+                        await btn.first.click()
+                        clicked = True
+                        break
+                if not clicked:
+                    try:
+                        await self.page.locator("input[type='submit'], button[type='submit']").first.click()
+                    except:
+                        pass
+                
+                # Wait for AJAX response
+                await asyncio.sleep(4)
+
+                # Check if OTP input is visible
+                otp_visible = False
+                for selector in ["#otpField", "#txtOTP", "#otp", "input[name='otp']"]:
+                    el = await self.page.query_selector(selector)
+                    if el and await el.is_visible():
+                        otp_visible = True
+                        break
+
+                if otp_visible:
+                    self.status = "ADD_CONSUMER_OTP_REQUIRED"
+                    self.last_alert_msg = None
+                    return {
+                        "status": "OTP_REQUIRED",
+                        "message": "OTP has been successfully sent to registered mobile/email."
+                    }
+                
+                err_msg = "CAPTCHA image not found and failed to reach OTP stage."
                 try:
                     for err_sel in [".errorMessage", "#lblMessage", "#errorLabel", ".text-danger", "font[color='red']", "span[style*='color:Red']", "span[style*='color:red']"]:
                         err_el = await self.page.query_selector(err_sel)
@@ -509,6 +547,12 @@ class LoginAutomation:
                                 break
                 except Exception as check_err:
                     logger.warning(f"Failed to scan for page errors on missing captcha: {check_err}")
+                
+                # Also check alert msg
+                if self.last_alert_msg:
+                    err_msg = self.last_alert_msg
+                    self.last_alert_msg = None
+                    
                 return {"status": "ERROR", "message": err_msg}
 
             captcha_buffer = await captcha_el.screenshot()
@@ -598,23 +642,17 @@ class LoginAutomation:
 
             # Click submit/request OTP button
             clicked = False
-            for selector in ["#submitBtn", "#submitButton", "input[type='submit']", "#Submit"]:
+            for selector in ["#addButton", "#btnSubmit", "#btnSearch", "#submitBtn", "#submitButton:visible", "#Submit:visible", "input[type='submit']:visible", "button[type='submit']:visible"]:
                 btn = self.page.locator(selector)
                 if await btn.count() > 0:
-                    await btn.click()
+                    await btn.first.click()
                     clicked = True
                     break
             if not clicked:
-                await self.page.click("input[type='submit'], button[type='submit']")
+                await self.page.locator("input[type='submit'], button[type='submit']").first.click()
 
             # Wait for AJAX response
             await asyncio.sleep(4)
-
-            # Check if alert was triggered
-            if self.last_alert_msg:
-                msg = self.last_alert_msg
-                self.last_alert_msg = None
-                return {"status": "ERROR", "message": msg}
 
             # Check if OTP input is visible
             otp_visible = False
@@ -626,10 +664,17 @@ class LoginAutomation:
 
             if otp_visible:
                 self.status = "ADD_CONSUMER_OTP_REQUIRED"
+                self.last_alert_msg = None  # Clear alert if we successfully moved to OTP stage
                 return {
                     "status": "OTP_REQUIRED",
                     "message": "OTP has been successfully sent to registered mobile/email."
                 }
+
+            # Check if alert was triggered
+            if self.last_alert_msg:
+                msg = self.last_alert_msg
+                self.last_alert_msg = None
+                return {"status": "ERROR", "message": msg}
             
             err_msg = "Failed to proceed to OTP stage. Please check Captcha or Subdivision."
             try:
@@ -665,14 +710,14 @@ class LoginAutomation:
 
             # Click verify/add button
             clicked = False
-            for selector in ["#verifyOtpBtn", "#btnVerifyOTP", "#loginButtonOTP", "#submitOTP"]:
+            for selector in ["#verifyOtpBtn", "#btnVerifyOTP", "#loginButtonOTP", "#submitOTP", "#btnSubmit", "input[type='submit']", "button[type='submit']"]:
                 btn = self.page.locator(selector)
                 if await btn.count() > 0:
-                    await btn.click()
+                    await btn.first.click()
                     clicked = True
                     break
             if not clicked:
-                await self.page.click("input[type='submit'], button[type='submit']")
+                await self.page.locator("input[type='submit'], button[type='submit']").first.click()
 
             # Wait for AJAX response
             await asyncio.sleep(4)
