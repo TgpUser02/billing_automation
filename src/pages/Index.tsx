@@ -945,6 +945,12 @@ const Index = () => {
       }))
     );
 
+    // BUG FIX: Reset download counters so progress starts from 0 on retry
+    setDownloadCount(0);
+    setFailedCount(0);
+    setDownloadedFiles([]);
+    setDownloadResults({ success: [], failed: [] });
+
     setTotalBills(selectedIndices.length);
     setCurrentStep(4);
     setIsDone(false);
@@ -1003,14 +1009,22 @@ const Index = () => {
           setFailedCount(data.failed || 0);
 
           if (data.filenames) {
-            setDownloadedFiles(
-              data.filenames.map((name: string, i: number) => ({
-                id: i,
-                filename: name,
-                status: "complete",
-                timestamp: new Date().toLocaleTimeString(),
-              })),
-            );
+            // BUG FIX: Preserve existing timestamps for already-seen files;
+            // only assign the current time for newly-appeared filenames
+            setDownloadedFiles((prev) => {
+              const existingMap = new Map(prev.map((f) => [f.filename, f]));
+              return data.filenames.map((name: string, i: number) => {
+                const existing = existingMap.get(name);
+                return existing
+                  ? existing
+                  : {
+                      id: i,
+                      filename: name,
+                      status: "complete" as const,
+                      timestamp: new Date().toLocaleTimeString(),
+                    };
+              });
+            });
           }
 
           if (data.success_list) {
@@ -1527,14 +1541,14 @@ const Index = () => {
                         </span>
                       </div>
                       <span className="text-lg font-black text-arin-teal">
-                        {Math.round((downloadCount / totalBills) * 100)}%
+                        {Math.min(100, Math.round((downloadCount / totalBills) * 100))}%
                       </span>
                     </div>
                     <div className="w-full h-3 bg-white rounded-full overflow-hidden border border-arin-teal/30 p-0.5">
                       <div
                         className="h-full bg-gradient-to-r from-arin-teal to-arin-green rounded-full transition-all duration-500 ease-out"
                         style={{
-                          width: `${(downloadCount / totalBills) * 100}%`,
+                          width: `${Math.min(100, (downloadCount / totalBills) * 100)}%`,
                         }}
                       />
                     </div>
@@ -1598,133 +1612,140 @@ const Index = () => {
         </div>
       </div>
 
-      {/* Persistent Downloading Popup */}
-      <Dialog open={currentStep >= 4 && !isDone} onOpenChange={() => {}}>
-        <DialogContent
-          className={
-            isDownloadPanelMinimized
-              ? "rounded-[1.5rem] sm:max-w-[360px] border-none bg-white/95 backdrop-blur-2xl shadow-[0_24px_48px_-12px_rgba(0,0,0,0.2)] overflow-hidden p-0"
-              : "rounded-[2rem] sm:max-w-[440px] border-none bg-white/90 backdrop-blur-2xl shadow-[0_32px_64px_-12px_rgba(0,0,0,0.15)] overflow-hidden p-0"
-          }
-          onPointerDownOutside={(e) => e.preventDefault()}
-          onEscapeKeyDown={async (e) => {
-            e.preventDefault();
-            const confirmExit = await confirmAction({
-              title: "Stop Operations?",
-              text: "A download is currently in progress. Are you sure you want to exit? This will stop all operations.",
-              icon: "warning",
-              confirmButtonText: "Yes, Exit",
-              cancelButtonText: "No, Continue",
-            });
-            if (confirmExit) {
-              setIsDone(true);
-              setShowSuccessModal(false);
-              handleCompleteReset();
-            }
-          }}
-        >
-          <div className="absolute top-0 left-0 w-full h-2 bg-slate-100">
+      {/* Persistent Downloading Popup — only render Dialog (with its backdrop) when NOT minimized */}
+      {currentStep >= 4 && !isDone && !isDownloadPanelMinimized && (
+        <Dialog open={true} onOpenChange={() => {}}>
+          <DialogContent
+            className="rounded-[2rem] sm:max-w-[440px] border-none bg-white/90 backdrop-blur-2xl shadow-[0_32px_64px_-12px_rgba(0,0,0,0.15)] overflow-hidden p-0"
+            onPointerDownOutside={(e) => e.preventDefault()}
+            onEscapeKeyDown={async (e) => {
+              e.preventDefault();
+              const confirmExit = await confirmAction({
+                title: "Stop Operations?",
+                text: "A download is currently in progress. Are you sure you want to exit? This will stop all operations.",
+                icon: "warning",
+                confirmButtonText: "Yes, Exit",
+                cancelButtonText: "No, Continue",
+              });
+              if (confirmExit) {
+                setIsDone(true);
+                setShowSuccessModal(false);
+                handleCompleteReset();
+              }
+            }}
+          >
+            <div className="absolute top-0 left-0 w-full h-2 bg-slate-100">
+              <div
+                className="h-full bg-gradient-to-r from-arin-teal to-arin-green transition-all duration-500 ease-out"
+                style={{ width: `${Math.min(100, (downloadCount / (totalBills || 1)) * 100)}%` }}
+              />
+            </div>
+
+            <div className="p-8 pt-12 text-center">
+              <div className="relative mx-auto w-20 h-20 mb-6">
+                <div className="absolute inset-0 rounded-full border-4 border-slate-50"></div>
+                <div className="absolute inset-0 rounded-full border-4 border-arin-teal border-t-transparent animate-spin"></div>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <DownloadCloud className="w-8 h-8 text-arin-teal" />
+                </div>
+              </div>
+
+              <DialogHeader className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <DialogTitle className="text-2xl font-black text-slate-900 tracking-tight text-center flex-1">
+                    Fetching PDFs...
+                  </DialogTitle>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setIsDownloadPanelMinimized(true)}
+                    className="h-9 rounded-xl px-3 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-900"
+                  >
+                    <PanelBottom className="w-3.5 h-3.5 mr-1" />
+                    Minimize
+                  </Button>
+                </div>
+                <p className="text-slate-500 font-medium text-center text-sm">
+                  Parallel workers are fetching your bills from the portal.
+                </p>
+              </DialogHeader>
+
+              <div className="mt-8 space-y-4">
+                <div className="bg-slate-50/80 rounded-2xl p-6 border border-slate-100">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                      Progress Status
+                    </span>
+                    <span className="text-sm font-black text-arin-teal">
+                      {Math.min(100, Math.round((downloadCount / (totalBills || 1)) * 100))}%
+                    </span>
+                  </div>
+                  <div className="flex items-end justify-center gap-2">
+                    <span className="text-4xl font-black text-slate-900 leading-none">
+                      {downloadCount}
+                    </span>
+                    <span className="text-lg font-bold text-slate-300 mb-1">
+                      / {totalBills}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 font-bold mt-3 uppercase tracking-tighter flex items-center justify-center gap-2">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Fetching bills from the site...
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3 justify-center text-[10px] font-black text-slate-400 uppercase tracking-widest bg-white rounded-xl py-3 border border-slate-100">
+                  <Zap className="w-3 h-3 text-arin-orange fill-arin-orange/20" />
+                  <span>Turbo Mode Enabled</span>
+                  <span className="w-1 h-1 rounded-full bg-slate-200"></span>
+                  <span>{workers} Parallel Workers</span>
+                </div>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Floating minimized pill — shown when download is minimized; no Dialog backdrop */}
+      {currentStep >= 4 && !isDone && isDownloadPanelMinimized && (
+        <div className="fixed bottom-4 right-4 z-[100] w-[340px] rounded-2xl border border-slate-200 bg-white/95 backdrop-blur-xl shadow-[0_24px_60px_-20px_rgba(15,23,42,0.45)] p-4">
+          <div className="absolute top-0 left-0 w-full h-1.5 bg-slate-100 rounded-t-2xl overflow-hidden">
             <div
               className="h-full bg-gradient-to-r from-arin-teal to-arin-green transition-all duration-500 ease-out"
-              style={{ width: `${(downloadCount / (totalBills || 1)) * 100}%` }}
+              style={{ width: `${Math.min(100, (downloadCount / (totalBills || 1)) * 100)}%` }}
             />
           </div>
-
-          <div
-            className={
-              isDownloadPanelMinimized ? "hidden" : "p-8 pt-12 text-center"
-            }
-          >
-            <div className="relative mx-auto w-20 h-20 mb-6">
-              <div className="absolute inset-0 rounded-full border-4 border-slate-50"></div>
-              <div className="absolute inset-0 rounded-full border-4 border-arin-teal border-t-transparent animate-spin"></div>
-              <div className="absolute inset-0 flex items-center justify-center">
-                <DownloadCloud className="w-8 h-8 text-arin-teal " />
+          <div className="flex items-start justify-between gap-3 mt-2">
+            <div className="flex-1 min-w-0">
+              <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                Download in progress
+              </div>
+              <div className="mt-1 text-sm font-black text-slate-900">
+                {downloadCount} / {totalBills} downloaded
+                {failedCount > 0 && (
+                  <span className="ml-2 text-red-500 text-xs">({failedCount} failed)</span>
+                )}
+              </div>
+              <div className="mt-1 text-xs text-slate-500">
+                {Math.min(100, Math.round((downloadCount / (totalBills || 1)) * 100))}% complete — running in background
               </div>
             </div>
-
-            <DialogHeader className="space-y-2">
-              <div className="flex items-center justify-between gap-3">
-                <DialogTitle className="text-2xl font-black text-slate-900 tracking-tight text-center flex-1">
-                  Fetching PDFs...
-                </DialogTitle>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => setIsDownloadPanelMinimized(true)}
-                  className="h-9 rounded-xl px-3 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-900"
-                >
-                  Minimize
-                </Button>
-              </div>
-              <p className="text-slate-500 font-medium text-center text-sm">
-                Parallel workers are fetching your bills from the portal.
-              </p>
-            </DialogHeader>
-
-            <div className="mt-8 space-y-4">
-              <div className="bg-slate-50/80 rounded-2xl p-6 border border-slate-100">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                    Progress Status
-                  </span>
-                  <span className="text-sm font-black text-arin-teal">
-                    {Math.round((downloadCount / (totalBills || 1)) * 100)}%
-                  </span>
-                </div>
-                <div className="flex items-end justify-center gap-2">
-                  <span className="text-4xl font-black text-slate-900 leading-none">
-                    {downloadCount}
-                  </span>
-                  <span className="text-lg font-bold text-slate-300 mb-1">
-                    / {totalBills}
-                  </span>
-                </div>
-                <p className="text-[10px] text-slate-400 font-bold mt-3 uppercase tracking-tighter flex items-center justify-center gap-2">
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                  Fetching bills from the site...
-                </p>
-              </div>
-
-              <div className="flex items-center gap-3 justify-center text-[10px] font-black text-slate-400 uppercase tracking-widest bg-white rounded-xl py-3 border border-slate-100">
-                <Zap className="w-3 h-3 text-arin-orange fill-arin-orange/20" />
-                <span>Turbo Mode Enabled</span>
-                <span className="w-1 h-1 rounded-full bg-slate-200"></span>
-                <span>{workers} Parallel Workers</span>
-              </div>
-            </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsDownloadPanelMinimized(false)}
+              className="h-8 shrink-0 rounded-xl px-3 text-[10px] font-black uppercase tracking-widest border-arin-teal text-arin-teal hover:bg-arin-teal/5"
+            >
+              <Layers className="w-3 h-3 mr-1" />
+              Restore
+            </Button>
           </div>
-        </DialogContent>
-        {isDownloadPanelMinimized && currentStep >= 4 && !isDone && (
-          <div className="fixed bottom-4 right-4 z-[60] w-[320px] rounded-2xl border border-slate-200 bg-white/95 backdrop-blur-xl shadow-[0_24px_60px_-20px_rgba(15,23,42,0.45)] p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                  Download minimized
-                </div>
-                <div className="mt-1 text-sm font-black text-slate-900">
-                  {downloadCount} / {totalBills} downloaded
-                </div>
-                <div className="mt-1 text-xs text-slate-500">
-                  Bills continue downloading in the background.
-                </div>
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setIsDownloadPanelMinimized(false)}
-                className="h-8 rounded-xl px-3 text-[10px] font-black uppercase tracking-widest"
-              >
-                Restore
-              </Button>
-            </div>
-            <div className="mt-3 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-arin-teal" />
-              Fetching bills from the site...
-            </div>
+          <div className="mt-3 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-arin-teal" />
+            Fetching bills from the site...
           </div>
-        )}
-      </Dialog>
+        </div>
+      )}
 
       {/* Success Popup — Download Complete */}
       <Dialog open={showSuccessModal} onOpenChange={setShowSuccessModal}>

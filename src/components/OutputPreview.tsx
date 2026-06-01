@@ -60,17 +60,19 @@ const OutputPreview = ({
                 No files downloaded yet
               </p>
             ) : (
-              downloadedFiles.map((file) => (
+              [...downloadedFiles].reverse().map((file) => (
                 <div
                   key={file.id}
                   className="flex items-center justify-between rounded-md px-2 py-1.5 hover:bg-secondary/50"
                 >
-                  <div className="flex items-center gap-2">
-                    <FileText className="h-4 w-4 text-destructive" />
-                    <span className="font-mono text-sm">{file.filename}</span>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <FileText className="h-4 w-4 text-destructive shrink-0" />
+                    <span className="font-mono text-xs truncate max-w-[160px]" title={file.filename}>
+                      {file.filename}
+                    </span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground">
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">
                       {file.timestamp}
                     </span>
                     {file.status === "complete" ? (
