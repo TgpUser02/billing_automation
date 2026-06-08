@@ -65,6 +65,7 @@ const emptyCustomerProfile = {
     wifi_password: "",
     visits_per_year: 2,
     total_visits_in_5_years: 10,
+    maintenance_tenure: "",
     is_blacklisted: 0,
     inverter_warranty_expiry_date: "",
     panel_warranty_expiry_date: "",
@@ -343,6 +344,7 @@ const ConsumerConnect = () => {
             wifi_password: profile.wifi_password || "",
             visits_per_year: profile.visits_per_year || 2,
             total_visits_in_5_years: profile.total_visits_in_5_years || 10,
+            maintenance_tenure: profile.maintenance_tenure || "",
             is_blacklisted: profile.is_blacklisted ? 1 : 0,
             inverter_warranty_expiry_date: profile.inverter_warranty_expiry_date ? profile.inverter_warranty_expiry_date.split('T')[0] : "",
             panel_warranty_expiry_date: profile.panel_warranty_expiry_date ? profile.panel_warranty_expiry_date.split('T')[0] : "",
@@ -1262,11 +1264,31 @@ const ConsumerConnect = () => {
                                         />
                                     </div>
                                     <div className="flex flex-col gap-1.5">
-                                        <Label htmlFor="panel_name" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Panel Name / Brand</Label>
+                                        <Label htmlFor="panel_name" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Panel Make Brand</Label>
                                         <Input
                                             id="panel_name"
                                             value={formData.panel_name}
                                             onChange={e => setFormData(prev => ({ ...prev, panel_name: e.target.value }))}
+                                            className="rounded-xl"
+                                        />
+                                    </div>
+                                    <div className="flex flex-col gap-1.5">
+                                        <Label htmlFor="solar_wattpick" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Solar Panel Wp</Label>
+                                        <Input
+                                            id="solar_wattpick"
+                                            type="number"
+                                            value={formData.solar_wattpick}
+                                            onChange={e => setFormData(prev => ({ ...prev, solar_wattpick: Number(e.target.value) }))}
+                                            className="rounded-xl"
+                                        />
+                                    </div>
+                                    <div className="flex flex-col gap-1.5">
+                                        <Label htmlFor="panel_cap" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Total Panel Capacity (kW)</Label>
+                                        <Input
+                                            id="panel_cap"
+                                            type="number"
+                                            value={formData.panel_capacity_kw}
+                                            onChange={e => setFormData(prev => ({ ...prev, panel_capacity_kw: Number(e.target.value) }))}
                                             className="rounded-xl"
                                         />
                                     </div>
@@ -1280,7 +1302,7 @@ const ConsumerConnect = () => {
                                         />
                                     </div>
                                     <div className="flex flex-col gap-1.5">
-                                        <Label htmlFor="inverter_cap" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Inverter Capacity (kW)</Label>
+                                        <Label htmlFor="inverter_cap" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Inverter Capacity</Label>
                                         <Input
                                             id="inverter_cap"
                                             type="number"
@@ -1290,7 +1312,7 @@ const ConsumerConnect = () => {
                                         />
                                     </div>
                                     <div className="flex flex-col gap-1.5">
-                                        <Label htmlFor="comm_date" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Commission Date</Label>
+                                        <Label htmlFor="comm_date" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">System Commissioning date</Label>
                                         <Input
                                             id="comm_date"
                                             type="date"
@@ -1376,6 +1398,31 @@ const ConsumerConnect = () => {
                                             </div>
                                         </>
                                     )}
+
+                                    {/* Maintenance / Visits Section */}
+                                    <div className="flex flex-col gap-1.5 col-span-2 border-t border-border/40 pt-3 mt-2">
+                                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">Maintenance / Visits</h4>
+                                    </div>
+                                    <div className="flex flex-col gap-1.5">
+                                        <Label htmlFor="visits_per_year" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">No. of Visits per year</Label>
+                                        <Input
+                                            id="visits_per_year"
+                                            type="number"
+                                            value={formData.visits_per_year}
+                                            onChange={e => setFormData(prev => ({ ...prev, visits_per_year: Number(e.target.value) }))}
+                                            className="rounded-xl"
+                                        />
+                                    </div>
+                                    <div className="flex flex-col gap-1.5">
+                                        <Label htmlFor="tenure" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Tenure of Maintenance</Label>
+                                        <Input
+                                            id="tenure"
+                                            value={formData.maintenance_tenure}
+                                            onChange={e => setFormData(prev => ({ ...prev, maintenance_tenure: e.target.value }))}
+                                            placeholder="e.g. 5 Years"
+                                            className="rounded-xl"
+                                        />
+                                    </div>
                                 </div>
                             </TabsContent>
                         </div>

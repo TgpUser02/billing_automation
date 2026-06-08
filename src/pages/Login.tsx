@@ -5,7 +5,7 @@ import { Sun, Lock, Shield, Eye, EyeOff, AlertTriangle } from "lucide-react";
 import { api, clearToken, isTokenExpired } from "@/lib/api";
 
 // Google reCAPTCHA v2 script loader
-function loadRecaptchaScript(siteKey: string): Promise<void> {
+function loadRecaptchaScript(): Promise<void> {
   return new Promise((resolve, reject) => {
     if (document.querySelector('script[src*="recaptcha"]')) {
       resolve();
@@ -34,13 +34,16 @@ export default function Login() {
   const navigate = useNavigate();
   const [attemptsOverlay, setAttemptsOverlay] = useState<{show: boolean, msg: string}>({show: false, msg: ""});
 
-  // Fetch reCAPTCHA site key from backend
+  // Fetch reCAPTCHA site key from backend and parallel load script
   useEffect(() => {
     // If already logged in, skip login page
     if (!isTokenExpired() && sessionStorage.getItem("arin_auth") === "true") {
       navigate("/", { replace: true });
       return;
     }
+
+    // Start loading script immediately
+    loadRecaptchaScript().catch(console.error);
 
     api.getRecaptchaConfig()
       .then((config) => {
@@ -55,9 +58,8 @@ export default function Login() {
   useEffect(() => {
     if (!siteKey || !captchaContainerRef.current) return;
 
-    loadRecaptchaScript(siteKey)
-      .then(() => {
-        const waitForGrecaptcha = setInterval(() => {
+    // script should already be loading/loaded from previous hook
+    const waitForGrecaptcha = setInterval(() => {
           if ((window as any).grecaptcha && (window as any).grecaptcha.render) {
             clearInterval(waitForGrecaptcha);
             try {
@@ -78,12 +80,10 @@ export default function Login() {
               console.error("reCAPTCHA render error:", e);
             }
           }
-        }, 200);
+        }, 100);
 
-        // Cleanup interval after 10 seconds
-        setTimeout(() => clearInterval(waitForGrecaptcha), 10000);
-      })
-      .catch((err) => console.error("reCAPTCHA script load error:", err));
+        // Cleanup interval after 5 seconds
+        setTimeout(() => clearInterval(waitForGrecaptcha), 5000);
   }, [siteKey]);
 
   const resetCaptcha = useCallback(() => {

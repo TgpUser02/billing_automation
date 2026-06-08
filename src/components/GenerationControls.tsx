@@ -1,13 +1,14 @@
 import { useState, useEffect, useMemo } from 'react';
 import { format } from 'date-fns';
-import { CalendarIcon, Eye, Download, FolderDown, Settings, User, Hash, Zap, Calendar as CalendarLucide, Loader2, RotateCcw, Search } from 'lucide-react';
+import { Eye, Download, FolderDown, Settings, User, Hash, Zap, Loader2, RotateCcw, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Calendar } from '@/components/ui/calendar';
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -63,6 +64,41 @@ export function GenerationControls({
   const [activeTab, setActiveTab] = useState<'profiles' | 'editor' | 'settings'>('profiles');
   const [consumerFilterQuery, setConsumerFilterQuery] = useState<string>('');
   const [portalAccounts, setPortalAccounts] = useState<any[]>([]);
+
+  const analysisMonthOptions = useMemo(() => {
+    const monthMap = new Map<string, Date>();
+
+    allBills.forEach((bill: any) => {
+      const billDate = new Date(bill.month_year || bill.bill_month);
+      if (!isNaN(billDate.getTime())) {
+        const monthStart = new Date(billDate.getFullYear(), billDate.getMonth(), 1);
+        const key = format(monthStart, 'yyyy-MM');
+        if (!monthMap.has(key)) {
+          monthMap.set(key, monthStart);
+        }
+      }
+    });
+
+    const currentMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
+    monthMap.set(format(currentMonth, 'yyyy-MM'), currentMonth);
+
+    return Array.from(monthMap.values())
+      .sort((a, b) => b.getTime() - a.getTime())
+      .map(month => ({
+        value: format(month, 'yyyy-MM'),
+        label: format(month, 'MMMM yyyy'),
+      }));
+  }, [allBills, selectedDate]);
+
+  const analysisMonthValues = useMemo(
+    () => Array.from(new Set(analysisMonthOptions.map(month => format(new Date(`${month.value}-01`), 'MM')))).sort(),
+    [analysisMonthOptions]
+  );
+
+  const analysisYearValues = useMemo(
+    () => Array.from(new Set(analysisMonthOptions.map(month => month.value.split('-')[0]))).sort((a, b) => Number(b) - Number(a)),
+    [analysisMonthOptions]
+  );
 
   const [inputs, setInputs] = useState<BillInputs>({
     consumerName: '',
@@ -450,26 +486,44 @@ export function GenerationControls({
               {/* Month Selection */}
               <div className="space-y-2">
                 <Label className="text-[10px] font-black uppercase text-muted-foreground tracking-widest">Analysis Month</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className="w-full justify-start text-left font-bold h-11 bg-slate-50 border-slate-200 rounded-xl"
-                    >
-                      <CalendarLucide className="mr-2 h-4 w-4 text-arin-teal" />
-                      {format(selectedDate, 'MMMM yyyy')}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      selected={selectedDate}
-                      onSelect={(date) => date && onDateChange(date)}
-                      initialFocus
-                      className="p-3"
-                    />
-                  </PopoverContent>
-                </Popover>
+                <div className="grid grid-cols-2 gap-2">
+                  <Select
+                    value={format(selectedDate, 'MM')}
+                    onValueChange={(value) => {
+                      const nextMonth = Number(value) - 1;
+                      onDateChange(new Date(selectedDate.getFullYear(), nextMonth, 1));
+                    }}
+                  >
+                    <SelectTrigger className="w-full justify-start text-left font-bold h-11 bg-slate-50 border-slate-200 rounded-xl">
+                      <SelectValue placeholder="Month" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-card border-border z-50 max-h-72">
+                      {analysisMonthValues.map((monthValue) => (
+                        <SelectItem key={monthValue} value={monthValue}>
+                          {format(new Date(`2026-${monthValue}-01`), 'MMMM')}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <Select
+                    value={format(selectedDate, 'yyyy')}
+                    onValueChange={(value) => {
+                      onDateChange(new Date(Number(value), selectedDate.getMonth(), 1));
+                    }}
+                  >
+                    <SelectTrigger className="w-full justify-start text-left font-bold h-11 bg-slate-50 border-slate-200 rounded-xl">
+                      <SelectValue placeholder="Year" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-card border-border z-50 max-h-72">
+                      {analysisYearValues.map((yearValue) => (
+                        <SelectItem key={yearValue} value={yearValue}>
+                          {yearValue}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
 
               {/* ID Selection */}

@@ -455,16 +455,12 @@ export default function ArinBillGenerator() {
             // Always create/update reports in the background on the server
             // identifying them as csv/xlsx format specifically, even if empty
             await api.saveReports("zero_generation_consumers.csv", zeroGenList, dayStr);
-            downloadCSVClient(zeroGenList, `zero_generation_consumers_${dayStr}.csv`);
-
+            
             await api.saveReports("poor_consumers.csv", poorStatusList, dayStr);
-            downloadCSVClient(poorStatusList, `poor_consumers_${dayStr}.csv`);
-
+            
             await api.saveReports(`generation_less_than_export.xlsx`, genLessThanExportList, dayStr);
-            downloadXLSXClient(genLessThanExportList, `generation_less_than_export_${dayStr}.xlsx`);
-
+            
             await api.saveReports(`generation_equal_to_export.xlsx`, genEqualToExportList, dayStr);
-            downloadXLSXClient(genEqualToExportList, `generation_equal_to_export_${dayStr}.xlsx`);
 
             // ── 4. COMPLETION SUMMARY POPUP (User Request) ──
             toast({

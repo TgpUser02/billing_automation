@@ -80,7 +80,8 @@ def run_migrations():
             ("general_warranty_expiry_date", "DATE NULL"),
             ("blacklisted_reason", "VARCHAR(255) NULL"),
             ("portal_username", "VARCHAR(100) NULL"),
-            ("portal_password", "VARCHAR(100) NULL")
+            ("portal_password", "VARCHAR(100) NULL"),
+            ("maintenance_tenure", "VARCHAR(100) NULL")
         ]
         
         for col_name, col_type in columns_to_add:
@@ -206,6 +207,7 @@ class CustomerModel(BaseModel):
     wifi_password: Optional[str] = None
     visits_per_year: Optional[int] = 2
     total_visits_in_5_years: Optional[int] = 10
+    maintenance_tenure: Optional[str] = None
     is_blacklisted: Optional[int] = 0
     inverter_warranty_expiry_date: Optional[str] = None
     panel_warranty_expiry_date: Optional[str] = None
@@ -739,6 +741,7 @@ async def import_consumers(file: UploadFile = File(...), user=Depends(get_curren
             'wifi_password': ['wifi password', 'wifi_password', 'wifi pass'],
             'visits_per_year': ['visits per year', 'visits_per_year', 'visits'],
             'total_visits_in_5_years': ['total visits in 5 years', 'total_visits_in_5_years', 'total visits', 'total_visits'],
+            'maintenance_tenure': ['maintenance tenure', 'maintenance_tenure', 'tenure of maintenance', 'tenure'],
             'is_blacklisted': ['is blacklisted', 'is_blacklisted', 'blacklisted'],
             'inverter_warranty_expiry_date': ['inverter warranty expiry date', 'inverter_warranty_expiry_date', 'warranty expiry', 'inverter warranty expiry'],
             'panel_warranty_expiry_date': ['panel warranty expiry date', 'panel_warranty_expiry_date', 'panel warranty', 'panel_warranty'],
@@ -870,6 +873,7 @@ async def import_consumers(file: UploadFile = File(...), user=Depends(get_curren
             
             visits_per_year = get_val('visits_per_year', 2, is_int=True)
             total_visits_in_5_years = get_val('total_visits_in_5_years', 10, is_int=True)
+            maintenance_tenure = get_val('maintenance_tenure')
             is_blacklisted = get_val('is_blacklisted', 0, is_bool=True)
             
             inverter_warranty_expiry_date = get_val('inverter_warranty_expiry_date', is_date=True)
@@ -887,11 +891,11 @@ async def import_consumers(file: UploadFile = File(...), user=Depends(get_curren
                     consumer_number, panel_name, panel_name_other, panel_type, solar_wattpick, 
                     solar_panel_count, solar_capacity_kw, panel_capacity_kw, inverter_name, 
                     inverter_name_other, inverter_capacity, commission_date, wifi_available, 
-                    wifi_id, wifi_password, visits_per_year, total_visits_in_5_years, is_blacklisted, 
+                    wifi_id, wifi_password, visits_per_year, total_visits_in_5_years, maintenance_tenure, is_blacklisted, 
                     inverter_warranty_expiry_date, panel_warranty_expiry_date, system_warranty_expiry_date,
                     general_warranty_expiry_date, blacklisted_reason, portal_username, portal_password
                 ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                 ) ON DUPLICATE KEY UPDATE 
                     arin_id = VALUES(arin_id),
                     customer_name = VALUES(customer_name),
@@ -915,6 +919,7 @@ async def import_consumers(file: UploadFile = File(...), user=Depends(get_curren
                     wifi_password = VALUES(wifi_password),
                     visits_per_year = VALUES(visits_per_year),
                     total_visits_in_5_years = VALUES(total_visits_in_5_years),
+                    maintenance_tenure = VALUES(maintenance_tenure),
                     is_blacklisted = VALUES(is_blacklisted),
                     inverter_warranty_expiry_date = VALUES(inverter_warranty_expiry_date),
                     panel_warranty_expiry_date = VALUES(panel_warranty_expiry_date),
@@ -931,7 +936,7 @@ async def import_consumers(file: UploadFile = File(...), user=Depends(get_curren
                     c_num, panel_name, panel_name_other, panel_type, solar_wattpick,
                     solar_panel_count, solar_capacity_kw, panel_capacity_kw, inverter_name,
                     inverter_name_other, inverter_capacity, commission_date, wifi_available,
-                    wifi_id, wifi_password, visits_per_year, total_visits_in_5_years, is_blacklisted,
+                    wifi_id, wifi_password, visits_per_year, total_visits_in_5_years, maintenance_tenure, is_blacklisted,
                     inverter_warranty_expiry_date, panel_warranty_expiry_date, system_warranty_expiry_date,
                     general_warranty_expiry_date, blacklisted_reason, portal_username, portal_password
                 ))
@@ -991,11 +996,11 @@ def save_customer_endpoint(customer: CustomerModel, user=Depends(get_current_use
                 consumer_number, panel_name, panel_name_other, panel_type, solar_wattpick, 
                 solar_panel_count, solar_capacity_kw, panel_capacity_kw, inverter_name, 
                 inverter_name_other, inverter_capacity, commission_date, wifi_available, 
-                wifi_id, wifi_password, visits_per_year, total_visits_in_5_years, is_blacklisted, 
+                wifi_id, wifi_password, visits_per_year, total_visits_in_5_years, maintenance_tenure, is_blacklisted, 
                 inverter_warranty_expiry_date, panel_warranty_expiry_date, system_warranty_expiry_date,
                 general_warranty_expiry_date, blacklisted_reason, portal_username, portal_password
             ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
             ) ON DUPLICATE KEY UPDATE 
                 arin_id = VALUES(arin_id),
                 customer_name = VALUES(customer_name),
@@ -1019,6 +1024,7 @@ def save_customer_endpoint(customer: CustomerModel, user=Depends(get_current_use
                 wifi_password = VALUES(wifi_password),
                 visits_per_year = VALUES(visits_per_year),
                 total_visits_in_5_years = VALUES(total_visits_in_5_years),
+                maintenance_tenure = VALUES(maintenance_tenure),
                 is_blacklisted = VALUES(is_blacklisted),
                 inverter_warranty_expiry_date = VALUES(inverter_warranty_expiry_date),
                 panel_warranty_expiry_date = VALUES(panel_warranty_expiry_date),
@@ -1037,7 +1043,7 @@ def save_customer_endpoint(customer: CustomerModel, user=Depends(get_current_use
             customer.panel_capacity_kw, customer.inverter_name, customer.inverter_name_other,
             customer.inverter_capacity, comm_date, customer.wifi_available,
             customer.wifi_id, customer.wifi_password, customer.visits_per_year,
-            customer.total_visits_in_5_years, customer.is_blacklisted,
+            customer.total_visits_in_5_years, customer.maintenance_tenure, customer.is_blacklisted,
             customer.inverter_warranty_expiry_date, customer.panel_warranty_expiry_date,
             customer.system_warranty_expiry_date, customer.general_warranty_expiry_date,
             customer.blacklisted_reason, customer.portal_username, customer.portal_password
