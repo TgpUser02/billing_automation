@@ -19,6 +19,7 @@ function clearToken(): void {
     sessionStorage.removeItem("arin_jwt_token");
     sessionStorage.removeItem("arin_auth");
     sessionStorage.removeItem("arin_current_user");
+    sessionStorage.removeItem("arin_user_role");
 }
 
 function isTokenExpired(): boolean {
@@ -145,8 +146,18 @@ export const api = {
             setToken(data.token);
             sessionStorage.setItem("arin_auth", "true");
             sessionStorage.setItem("arin_current_user", data.username);
+            sessionStorage.setItem("arin_user_role", data.role || "operator");
         }
         return data;
+    },
+
+    register: async (username: string, password: string, email?: string) => {
+        const response = await fetch(`${API_BASE_URL}/auth/register`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username, password, email: email || undefined }),
+        });
+        return checkResponse(response);
     },
 
     refreshToken: async () => {
@@ -463,6 +474,73 @@ export const api = {
     },
     deletePortalCredential: async (username: string) => {
         const response = await authFetch(`${API_BASE_URL}/portal-credentials/${encodeURIComponent(username)}`, {
+            method: "DELETE",
+        });
+        return checkResponse(response);
+    },
+
+    // ── OTP & Forgot Password ──
+    loginOtpRequest: async (identifier: string) => {
+        const response = await fetch(`${API_BASE_URL}/auth/login-otp-request`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ identifier }),
+        });
+        return checkResponse(response);
+    },
+    loginOtpVerify: async (identifier: string, otp: string) => {
+        const response = await fetch(`${API_BASE_URL}/auth/login-otp-verify`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ identifier, otp }),
+        });
+        const data = await checkResponse(response);
+        if (data.token) {
+            setToken(data.token);
+            sessionStorage.setItem("arin_auth", "true");
+            sessionStorage.setItem("arin_current_user", data.username);
+            sessionStorage.setItem("arin_user_role", data.role || "operator");
+        }
+        return data;
+    },
+    forgotPasswordRequest: async (identifier: string) => {
+        const response = await fetch(`${API_BASE_URL}/auth/forgot-password-request`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ identifier }),
+        });
+        return checkResponse(response);
+    },
+    forgotPasswordReset: async (identifier: string, otp: string, newPassword: string) => {
+        const response = await fetch(`${API_BASE_URL}/auth/forgot-password-reset`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ identifier, otp, newPassword }),
+        });
+        return checkResponse(response);
+    },
+
+    // ── ADMIN USER CRUD ──
+    getUsers: async () => {
+        const response = await authFetch(`${API_BASE_URL}/admin/users`);
+        return checkResponse(response);
+    },
+    createUser: async (userData: any) => {
+        const response = await authFetch(`${API_BASE_URL}/admin/users`, {
+            method: "POST",
+            body: JSON.stringify(userData),
+        });
+        return checkResponse(response);
+    },
+    updateUser: async (userId: number, userData: any) => {
+        const response = await authFetch(`${API_BASE_URL}/admin/users/${userId}`, {
+            method: "PUT",
+            body: JSON.stringify(userData),
+        });
+        return checkResponse(response);
+    },
+    deleteUser: async (userId: number) => {
+        const response = await authFetch(`${API_BASE_URL}/admin/users/${userId}`, {
             method: "DELETE",
         });
         return checkResponse(response);

@@ -35,6 +35,9 @@ def init_database():
                 is_active BOOLEAN DEFAULT TRUE,
                 failed_attempts INT DEFAULT 0,
                 locked_until DATETIME NULL,
+                email VARCHAR(100) UNIQUE NULL,
+                otp_code VARCHAR(6) NULL,
+                otp_expiry DATETIME NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
@@ -47,6 +50,9 @@ def init_database():
             "ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT TRUE",
             "ALTER TABLE users ADD COLUMN failed_attempts INT DEFAULT 0",
             "ALTER TABLE users ADD COLUMN locked_until DATETIME NULL",
+            "ALTER TABLE users ADD COLUMN email VARCHAR(100) UNIQUE NULL",
+            "ALTER TABLE users ADD COLUMN otp_code VARCHAR(6) NULL",
+            "ALTER TABLE users ADD COLUMN otp_expiry DATETIME NULL",
         ]
         
         for aq in alter_queries:

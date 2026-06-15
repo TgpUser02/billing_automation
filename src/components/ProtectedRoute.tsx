@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { Layout } from "./Layout";
-import { isTokenExpired, clearToken, getToken } from "@/lib/api";
+import { api, isTokenExpired, clearToken, getToken } from "@/lib/api";
 import { toast } from "@/hooks/use-toast";
 
 export const ProtectedLayout = ({ children }: { children: React.ReactNode }) => {
@@ -21,6 +21,19 @@ export const ProtectedLayout = ({ children }: { children: React.ReactNode }) => 
     // Check for token expiry every 30 seconds and attempt silent refresh
     useEffect(() => {
         const checkAuth = async () => {
+            const token = getToken();
+            if (token) {
+                try {
+                    const payload = JSON.parse(atob(token.split('.')[1]));
+                    const exp = payload.exp * 1000;
+                    const fifteenMinutes = 15 * 60 * 1000;
+                    if (Date.now() >= (exp - fifteenMinutes)) {
+                        await api.refreshToken();
+                    }
+                } catch (err) {
+                    console.error("Auto-token refresh check failed:", err);
+                }
+            }
             if (isTokenExpired()) {
                 handleLogout();
             }

@@ -11,7 +11,8 @@ import logging
 import time
 
 # Load environment variables
-load_dotenv()
+load_dotenv(override=True)
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env'), override=True)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -687,6 +688,7 @@ def generate_generation_reports(target_dir, data_list, threshold=75):
     poor_gen = []
     export_gt_gen = []
     gen_equal_to_exp = []
+    bill_gt_1000 = []
     
     logger.info(f"Generating Excel reports for {len(data_list)} records (threshold: {threshold})...")
     for item in data_list:
@@ -695,6 +697,7 @@ def generate_generation_reports(target_dir, data_list, threshold=75):
             cap = _safe_float(item.get("capacity") or item.get("solar_capacity_kw") or item.get("Capacity"))
             exp = _safe_float(item.get("export_units") or item.get("export") or item.get("Export"))
             status = item.get("bill_status") or item.get("bill_status_other") or "Normal"
+            amt = _safe_float(item.get("billing_amount") or item.get("amount") or item.get("Amount"))
             
             cnum = item.get("consumer_number") or item.get("consumer_no") or "N/A"
             cname = item.get("consumer_name") or item.get("customer_name") or "N/A"
@@ -705,7 +708,8 @@ def generate_generation_reports(target_dir, data_list, threshold=75):
                 "Capacity (kW)": cap,
                 "Generation (kWh)": gen,
                 "Export (kWh)": exp,
-                "Bill Status": status
+                "Bill Status": status,
+                "Bill Amount (Rs)": amt
             }
             
             # a) Zero Generation
@@ -725,6 +729,10 @@ def generate_generation_reports(target_dir, data_list, threshold=75):
             # d) Generation equal to Export
             if gen == exp and gen > 0:
                 gen_equal_to_exp.append(row)
+                
+            # e) Bill Amount > 1000 Rs
+            if amt > 1000:
+                bill_gt_1000.append(row)
                 
         except Exception as e:
             logger.error(f"Error processing item for report: {e}")
@@ -750,7 +758,8 @@ def generate_generation_reports(target_dir, data_list, threshold=75):
         f"zero_generation_consumers_{timestamp}.csv": zero_gen,
         f"poor_consumers_{timestamp}.csv": poor_gen,
         f"generation_less_than_export_{timestamp}.xlsx": export_gt_gen,
-        f"generation_equal_to_export_{timestamp}.xlsx": gen_equal_to_exp
+        f"generation_equal_to_export_{timestamp}.xlsx": gen_equal_to_exp,
+        f"bill_amount_greater_than_1000_{timestamp}.xlsx": bill_gt_1000
     }
     
     for filename, rows in reports.items():
@@ -758,7 +767,7 @@ def generate_generation_reports(target_dir, data_list, threshold=75):
         if rows:
             df = pd.DataFrame(rows)
         else:
-            df = pd.DataFrame(columns=["Consumer Number", "Consumer Name", "Capacity (kW)", "Generation (kWh)", "Export (kWh)", "Bill Status"])
+            df = pd.DataFrame(columns=["Consumer Number", "Consumer Name", "Capacity (kW)", "Generation (kWh)", "Export (kWh)", "Bill Status", "Bill Amount (Rs)"])
         
         try:
             if filename.endswith(".csv"):

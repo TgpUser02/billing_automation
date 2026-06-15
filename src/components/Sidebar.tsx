@@ -1,4 +1,4 @@
-import { FileText, Sun, Home, DownloadCloud, Database, Settings, Trash2, Key, ChevronLeft, FolderDown } from 'lucide-react';
+import { FileText, Sun, Home, DownloadCloud, Database, Settings, Trash2, Key, ChevronLeft, FolderDown, Users } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useState, useEffect } from 'react';
@@ -120,6 +120,8 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
     }
   };
 
+  const userRole = sessionStorage.getItem("arin_user_role") || "operator";
+
   const navItems = [
     { icon: Home, label: 'Dashboard', path: '/' },
     { icon: DownloadCloud, label: 'Auto Downloader', path: '/download' },
@@ -127,6 +129,10 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
     { icon: Database, label: 'Consumer Connect', path: '/consumer-connect' },
     { icon: FolderDown, label: 'Generated Reports', path: '/reports' },
   ];
+
+  if (userRole === "admin") {
+    navItems.push({ icon: Users, label: 'User Management', path: '/user-management' });
+  }
 
   return (
     <>

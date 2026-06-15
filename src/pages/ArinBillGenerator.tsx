@@ -301,6 +301,7 @@ export default function ArinBillGenerator() {
         const poorStatusList: any[] = [];
         const genLessThanExportList: any[] = [];
         const genEqualToExportList: any[] = [];
+        const billAmtGreaterThan1000List: any[] = [];
         let successCount = 0;
         let processedCount = 0;
 
@@ -375,6 +376,19 @@ export default function ArinBillGenerator() {
                         generated: rawInputs.generatedElectricity,
                         capacity: rawInputs.capacity,
                         export: rawInputs.exportedToGrid
+                    });
+                }
+
+                // Bill Amount > 1000 Rs Filter
+                if (rawInputs.billingAmount > 1000) {
+                    billAmtGreaterThan1000List.push({
+                        consumer_no: targetId,
+                        consumer_name: rawInputs.consumerName,
+                        arin_id: targetData.arin_id || consumer.arin_id || "N/A",
+                        generated: rawInputs.generatedElectricity,
+                        capacity: rawInputs.capacity,
+                        export: rawInputs.exportedToGrid,
+                        amount: rawInputs.billingAmount
                     });
                 }
 
@@ -461,6 +475,8 @@ export default function ArinBillGenerator() {
             await api.saveReports(`generation_less_than_export.xlsx`, genLessThanExportList, dayStr);
             
             await api.saveReports(`generation_equal_to_export.xlsx`, genEqualToExportList, dayStr);
+            
+            await api.saveReports("bill_amount_greater_than_1000.xlsx", billAmtGreaterThan1000List, dayStr);
 
             // ── 4. COMPLETION SUMMARY POPUP (User Request) ──
             toast({
@@ -475,6 +491,7 @@ export default function ArinBillGenerator() {
                             <li>Poor Progress: {poorStatusList.length}</li>
                             <li>Gen &lt; Export: {genLessThanExportList.length}</li>
                             <li>Gen = Export: {genEqualToExportList.length}</li>
+                            <li>Bill &gt; 1000 Rs: {billAmtGreaterThan1000List.length}</li>
                         </ul>
                         <p className="text-[9px] pt-1 italic opacity-70 border-t mt-1">
                             Files saved on Desktop/arin/{dayStr}/reports/

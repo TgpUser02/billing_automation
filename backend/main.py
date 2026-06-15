@@ -25,11 +25,11 @@ from automation import BillAutomation
 from login_automation import login_automator
 from processing import process_downloads, get_all_bills, get_dashboard_stats, collection, get_customer_details, _process_rows
 from auth import (
-    get_current_user, create_access_token, verify_password,
+    get_current_user, create_access_token, verify_password, hash_password,
     verify_recaptcha, check_rate_limit, record_failed_attempt,
     record_successful_login, get_remaining_attempts,
     get_user_from_db, reset_user_failed_attempts, change_user_password,
-    RECAPTCHA_SITE_KEY, refresh_access_token
+    RECAPTCHA_SITE_KEY, refresh_access_token, update_user_failed_attempts
 )
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -122,6 +122,19 @@ def run_migrations():
         except Exception as e:
             logger.error(f"Migration: portal_credentials creation/seeding failed: {e}")
             
+        # 5. Add columns to users table
+        columns_to_add_users = [
+            ("email", "VARCHAR(100) UNIQUE NULL"),
+            ("otp_code", "VARCHAR(6) NULL"),
+            ("otp_expiry", "DATETIME NULL")
+        ]
+        for col_name, col_type in columns_to_add_users:
+            try:
+                cursor.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}")
+                logger.info(f"Migration: Added column {col_name} to users.")
+            except Exception:
+                pass
+            
         conn.commit()
         cursor.close()
         logger.info("Migrations successfully completed/verified.")
@@ -178,6 +191,38 @@ class ChangePasswordRequest(BaseModel):
     currentPassword: str
     newPassword: str
 
+class OTPRequest(BaseModel):
+    identifier: str
+
+class OTPVerifyRequest(BaseModel):
+    identifier: str
+    otp: str
+
+class ForgotPasswordRequest(BaseModel):
+    identifier: str
+
+class ForgotPasswordResetRequest(BaseModel):
+    identifier: str
+    otp: str
+    newPassword: str
+
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+    email: Optional[str] = None
+
+class UserCreateRequest(BaseModel):
+    username: str
+    password: str
+    email: Optional[str] = None
+    role: str = "operator"
+
+class UserUpdateRequest(BaseModel):
+    email: Optional[str] = None
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+    password: Optional[str] = None
+
 class PortalCredentialReq(BaseModel):
     username: str
     password: str
@@ -219,22 +264,36 @@ class CustomerModel(BaseModel):
 
 @app.post("/api/auth/login")
 async def login(request: LoginRequest, req: Request):
-    """Login with SQL user validation, reCAPTCHA, and rate limiting."""
-    # 1. Verify reCAPTCHA
-    is_valid_captcha = await verify_recaptcha(request.captchaToken)
-    if not is_valid_captcha:
-        logger.warning(f"reCAPTCHA failed for user: {request.username}")
-        raise HTTPException(status_code=400, detail="reCAPTCHA verification required/failed")
-
-    # 2. Check Rate Limits
+    """Login with SQL user validation, database lockout, and rate limiting."""
+    # 1. Check Rate Limits
     client_ip = req.client.host
     if not check_rate_limit(client_ip):
         raise HTTPException(status_code=429, detail="Too many failed attempts. Try again later.")
 
-    # 3. Verify SQL user and password
+    # 2. Verify SQL user existence and check database lockout status
     user = get_user_from_db(request.username)
+    if user and user.get("locked_until"):
+        from datetime import datetime
+        now = datetime.utcnow()
+        if user["locked_until"] > now:
+            remaining = int((user["locked_until"] - now).total_seconds())
+            remaining_mins = max(1, remaining // 60)
+            raise HTTPException(
+                status_code=403,
+                detail=f"This account is temporarily locked due to multiple failed login attempts. Try again in {remaining_mins} minutes."
+            )
+
+    # 3. Verify password
     if not user or not verify_password(request.password, user["password_hash"]):
         record_failed_attempt(client_ip)
+        if user:
+            from datetime import datetime, timedelta
+            new_count = user.get("failed_attempts", 0) + 1
+            locked_until = None
+            if new_count >= 5:
+                locked_until = datetime.utcnow() + timedelta(minutes=15)
+            update_user_failed_attempts(user["username"], new_count, locked_until)
+            
         attempts = get_remaining_attempts(client_ip)
         raise HTTPException(status_code=401, detail=f"Invalid username or password. {attempts} attempts left.")
 
@@ -242,20 +301,20 @@ async def login(request: LoginRequest, req: Request):
         raise HTTPException(status_code=403, detail="User account is inactive")
 
     # 4. Success
-    reset_user_failed_attempts(request.username)
-    record_successful_login(request.username, client_ip)
+    reset_user_failed_attempts(user["username"])
+    record_successful_login(user["username"], client_ip)
     
     token = create_access_token({
-        "sub": request.username,
+        "sub": user["username"],
         "role": user.get("role", "operator")
     })
     
-    logger.info(f"✓ Login successful: {request.username}")
+    logger.info(f"✓ Login successful: {user['username']}")
     
     return {
         "status": "success",
         "token": token,
-        "username": request.username,
+        "username": user["username"],
         "role": user.get("role", "operator")
     }
 
@@ -263,6 +322,54 @@ async def login(request: LoginRequest, req: Request):
 async def verify_token(user=Depends(get_current_user)):
     """Verify if the current JWT token is valid."""
     return {"status": "valid", "user": user}
+
+@app.post("/api/auth/register")
+async def register_user(request: RegisterRequest):
+    """Public endpoint for operator account self-registration."""
+    from processing import get_db_connection
+    conn = get_db_connection()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Database connection failed.")
+    try:
+        cursor = conn.cursor(dictionary=True)
+        # 1. Clean inputs
+        clean_user = request.username.strip()
+        clean_email = request.email.strip() if request.email else None
+        
+        # Validation checks
+        if not clean_user:
+            raise HTTPException(status_code=400, detail="Username cannot be empty.")
+        if len(request.password) < 6:
+            raise HTTPException(status_code=400, detail="Password must be at least 6 characters.")
+            
+        # 2. Check duplicate username
+        cursor.execute("SELECT id FROM users WHERE username = %s", (clean_user,))
+        if cursor.fetchone():
+            raise HTTPException(status_code=400, detail="Username already exists.")
+            
+        # 3. Check duplicate email
+        if clean_email:
+            cursor.execute("SELECT id FROM users WHERE email = %s", (clean_email,))
+            if cursor.fetchone():
+                raise HTTPException(status_code=400, detail="Email already registered.")
+                
+        # 4. Insert operator
+        pwd_hash = hash_password(request.password)
+        cursor.execute(
+            "INSERT INTO users (username, password_hash, email, role, is_active) VALUES (%s, %s, %s, 'operator', 1)",
+            (clean_user, pwd_hash, clean_email)
+        )
+        conn.commit()
+        cursor.close()
+        logger.info(f"✓ New operator registered: {clean_user}")
+        return {"status": "success", "message": "Account created successfully. You can now log in."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Registration failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
 
 @app.post("/api/auth/refresh")
 async def refresh_token(request: Request):
@@ -298,6 +405,477 @@ async def change_password(request: ChangePasswordRequest, user=Depends(get_curre
 async def get_recaptcha_config():
     """Returns the reCAPTCHA site key for the frontend."""
     return {"siteKey": RECAPTCHA_SITE_KEY}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# EMAIL SENDER HELPER
+# ═══════════════════════════════════════════════════════════════════════════════
+def send_otp_email(to_email: str, otp: str, subject_prefix: str = "Verification Code") -> bool:
+    import smtplib
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+    
+    email_user = os.getenv("EMAIL_USER")
+    email_pass = os.getenv("EMAIL_PASS")
+    email_host = os.getenv("EMAIL_HOST", "smtp.gmail.com")
+    email_port_str = os.getenv("EMAIL_PORT", "587")
+    email_use_tls_str = os.getenv("EMAIL_USE_TLS", "True")
+    
+    logger.info(f"Generating email. To: {to_email}, Subject Prefix: {subject_prefix}, OTP: {otp}")
+    
+    if not email_user or not email_pass:
+        logger.warning("======================================================================")
+        logger.warning("⚠️  [MOCK EMAIL SENDER] SMTP credentials not set in .env")
+        logger.warning("To send real emails, set EMAIL_USER and EMAIL_PASS in your .env file.")
+        logger.warning(f"OTP Verification code for {to_email} is: {otp}")
+        logger.warning("======================================================================")
+        return True
+
+    try:
+        email_port = int(email_port_str)
+    except ValueError:
+        email_port = 587
+        
+    use_tls = email_use_tls_str.lower() in ("true", "1", "yes")
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = f"Arin Energy - {subject_prefix}"
+    msg["From"] = email_user
+    msg["To"] = to_email
+
+    html = f"""
+    <html>
+      <body style="font-family: Arial, sans-serif; background-color: #f4f6f9; padding: 20px; color: #333;">
+        <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+          <h2 style="color: #2563eb; text-align: center;">Arin Energy Billing Automation</h2>
+          <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
+          <p>Hello,</p>
+          <p>You requested a verification code. Please use the following One-Time Password (OTP) to proceed:</p>
+          <div style="text-align: center; margin: 30px 0;">
+            <span style="font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #1e3a8a; background-color: #eff6ff; padding: 10px 20px; border-radius: 6px; border: 1px solid #bfdbfe;">
+              {otp}
+            </span>
+          </div>
+          <p>This verification code is valid for <strong>5 minutes</strong>. If you did not request this, please ignore this email or secure your account.</p>
+          <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 20px 0;" />
+          <p style="font-size: 12px; color: #6b7280; text-align: center;">This is an automated message, please do not reply.</p>
+        </div>
+      </body>
+    </html>
+    """
+    msg.attach(MIMEText(html, "html"))
+
+    try:
+        if email_port == 465:
+            server = smtplib.SMTP_SSL(email_host, email_port, timeout=10)
+        else:
+            server = smtplib.SMTP(email_host, email_port, timeout=10)
+            if use_tls:
+                server.starttls()
+                
+        server.login(email_user, email_pass)
+        server.sendmail(email_user, to_email, msg.as_string())
+        server.quit()
+        logger.info(f"✓ Verification code successfully sent to {to_email}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to send email to {to_email}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to send verification email: {str(e)}"
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# OTP & FORGOT PASSWORD ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/auth/login-otp-request")
+async def login_otp_request(request: OTPRequest):
+    from processing import get_db_connection
+    conn = get_db_connection()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Database connection failed.")
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT id, username, email, is_active FROM users WHERE username = %s OR email = %s",
+            (request.identifier, request.identifier)
+        )
+        user = cursor.fetchone()
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found.")
+            
+        if not user.get("is_active", True):
+            raise HTTPException(status_code=403, detail="User account is inactive.")
+            
+        if not user.get("email"):
+            raise HTTPException(status_code=400, detail="No email address registered for this user. Please contact an administrator.")
+            
+        # Generate 6 digit OTP
+        import random
+        otp = f"{random.randint(100000, 999999)}"
+        # Expiration in 5 minutes
+        from datetime import datetime, timedelta
+        expiry = datetime.utcnow() + timedelta(minutes=5)
+        
+        cursor.execute(
+            "UPDATE users SET otp_code = %s, otp_expiry = %s WHERE id = %s",
+            (otp, expiry, user["id"])
+        )
+        conn.commit()
+        
+        # Send OTP
+        send_otp_email(user["email"], otp, "Login Verification Code")
+        
+        return {"status": "success", "message": "OTP sent successfully to registered email."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"OTP Login request failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@app.post("/api/auth/login-otp-verify")
+async def login_otp_verify(request: OTPVerifyRequest):
+    from processing import get_db_connection
+    conn = get_db_connection()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Database connection failed.")
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT id, username, email, role, is_active, otp_code, otp_expiry FROM users WHERE username = %s OR email = %s",
+            (request.identifier, request.identifier)
+        )
+        user = cursor.fetchone()
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found.")
+            
+        if not user.get("is_active", True):
+            raise HTTPException(status_code=403, detail="User account is inactive.")
+            
+        if not user.get("otp_code") or user["otp_code"] != request.otp:
+            raise HTTPException(status_code=401, detail="Invalid OTP code.")
+            
+        from datetime import datetime
+        if not user.get("otp_expiry") or user["otp_expiry"] < datetime.utcnow():
+            raise HTTPException(status_code=401, detail="OTP code has expired. Please request a new one.")
+            
+        # Success - Clear OTP and generate token
+        cursor.execute(
+            "UPDATE users SET otp_code = NULL, otp_expiry = NULL WHERE id = %s",
+            (user["id"],)
+        )
+        conn.commit()
+        
+        # Reset failed attempts
+        reset_user_failed_attempts(user["username"])
+        
+        # Generate token
+        token = create_access_token({
+            "sub": user["username"],
+            "role": user.get("role", "operator")
+        })
+        
+        logger.info(f"✓ OTP Login successful for: {user['username']}")
+        
+        return {
+            "status": "success",
+            "token": token,
+            "username": user["username"],
+            "role": user.get("role", "operator")
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"OTP Login verification failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@app.post("/api/auth/forgot-password-request")
+async def forgot_password_request(request: ForgotPasswordRequest):
+    from processing import get_db_connection
+    conn = get_db_connection()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Database connection failed.")
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT id, username, email, is_active FROM users WHERE username = %s OR email = %s",
+            (request.identifier, request.identifier)
+        )
+        user = cursor.fetchone()
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found.")
+            
+        if not user.get("is_active", True):
+            raise HTTPException(status_code=403, detail="User account is inactive.")
+            
+        if not user.get("email"):
+            raise HTTPException(status_code=400, detail="No email address registered for this user. Please contact an administrator.")
+            
+        # Generate 6 digit OTP
+        import random
+        otp = f"{random.randint(100000, 999999)}"
+        # Expiration in 10 minutes
+        from datetime import datetime, timedelta
+        expiry = datetime.utcnow() + timedelta(minutes=10)
+        
+        cursor.execute(
+            "UPDATE users SET otp_code = %s, otp_expiry = %s WHERE id = %s",
+            (otp, expiry, user["id"])
+        )
+        conn.commit()
+        
+        # Send OTP
+        send_otp_email(user["email"], otp, "Password Reset Code")
+        
+        return {"status": "success", "message": "Password reset code sent to registered email."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Forgot password request failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@app.post("/api/auth/forgot-password-reset")
+async def forgot_password_reset(request: ForgotPasswordResetRequest):
+    from processing import get_db_connection
+    conn = get_db_connection()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Database connection failed.")
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT id, username, email, is_active, otp_code, otp_expiry FROM users WHERE username = %s OR email = %s",
+            (request.identifier, request.identifier)
+        )
+        user = cursor.fetchone()
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found.")
+            
+        if not user.get("is_active", True):
+            raise HTTPException(status_code=403, detail="User account is inactive.")
+            
+        if not user.get("otp_code") or user["otp_code"] != request.otp:
+            raise HTTPException(status_code=401, detail="Invalid OTP code.")
+            
+        from datetime import datetime
+        if not user.get("otp_expiry") or user["otp_expiry"] < datetime.utcnow():
+            raise HTTPException(status_code=401, detail="OTP code has expired. Please request a new one.")
+            
+        if len(request.newPassword) < 6:
+            raise HTTPException(status_code=400, detail="New password must be at least 6 characters.")
+            
+        # Hash new password
+        new_hash = hash_password(request.newPassword)
+        
+        # Reset password and clear OTP
+        cursor.execute(
+            "UPDATE users SET password_hash = %s, otp_code = NULL, otp_expiry = NULL, failed_attempts = 0, locked_until = NULL WHERE id = %s",
+            (new_hash, user["id"])
+        )
+        conn.commit()
+        
+        logger.info(f"✓ Password successfully reset via OTP for user: {user['username']}")
+        
+        return {"status": "success", "message": "Password reset successfully. You can now log in."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Password reset failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ADMIN USER MANAGEMENT CRUD ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/admin/users")
+async def admin_get_users(user=Depends(get_current_user)):
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required.")
+        
+    from processing import get_db_connection
+    conn = get_db_connection()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Database connection failed.")
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT id, username, email, role, is_active, created_at FROM users ORDER BY username ASC")
+        users_list = cursor.fetchall()
+        for u in users_list:
+            if u.get("created_at") and hasattr(u["created_at"], "isoformat"):
+                u["created_at"] = u["created_at"].isoformat()
+        return {"status": "success", "data": users_list}
+    except Exception as e:
+        logger.error(f"Failed to fetch users: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@app.post("/api/admin/users")
+async def admin_create_user(request: UserCreateRequest, user=Depends(get_current_user)):
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required.")
+        
+    if len(request.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters.")
+        
+    from processing import get_db_connection
+    conn = get_db_connection()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Database connection failed.")
+    try:
+        cursor = conn.cursor(dictionary=True)
+        
+        # Check if username exists
+        cursor.execute("SELECT id FROM users WHERE username = %s", (request.username,))
+        if cursor.fetchone():
+            raise HTTPException(status_code=400, detail="Username already exists.")
+            
+        # Check if email exists
+        if request.email:
+            cursor.execute("SELECT id FROM users WHERE email = %s", (request.email,))
+            if cursor.fetchone():
+                raise HTTPException(status_code=400, detail="Email already registered.")
+                
+        # Hash password
+        pwd_hash = hash_password(request.password)
+        
+        cursor.execute(
+            "INSERT INTO users (username, password_hash, email, role, is_active) VALUES (%s, %s, %s, %s, %s)",
+            (request.username, pwd_hash, request.email, request.role, True)
+        )
+        conn.commit()
+        return {"status": "success", "message": f"User {request.username} created successfully."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to create user: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@app.put("/api/admin/users/{user_id}")
+async def admin_update_user(user_id: int, request: UserUpdateRequest, user=Depends(get_current_user)):
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required.")
+        
+    from processing import get_db_connection
+    conn = get_db_connection()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Database connection failed.")
+    try:
+        cursor = conn.cursor(dictionary=True)
+        
+        # Fetch target user
+        cursor.execute("SELECT id, username, role FROM users WHERE id = %s", (user_id,))
+        target_user = cursor.fetchone()
+        if not target_user:
+            raise HTTPException(status_code=404, detail="User not found.")
+            
+        # If updating email, check for duplicate
+        if request.email:
+            cursor.execute("SELECT id FROM users WHERE email = %s AND id != %s", (request.email, user_id))
+            if cursor.fetchone():
+                raise HTTPException(status_code=400, detail="Email already registered to another user.")
+                
+        updates = []
+        params = []
+        
+        if request.email is not None:
+            updates.append("email = %s")
+            params.append(request.email if request.email.strip() != "" else None)
+            
+        if request.role is not None:
+            if target_user["username"] == "admin" and request.role != "admin":
+                raise HTTPException(status_code=400, detail="Cannot change role of primary admin.")
+            updates.append("role = %s")
+            params.append(request.role)
+            
+        if request.is_active is not None:
+            if not request.is_active:
+                if target_user["username"] == "admin":
+                    raise HTTPException(status_code=400, detail="Cannot deactivate the primary admin user.")
+                if target_user["username"] == user["username"]:
+                    raise HTTPException(status_code=400, detail="Cannot deactivate your own active account.")
+            updates.append("is_active = %s")
+            params.append(request.is_active)
+            
+        if request.password is not None and request.password.strip() != "":
+            if len(request.password) < 6:
+                raise HTTPException(status_code=400, detail="Password must be at least 6 characters.")
+            updates.append("password_hash = %s")
+            params.append(hash_password(request.password))
+            
+        if not updates:
+            return {"status": "success", "message": "No fields to update."}
+            
+        params.append(user_id)
+        query = f"UPDATE users SET {', '.join(updates)} WHERE id = %s"
+        cursor.execute(query, tuple(params))
+        conn.commit()
+        return {"status": "success", "message": f"User {target_user['username']} updated successfully."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update user: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@app.delete("/api/admin/users/{user_id}")
+async def admin_delete_user(user_id: int, user=Depends(get_current_user)):
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required.")
+        
+    from processing import get_db_connection
+    conn = get_db_connection()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Database connection failed.")
+    try:
+        cursor = conn.cursor(dictionary=True)
+        
+        # Fetch target user
+        cursor.execute("SELECT id, username FROM users WHERE id = %s", (user_id,))
+        target_user = cursor.fetchone()
+        if not target_user:
+            raise HTTPException(status_code=404, detail="User not found.")
+            
+        # Safety restrictions
+        if target_user["username"] == "admin":
+            raise HTTPException(status_code=400, detail="Cannot delete the primary admin user.")
+            
+        if target_user["username"] == user["username"]:
+            raise HTTPException(status_code=400, detail="Cannot delete your own active admin account.")
+            
+        cursor.execute("DELETE FROM users WHERE id = %s", (user_id,))
+        conn.commit()
+        return {"status": "success", "message": f"User {target_user['username']} deleted successfully."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete user: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
 
 @app.get("/api/portal-credentials")
 def get_portal_credentials(user=Depends(get_current_user)):
@@ -485,7 +1063,8 @@ async def save_reports(request: ReportRequest, user=Depends(get_current_user)):
                     "Consumer Name": row.get("consumer_name") or row.get("customer_name") or row.get("name") or row.get("consumerName") or "N/A",
                     "Generation": row.get("generated") or row.get("generation") or 0,
                     "Capacity": row.get("capacity") or 0,
-                    "Export": row.get("export") or 0
+                    "Export": row.get("export") or 0,
+                    "Bill Amount (Rs)": row.get("amount") or row.get("billing_amount") or row.get("billingAmount") or row.get("Bill Amount (Rs)") or 0
                 })
         
         if not df_list:

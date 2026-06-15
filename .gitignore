@@ -106,3 +106,6 @@ verify_login.py
 get_source.py
 inspect_dump.py
 CREATE_SHAREABLE_ZIP.bat
+
+
+google_confidentials.json

@@ -12,4 +12,5 @@ services:
       - PYTHONUNBUFFERED=1
     volumes:
       - ./downloads:/app/downloads
+      - ./backend/secrets:/app/backend/secrets
     restart: unless-stopped

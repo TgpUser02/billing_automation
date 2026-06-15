@@ -22,7 +22,8 @@ logger = logging.getLogger(__name__)
 
 from dotenv import load_dotenv
 if not os.environ.get("RENDER"):
-    load_dotenv()
+    load_dotenv(override=True)
+    load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env'), override=True)
 
 import shutil
 import subprocess

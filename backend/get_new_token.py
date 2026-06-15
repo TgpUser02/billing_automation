@@ -8,7 +8,10 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 
 # Get credentials from .env first to be consistent
 from dotenv import load_dotenv, set_key
-load_dotenv('.env')
+# Dynamically resolve .env path (parent of backend folder)
+current_dir = os.path.dirname(os.path.abspath(__file__))
+dot_env_path = os.path.join(os.path.dirname(current_dir), '.env')
+load_dotenv(dot_env_path)
 
 CLIENT_ID = os.environ.get("GOOGLE_DRIVE_CLIENT_ID", "57647831301-slmprltdearnsftettb4isjg2pnn0u3g.apps.googleusercontent.com")
 CLIENT_SECRET = os.environ.get("GOOGLE_DRIVE_CLIENT_SECRET", "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")
@@ -35,7 +38,6 @@ try:
     
     if new_refresh_token:
         # Update .env file using python-dotenv's set_key
-        dot_env_path = '.env'
         set_key(dot_env_path, "GOOGLE_DRIVE_REFRESH_TOKEN", new_refresh_token)
         
         print("\n" + "="*60)

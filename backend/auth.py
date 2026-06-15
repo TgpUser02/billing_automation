@@ -17,7 +17,8 @@ from jose import JWTError, jwt
 import httpx
 
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(override=True)
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env'), override=True)
 
 logger = logging.getLogger(__name__)
 
@@ -202,7 +203,7 @@ async def verify_recaptcha(token: str) -> bool:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def get_user_from_db(username: str) -> Optional[dict]:
-    """Fetch user from SQL users table."""
+    """Fetch user from SQL users table by username or email."""
     try:
         from processing import get_db_connection
         conn = get_db_connection()
@@ -212,8 +213,8 @@ def get_user_from_db(username: str) -> Optional[dict]:
 
         cursor = conn.cursor(dictionary=True)
         cursor.execute(
-            "SELECT id, username, password_hash, role, is_active, failed_attempts, locked_until FROM users WHERE username = %s",
-            (username,)
+            "SELECT id, username, password_hash, role, is_active, failed_attempts, locked_until FROM users WHERE username = %s OR email = %s",
+            (username, username)
         )
         user = cursor.fetchone()
         cursor.close()

@@ -16,3 +16,4 @@ google-auth-oauthlib
 passlib[bcrypt]
 python-jose[cryptography]
 httpx
+fpdf2

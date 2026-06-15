@@ -3,7 +3,8 @@ import sys
 import argparse
 import time
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(override=True)
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env'), override=True)
 from gdrive_utils import get_drive_service, upload_file_to_drive, get_or_create_date_folder
 import re
 
