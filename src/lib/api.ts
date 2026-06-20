@@ -356,6 +356,13 @@ export const api = {
         return checkResponse(response);
     },
 
+    generateMismatchReport: async () => {
+        const response = await authFetch(`${API_BASE_URL}/reports/mismatch`, {
+            method: "POST",
+        });
+        return checkResponse(response);
+    },
+
     downloadReport: async (path: string) => {
         const response = await authFetch(`${API_BASE_URL}/reports/download?path=${encodeURIComponent(path)}`);
         if (!response.ok) throw new Error("Failed to download file");

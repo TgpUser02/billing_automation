@@ -25,6 +25,7 @@ import {
   Settings,
   LogIn,
   Users,
+  AlertTriangle,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -107,6 +108,7 @@ const Index = () => {
   const [linkModalOpen, setLinkModalOpen] = useState(false);
   
   const [selectedFailedToRetry, setSelectedFailedToRetry] = useState<Set<string>>(new Set());
+  const [isGeneratingMismatch, setIsGeneratingMismatch] = useState(false);
 
   useEffect(() => {
     if (downloadResults.failed.length > 0) {
@@ -1187,6 +1189,54 @@ const Index = () => {
     }
   };
 
+  const handleGenerateMismatchReport = async () => {
+    setLogs((prev) => [
+      ...prev,
+      {
+        id: Date.now(),
+        timestamp: new Date().toLocaleTimeString(),
+        message: "Generating MSEDCL vs Database mismatch report...",
+        type: "process",
+      },
+    ]);
+    setIsGeneratingMismatch(true);
+
+    try {
+      const res = await api.generateMismatchReport();
+      setIsGeneratingMismatch(false);
+      setLogs((prev) => [
+        ...prev,
+        {
+          id: Date.now(),
+          timestamp: new Date().toLocaleTimeString(),
+          message: `Mismatch Report generated successfully: ${res.filename} (Not in portal: ${res.not_in_msedcl_count}, Not in DB: ${res.not_in_db_count})`,
+          type: "success",
+        },
+      ]);
+      toast({
+        title: "Mismatch Report Generated",
+        description: `Generated ${res.filename}. Not in MSEDCL: ${res.not_in_msedcl_count}, Not in DB: ${res.not_in_db_count}. Saved to Reports folder.`,
+        variant: "default",
+      });
+    } catch (e: any) {
+      setIsGeneratingMismatch(false);
+      setLogs((prev) => [
+        ...prev,
+        {
+          id: Date.now(),
+          timestamp: new Date().toLocaleTimeString(),
+          message: `Mismatch report generation failed: ${e.message || e}`,
+          type: "error",
+        },
+      ]);
+      toast({
+        title: "Generation Failed",
+        description: e.message || "Failed to generate mismatch report.",
+        variant: "destructive",
+      });
+    }
+  };
+
   // We removed the auto-triggering effect so that handleProcess only runs when the user clicks "Continue to Analysis"
 
   return (
@@ -1513,6 +1563,19 @@ const Index = () => {
                   >
                     <FileText className="mr-1.5 h-3.5 w-3.5" />
                     Save Data
+                  </Button>
+                  <Button
+                    onClick={handleGenerateMismatchReport}
+                    disabled={isGeneratingMismatch}
+                    variant="outline"
+                    className="flex-1 sm:flex-initial rounded-xl font-bold bg-white/50 border-slate-200 text-slate-600 hover:text-arin-orange hover:bg-slate-50 transition-all shadow-sm uppercase text-[10px] tracking-widest py-4 px-6 disabled:opacity-50"
+                  >
+                    {isGeneratingMismatch ? (
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <AlertTriangle className="mr-1.5 h-3.5 w-3.5 text-arin-orange" />
+                    )}
+                    Mismatch Report
                   </Button>
                   <Button
                     onClick={openDebugTab}

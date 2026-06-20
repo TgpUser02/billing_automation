@@ -164,7 +164,7 @@ def get_all_customers_db():
 def get_customer_details(consumer_number):
     """
     Fetches customer details specifically for auto-filling from the customers table.
-    SQL: SELECT customer_name, solar_capacity_kw as capacity, commission_date, consumer_number FROM customers WHERE consumer_number = %s
+    SQL: SELECT arin_id, customer_name, solar_capacity_kw as capacity, commission_date, consumer_number FROM customers WHERE consumer_number = %s
     """
     conn = get_db_connection()
     if not conn:
@@ -173,13 +173,13 @@ def get_customer_details(consumer_number):
     try:
         cursor = conn.cursor(dictionary=True)
         # Search in both customers and customers_backup if needed, but customers is primary here
-        query = "SELECT customer_name, solar_capacity_kw as capacity, commission_date, consumer_number, panel_name, inverter_name FROM customers WHERE consumer_number = %s"
+        query = "SELECT arin_id, customer_name, solar_capacity_kw as capacity, commission_date, consumer_number, panel_name, inverter_name FROM customers WHERE consumer_number = %s"
         cursor.execute(query, (consumer_number,))
         result = cursor.fetchone()
         
         if not result:
             # Try backup table if not found, but it might not have all fields
-            query_bk = "SELECT customer_name, consumer_number FROM customers_backup WHERE consumer_number = %s"
+            query_bk = "SELECT arin_id, customer_name, consumer_number FROM customers_backup WHERE consumer_number = %s"
             cursor.execute(query_bk, (consumer_number,))
             result = cursor.fetchone()
             if result:
@@ -799,6 +799,105 @@ def generate_generation_reports(target_dir, data_list, threshold=75):
         except Exception as ex_err:
             logger.error(f"Failed to generate Excel report {filename}: {ex_err}")
 
+
+def generate_mismatch_report(target_dir, portal_consumers, date_str):
+    """
+    Generates a mismatch report comparing portal consumers vs database customers.
+    Saves the Excel report to target_dir.
+    """
+    import pandas as pd
+    from datetime import datetime
+    
+    # Fetch DB consumers
+    db_consumers = get_all_customers_db()
+    
+    # Extract sets of consumer numbers (normalized, stripped)
+    portal_set = set(str(c.get("consumerNumber")).strip() for c in portal_consumers if c.get("consumerNumber"))
+    db_set = set(str(c.get("consumer_number")).strip() for c in db_consumers if c.get("consumer_number"))
+    
+    # 1. Not found in MSEDCL (present in DB but not in portal)
+    not_in_portal_numbers = db_set - portal_set
+    # 2. Not found in Database (present in portal but not in DB)
+    not_in_db_numbers = portal_set - db_set
+    
+    # Prepare rows for Not found in MSEDCL
+    not_in_portal_rows = []
+    for db_c in db_consumers:
+        cnum = str(db_c.get("consumer_number")).strip()
+        if cnum in not_in_portal_numbers:
+            not_in_portal_rows.append({
+                "Consumer Number": cnum,
+                "Consumer Name": db_c.get("customer_name") or "N/A",
+                "Arin ID": db_c.get("arin_id") or "N/A",
+                "Zone": db_c.get("zone") or "N/A",
+                "Capacity (kW)": db_c.get("solar_capacity_kw") or 0.0,
+                "Portal Username": db_c.get("portal_username") or "N/A"
+            })
+            
+    # Prepare rows for Not found in Database
+    not_in_db_rows = []
+    for portal_c in portal_consumers:
+        cnum = str(portal_c.get("consumerNumber")).strip()
+        if cnum in not_in_db_numbers:
+            not_in_db_rows.append({
+                "Consumer Number": cnum,
+                "Subdivision/BU": portal_c.get("bu") or "N/A",
+                "Division": portal_c.get("divisionCode") or "N/A",
+                "Type (HT/LT)": portal_c.get("htlt") or "N/A",
+                "Month": portal_c.get("month") or "N/A",
+                "Units": portal_c.get("units") or "N/A"
+            })
+            
+    # Format date for folder name
+    formatted_date = date_str
+    try:
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+        formatted_date = dt.strftime("%d %B %Y").lstrip('0')
+    except: pass
+    
+    # Target directory structure: arin/Report/[Date]/
+    report_local_dir = os.path.join(target_dir, "Report", formatted_date)
+    os.makedirs(report_local_dir, exist_ok=True)
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"mismatch_msedcl_vs_database_{timestamp}.xlsx"
+    filepath = os.path.join(report_local_dir, filename)
+    
+    # Write to multi-sheet Excel file
+    try:
+        with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
+            df_not_in_portal = pd.DataFrame(not_in_portal_rows) if not_in_portal_rows else pd.DataFrame(columns=["Consumer Number", "Consumer Name", "Arin ID", "Zone", "Capacity (kW)", "Portal Username"])
+            df_not_in_portal.to_excel(writer, sheet_name="Not Found in MSEDCL", index=False)
+            
+            df_not_in_db = pd.DataFrame(not_in_db_rows) if not_in_db_rows else pd.DataFrame(columns=["Consumer Number", "Subdivision/BU", "Division", "Type (HT/LT)", "Month", "Units"])
+            df_not_in_db.to_excel(writer, sheet_name="Not Found in Database", index=False)
+            
+        logger.info(f"Generated mismatch report: {filepath} (Not in Portal: {len(not_in_portal_rows)}, Not in DB: {len(not_in_db_rows)})")
+        
+        # Upload to Google Drive
+        try:
+            from gdrive_utils import get_drive_service, get_or_create_date_folder, upload_file_to_drive
+            drive_root_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
+            if drive_root_id:
+                service = get_drive_service()
+                if service:
+                    bill_gen_root_id = get_or_create_date_folder(service, "billing_automation", drive_root_id)
+                    report_root_id = get_or_create_date_folder(service, "Report", bill_gen_root_id)
+                    report_date_folder_id = get_or_create_date_folder(service, formatted_date, report_root_id)
+                    
+                    if report_date_folder_id:
+                        success, g_msg = upload_file_to_drive(service, filepath, filename, report_date_folder_id)
+                        if success:
+                            logger.info(f"✓ Successfully uploaded mismatch report {filename} to Google Drive")
+                        else:
+                            logger.error(f"Drive upload failed for {filename}: {g_msg}")
+        except Exception as drive_err:
+            logger.error(f"Exception during Drive upload for {filename}: {drive_err}")
+            
+        return filename, len(not_in_portal_rows), len(not_in_db_rows)
+    except Exception as ex_err:
+        logger.error(f"Failed to generate mismatch Excel report {filename}: {ex_err}")
+        return None, 0, 0
 
 
 def _safe_float(val):

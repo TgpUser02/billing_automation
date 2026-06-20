@@ -23,7 +23,7 @@ export function exportToCSV(data: any[], filename: string = "consumer_data") {
     ];
     rows = data.map((item, index) => [
       index + 1,
-      item.arin_id || "N/A",
+      item.arin_id || "",
       item.customer_name || "N/A",
       item.consumer_number || "N/A",
       item.zone || "N/A",

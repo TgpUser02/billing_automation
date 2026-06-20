@@ -94,6 +94,8 @@ const ConsumerConnect = () => {
     const [selectedStatus, setSelectedStatus] = useState("All");
     const [minCapacity, setMinCapacity] = useState("");
     const [maxCapacity, setMaxCapacity] = useState("");
+    const [selectedArinId, setSelectedArinId] = useState("All Arin IDs");
+    const [portalAccounts, setPortalAccounts] = useState<any[]>([]);
 
     // Import Dialog States
     const [isImportOpen, setIsImportOpen] = useState(false);
@@ -127,9 +129,10 @@ const ConsumerConnect = () => {
     const loadAllData = async () => {
         setIsLoading(true);
         try {
-            const [billsData, profilesData] = await Promise.all([
+            const [billsData, profilesData, portalRes] = await Promise.all([
                 api.getBills(),
-                api.getAllCustomersDB()
+                api.getAllCustomersDB(),
+                api.getPortalCredentials()
             ]);
 
             // Map bills
@@ -141,7 +144,7 @@ const ConsumerConnect = () => {
 
                 return {
                     id: String(b.id || Math.random()),
-                    arinId: b.arin_id || "N/A",
+                    arinId: b.arin_id || "",
                     consumerNo: b.consumer_number || b.cust_consumer_no || "N/A",
                     consumerName: b.customer_name || b.consumer_name || "N/A",
                     month: monthLabel,
@@ -166,6 +169,11 @@ const ConsumerConnect = () => {
             // Map profiles
             if (profilesData && profilesData.status === "success") {
                 setProfiles(profilesData.data);
+            }
+
+            // Map portal accounts
+            if (portalRes && portalRes.status === "success" && portalRes.data) {
+                setPortalAccounts(portalRes.data);
             }
         } catch (err) {
             console.error("Failed to load data", err);
@@ -200,6 +208,19 @@ const ConsumerConnect = () => {
         unique.sort();
         return ["All Zones", ...unique];
     }, [profiles]);
+
+    // Derive arin_ids list dynamically
+    const arinIdList = useMemo(() => {
+        const unique = new Set<string>();
+        profiles.forEach((p: any) => {
+            if (p.arin_id) unique.add(p.arin_id);
+        });
+        portalAccounts.forEach((a: any) => {
+            if (a.username) unique.add(a.username);
+        });
+        const sorted = Array.from(unique).sort();
+        return ["All Arin IDs", "NULL / Unassigned", ...sorted];
+    }, [profiles, portalAccounts]);
 
     // Derive duplicates dynamically from profiles
     const duplicateConsumerNumbers = useMemo(() => {
@@ -242,9 +263,16 @@ const ConsumerConnect = () => {
 
             const matchesDuplicate = !showDuplicatesOnly || (profile.consumer_number && duplicateConsumerNumbers.has(profile.consumer_number.trim()));
 
-            return matchesSearch && matchesZone && matchesStatus && matchesMinCap && matchesMaxCap && matchesDuplicate;
+            let matchesArinId = true;
+            if (selectedArinId === "NULL / Unassigned") {
+                matchesArinId = !profile.arin_id || profile.arin_id === "N/A" || profile.arin_id === "";
+            } else if (selectedArinId !== "All Arin IDs") {
+                matchesArinId = profile.arin_id === selectedArinId;
+            }
+
+            return matchesSearch && matchesZone && matchesStatus && matchesMinCap && matchesMaxCap && matchesDuplicate && matchesArinId;
         });
-    }, [searchQuery, selectedZone, selectedStatus, minCapacity, maxCapacity, profiles, showDuplicatesOnly, duplicateConsumerNumbers]);
+    }, [searchQuery, selectedZone, selectedStatus, minCapacity, maxCapacity, profiles, showDuplicatesOnly, duplicateConsumerNumbers, selectedArinId]);
 
     const filteredConsumers = useMemo(() => {
         return consumers.filter((consumer) => {
@@ -271,9 +299,16 @@ const ConsumerConnect = () => {
             const matchesMinCap = minCapacity === "" || capacity >= Number(minCapacity);
             const matchesMaxCap = maxCapacity === "" || capacity <= Number(maxCapacity);
 
-            return matchesSearch && matchesMonth && matchesZone && matchesStatus && matchesMinCap && matchesMaxCap;
+            let matchesArinId = true;
+            if (selectedArinId === "NULL / Unassigned") {
+                matchesArinId = !consumer.arinId || consumer.arinId === "N/A" || consumer.arinId === "";
+            } else if (selectedArinId !== "All Arin IDs") {
+                matchesArinId = consumer.arinId === selectedArinId;
+            }
+
+            return matchesSearch && matchesMonth && matchesZone && matchesStatus && matchesMinCap && matchesMaxCap && matchesArinId;
         });
-    }, [searchQuery, selectedMonth, selectedZone, selectedStatus, minCapacity, maxCapacity, consumers]);
+    }, [searchQuery, selectedMonth, selectedZone, selectedStatus, minCapacity, maxCapacity, consumers, selectedArinId]);
 
     const totalPages = Math.ceil(filteredProfiles.length / profilePageSize);
     const safeProfilePage = Math.min(profilePage, Math.max(1, totalPages));
@@ -663,7 +698,18 @@ const ConsumerConnect = () => {
                     </div>
 
                     {/* Advanced Filters Grid */}
-                    <div className={`grid grid-cols-1 sm:grid-cols-2 ${viewMode === 'profiles' ? 'md:grid-cols-5' : 'md:grid-cols-4'} gap-4 pt-4 border-t border-border/60`}>
+                    <div className={`grid grid-cols-1 sm:grid-cols-2 ${viewMode === 'profiles' ? 'md:grid-cols-6' : 'md:grid-cols-5'} gap-4 pt-4 border-t border-border/60`}>
+                        <div className="flex flex-col gap-1.5">
+                            <Label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Arin ID Filter</Label>
+                            <select
+                                value={selectedArinId}
+                                onChange={(e) => setSelectedArinId(e.target.value)}
+                                className="flex h-10 w-full rounded-xl border border-slate-200 bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-arin-teal"
+                            >
+                                {arinIdList.map(a => <option key={a} value={a}>{a}</option>)}
+                            </select>
+                        </div>
+
                         <div className="flex flex-col gap-1.5">
                             <Label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Zone</Label>
                             <select
@@ -733,8 +779,14 @@ const ConsumerConnect = () => {
                 </div>
 
                 {/* Filter Status Chips */}
-                {(selectedMonth !== "All Months" || searchQuery || selectedZone !== "All Zones" || selectedStatus !== "All" || minCapacity || maxCapacity || showDuplicatesOnly) && (
+                {(selectedMonth !== "All Months" || searchQuery || selectedZone !== "All Zones" || selectedStatus !== "All" || minCapacity || maxCapacity || showDuplicatesOnly || selectedArinId !== "All Arin IDs") && (
                     <div className="flex flex-wrap gap-2 animate-in fade-in zoom-in duration-300">
+                        {selectedArinId !== "All Arin IDs" && (
+                            <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-arin-teal/10 text-arin-teal text-xs font-semibold border border-arin-teal/20">
+                                Arin ID: {selectedArinId}
+                                <button onClick={() => setSelectedArinId("All Arin IDs")} className="ml-1 font-bold text-sm">×</button>
+                            </span>
+                        )}
                         {viewMode === 'bills' && selectedMonth !== "All Months" && (
                             <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold border border-primary/20">
                                 Month: {selectedMonth}
@@ -832,7 +884,7 @@ const ConsumerConnect = () => {
                                                 currentProfilesData.map((profile, index) => (
                                                     <tr key={profile.id || index} className="hover:bg-muted/50 transition-colors">
                                                         <td className="font-medium text-center">{(safeProfilePage - 1) * profilePageSize + index + 1}</td>
-                                                        <td className="text-arin-teal font-black text-xs text-center">{profile.arin_id || "N/A"}</td>
+                                                        <td className="text-arin-teal font-black text-xs text-center">{profile.arin_id || ""}</td>
                                                         <td className="font-semibold text-primary">{profile.customer_name}</td>
                                                         <td className="font-mono text-sm">{profile.consumer_number}</td>
                                                         <td>{profile.zone}</td>
@@ -1143,13 +1195,22 @@ const ConsumerConnect = () => {
                                     </div>
                                     <div className="flex flex-col gap-1.5">
                                         <Label htmlFor="arin_id" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Arin ID</Label>
-                                        <Input
+                                        <select
                                             id="arin_id"
-                                            value={formData.arin_id}
+                                            value={formData.arin_id || ""}
                                             onChange={e => setFormData(prev => ({ ...prev, arin_id: e.target.value }))}
-                                            placeholder="ARIN-XXXX"
-                                            className="rounded-xl font-mono"
-                                        />
+                                            className="flex h-10 w-full rounded-xl border border-slate-200 bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-arin-teal"
+                                        >
+                                            <option value="">N/A</option>
+                                            {formData.arin_id && !portalAccounts.some((a: any) => a.username === formData.arin_id) && (
+                                                <option value={formData.arin_id}>{formData.arin_id}</option>
+                                            )}
+                                            {portalAccounts.map((account: any) => (
+                                                <option key={account.username} value={account.username}>
+                                                    {account.username}
+                                                </option>
+                                            ))}
+                                        </select>
                                     </div>
                                     <div className="flex flex-col gap-1.5">
                                         <Label htmlFor="contact" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Contact Number</Label>

@@ -18,6 +18,7 @@ export interface ConsumerData {
   blacklisted_reason?: string;
   portal_username?: string;
   portal_password?: string;
+  arin_id?: string;
 }
 
 export interface BillInputs {
@@ -44,6 +45,7 @@ export interface BillInputs {
   inverter_warranty_expiry_date?: string;
   system_warranty_expiry_date?: string;
   general_warranty_expiry_date?: string;
+  arin_id?: string;
 }
 
 export interface CalculatedBillData {
@@ -70,6 +72,7 @@ export interface CalculatedBillData {
   panel_name: string;
   inverter_name: string;
   daysSinceInstallation: number;
+  arin_id?: string;
 }
 
 export function calculateBillData(
@@ -189,6 +192,7 @@ export function calculateBillData(
     panel_name: inputs.panel_name,
     inverter_name: inputs.inverter_name,
     daysSinceInstallation: isNaN(daysSinceInstallation) || daysSinceInstallation < 0 ? 0 : daysSinceInstallation,
+    arin_id: inputs.arin_id || consumer.arin_id || "",
   };
 }
 

@@ -944,6 +944,7 @@ primary_automation = BillAutomation(port=9222)
 global_total_bills = 0
 active_download_tasks = 0
 download_in_progress = False
+scraped_consumers_cache = None
 
 # Async processing state
 process_in_progress = False
@@ -1220,6 +1221,53 @@ async def download_report(path: str, user=Depends(get_current_user)):
         raise
     except Exception as e:
         logger.error(f"Failed to download report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/reports/mismatch")
+async def generate_mismatch_report_endpoint(user=Depends(get_current_user)):
+    """Manually triggers generation of the mismatch report between portal and database."""
+    global scraped_consumers_cache
+    consumers_list = scraped_consumers_cache
+    
+    # If not in cache, check if active session exists and try to scrape it
+    if not consumers_list:
+        if primary_automation.driver:
+            logger.info("Scraped consumers cache is empty but active browser exists. Attempting live scrape...")
+            success, scraped_data = primary_automation.get_consumer_list()
+            if success and scraped_data:
+                consumers_list = scraped_data
+                scraped_consumers_cache = scraped_data
+            else:
+                raise HTTPException(status_code=400, detail="Could not scrape consumers list from active browser. Make sure you are on the dashboard.")
+        else:
+            raise HTTPException(status_code=400, detail="No active MSEDCL portal session found. Please login and fetch consumers list first.")
+            
+    # Determine date
+    date_str = primary_automation.process_date
+    if not date_str:
+        from datetime import datetime, timedelta
+        date_str = (datetime.utcnow() + timedelta(hours=5, minutes=30)).strftime("%Y-%m-%d")
+        
+    try:
+        from processing import generate_mismatch_report
+        target_dir = get_arin_storage_root()
+        filename, not_in_portal_count, not_in_db_count = generate_mismatch_report(target_dir, consumers_list, date_str)
+        
+        if not filename:
+            raise HTTPException(status_code=500, detail="Failed to write mismatch report file.")
+            
+        return {
+            "status": "success",
+            "message": "Mismatch report generated successfully.",
+            "filename": filename,
+            "not_in_msedcl_count": not_in_portal_count,
+            "not_in_db_count": not_in_db_count
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating mismatch report endpoint: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1836,6 +1884,7 @@ def get_billing_analysis(consumerNumber: str, month: str, user=Depends(get_curre
         return {
             "consumer_number": consumerNumber,
             "bill_month": month,
+            "arin_id": "N/A",
             "export": 0, "import": 0, "generated": 0, "amount": 0,
             "prev_banked": 0, "curr_banked": 0,
             "system_health": "UNKNOWN", "bill_status": "No Data",
@@ -1849,6 +1898,7 @@ def get_billing_analysis(consumerNumber: str, month: str, user=Depends(get_curre
     return {
         "consumer_number": target_bill.get("consumer_number"),
         "customer_name": target_bill.get("customer_name") or target_bill.get("consumer_name"),
+        "arin_id": target_bill.get("arin_id") or "N/A",
         "bill_month": target_bill.get("month_year"),
         "export": target_bill.get("export_units") or target_bill.get("export", 0),
         "import": target_bill.get("import_units") or target_bill.get("import", 0),
@@ -1926,10 +1976,26 @@ def launch_automation(request: LaunchRequest, user=Depends(get_current_user)):
 @app.get("/api/consumers")
 def fetch_consumers(user=Depends(get_current_user)):
     """Scrapes the consumer list from the primary browser session."""
+    global scraped_consumers_cache
     success, data = primary_automation.get_consumer_list()
     # print(f"Fetched consumers: {data}")
     if not success:
         raise HTTPException(status_code=500, detail=data)
+        
+    scraped_consumers_cache = data
+    
+    # Auto-generate mismatch report between MSEDCL and Database
+    try:
+        from processing import generate_mismatch_report
+        date_str = primary_automation.process_date
+        if not date_str:
+            from datetime import datetime, timedelta
+            date_str = (datetime.utcnow() + timedelta(hours=5, minutes=30)).strftime("%Y-%m-%d")
+        
+        target_dir = get_arin_storage_root()
+        generate_mismatch_report(target_dir, data, date_str)
+    except Exception as mismatch_err:
+        logger.error(f"Error generating mismatch report in fetch_consumers: {mismatch_err}")
         
     # Auto-insert missing consumers with "Data yet to fill"
     try:

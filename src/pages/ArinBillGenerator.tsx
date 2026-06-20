@@ -73,7 +73,7 @@ const downloadPDFClient = (data: any[], filename: string) => {
     
     const headers = [["Arin ID", "Consumer Number", "Consumer Name", "Generation", "Capacity (kW)", "Export"]];
     const rows = data.map(item => [
-        item.arin_id || "N/A",
+        item.arin_id || "",
         item.consumer_no || "",
         item.consumer_name || "",
         item.generated ?? 0,
@@ -147,7 +147,8 @@ export default function ArinBillGenerator() {
                             capacity: b.capacity,
                             comm_date: b.commission_date,
                             panel_name: b.panel_name || 'Other',
-                            inverter_name: b.inverter_name || 'Other'
+                            inverter_name: b.inverter_name || 'Other',
+                            arin_id: b.arin_id || ""
                         });
                     }
                 });
@@ -336,6 +337,7 @@ export default function ArinBillGenerator() {
                 };
 
                 const rawInputs = {
+                    arin_id: targetData.arin_id || consumer.arin_id || "",
                     consumerName: targetData.customer_name || consumer.name || "N/A",
                     consumerNumber: targetData.consumer_number || targetId,
                     readingDate: formatDate(targetData.reading_date),
@@ -363,7 +365,7 @@ export default function ArinBillGenerator() {
                     genLessThanExportList.push({
                         consumer_no: targetId,
                         consumer_name: rawInputs.consumerName,
-                        arin_id: targetData.arin_id || consumer.arin_id || "N/A",
+                        arin_id: targetData.arin_id || consumer.arin_id || "",
                         generated: rawInputs.generatedElectricity,
                         capacity: rawInputs.capacity,
                         export: rawInputs.exportedToGrid
@@ -372,7 +374,7 @@ export default function ArinBillGenerator() {
                     genEqualToExportList.push({
                         consumer_no: targetId,
                         consumer_name: rawInputs.consumerName,
-                        arin_id: targetData.arin_id || consumer.arin_id || "N/A",
+                        arin_id: targetData.arin_id || consumer.arin_id || "",
                         generated: rawInputs.generatedElectricity,
                         capacity: rawInputs.capacity,
                         export: rawInputs.exportedToGrid
@@ -384,7 +386,7 @@ export default function ArinBillGenerator() {
                     billAmtGreaterThan1000List.push({
                         consumer_no: targetId,
                         consumer_name: rawInputs.consumerName,
-                        arin_id: targetData.arin_id || consumer.arin_id || "N/A",
+                        arin_id: targetData.arin_id || consumer.arin_id || "",
                         generated: rawInputs.generatedElectricity,
                         capacity: rawInputs.capacity,
                         export: rawInputs.exportedToGrid,
@@ -397,7 +399,7 @@ export default function ArinBillGenerator() {
                     zeroGenList.push({ 
                         consumer_no: targetId, 
                         consumer_name: rawInputs.consumerName,
-                        arin_id: targetData.arin_id || consumer.arin_id || "N/A",
+                        arin_id: targetData.arin_id || consumer.arin_id || "",
                         generated: 0,
                         capacity: rawInputs.capacity
                     });
@@ -417,7 +419,7 @@ export default function ArinBillGenerator() {
                     poorStatusList.push({ 
                         consumer_no: targetId, 
                         consumer_name: rawInputs.consumerName,
-                        arin_id: targetData.arin_id || consumer.arin_id || "N/A",
+                        arin_id: targetData.arin_id || consumer.arin_id || "",
                         generated: rawInputs.generatedElectricity,
                         capacity: rawInputs.capacity
                     });

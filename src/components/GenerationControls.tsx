@@ -333,6 +333,7 @@ export function GenerationControls({
       };
 
       const rawInputs: BillInputs = {
+        arin_id: data.arin_id || (consumer as any).arin_id || 'N/A',
         consumerName: data.customer_name || (consumer as any).consumer_name || (consumer as any).customer_name || 'N/A',
         consumerNumber: data.consumer_number || (consumer as any).consumer_number,
         readingDate: formatDateStr(data.reading_date),
@@ -400,6 +401,7 @@ export function GenerationControls({
         
         const basicInputs: BillInputs = {
           ...inputs,
+          arin_id: details.arin_id || (consumer as any).arin_id || 'N/A',
           consumerName: details.customer_name || 'N/A',
           consumerNumber: details.consumer_number,
           capacity: parseFloat(details.capacity) || 0,
