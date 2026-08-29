@@ -24,7 +24,7 @@ export function ActionButtons({ onFilter, onExport, onImport, onAdd, showAdd = f
       <Button
         variant="outline"
         onClick={onImport}
-        className="border-border bg-card hover:bg-secondary text-arin-teal"
+        className="border-border bg-card hover:bg-secondary hover:text-arin-green text-arin-teal"
       >
         <Upload className="w-4 h-4 mr-2" />
         Import Consumers

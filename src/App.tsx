@@ -15,6 +15,8 @@ import { Layout } from "./components/Layout";
 import { ProtectedLayout } from "./components/ProtectedRoute";
 import Login from "./pages/Login";
 import UserManagement from "./pages/UserManagement";
+import QuickBillAnalysis from "./pages/QuickBillAnalysis";
+import Settings from "./pages/Settings";
 const queryClient = new QueryClient();
 
 const App = () => {
@@ -39,6 +41,8 @@ const App = () => {
             <Route path="/consumerconnect" element={<ProtectedLayout><ConsumerConnect /></ProtectedLayout>} />
             <Route path="/reports" element={<ProtectedLayout><Reports /></ProtectedLayout>} />
             <Route path="/user-management" element={<ProtectedLayout><UserManagement /></ProtectedLayout>} />
+            <Route path="/quick-analysis" element={<ProtectedLayout><QuickBillAnalysis /></ProtectedLayout>} />
+            <Route path="/settings" element={<ProtectedLayout><Settings /></ProtectedLayout>} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<ProtectedLayout><NotFound /></ProtectedLayout>} />
           </Routes>

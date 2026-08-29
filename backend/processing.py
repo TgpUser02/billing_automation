@@ -164,7 +164,6 @@ def get_all_customers_db():
 def get_customer_details(consumer_number):
     """
     Fetches customer details specifically for auto-filling from the customers table.
-    SQL: SELECT arin_id, customer_name, solar_capacity_kw as capacity, commission_date, consumer_number FROM customers WHERE consumer_number = %s
     """
     conn = get_db_connection()
     if not conn:
@@ -172,22 +171,46 @@ def get_customer_details(consumer_number):
         
     try:
         cursor = conn.cursor(dictionary=True)
-        # Search in both customers and customers_backup if needed, but customers is primary here
-        query = "SELECT arin_id, customer_name, solar_capacity_kw as capacity, commission_date, consumer_number, panel_name, inverter_name FROM customers WHERE consumer_number = %s"
+        query = """
+            SELECT 
+                arin_id, 
+                customer_name, 
+                solar_capacity_kw as capacity, 
+                commission_date, 
+                consumer_number, 
+                panel_name, 
+                inverter_name,
+                zone,
+                address,
+                contact_number,
+                panel_warranty_expiry_date,
+                system_warranty_expiry_date,
+                inverter_warranty_expiry_date,
+                general_warranty_expiry_date,
+                is_blacklisted,
+                blacklisted_reason,
+                subscription_end_date,
+                subscription_active
+            FROM customers 
+            WHERE consumer_number = %s
+        """
         cursor.execute(query, (consumer_number,))
         result = cursor.fetchone()
         
         if not result:
-            # Try backup table if not found, but it might not have all fields
-            query_bk = "SELECT arin_id, customer_name, consumer_number FROM customers_backup WHERE consumer_number = %s"
-            cursor.execute(query_bk, (consumer_number,))
-            result = cursor.fetchone()
-            if result:
-                # Add placeholders for missing fields in backup
-                result['capacity'] = 0.0
-                result['commission_date'] = None
-                result['panel_name'] = 'Other'
-                result['inverter_name'] = 'Other'
+            # Fallback if table customers_backup still exists
+            try:
+                query_bk = "SELECT arin_id, customer_name, consumer_number FROM customers_backup WHERE consumer_number = %s"
+                cursor.execute(query_bk, (consumer_number,))
+                result = cursor.fetchone()
+                if result:
+                    result['capacity'] = 0.0
+                    result['commission_date'] = None
+                    result['panel_name'] = 'Other'
+                    result['inverter_name'] = 'Other'
+                    result['zone'] = 'Other'
+            except Exception:
+                pass
         
         return result
     except Exception as e:
@@ -1095,6 +1118,10 @@ def save_to_mysql(bill_data, conn=None):
             'generated': generation_units,
             'amount': billing_amount,
             'bill_status': bill_data.get('bill_status', 'Normal'),
+            'pdf_drive_file_id': bill_data.get('pdf_drive_file_id'),
+            'pdf_drive_view_url': bill_data.get('pdf_drive_view_url'),
+            'image_drive_file_id': bill_data.get('image_drive_file_id'),
+            'image_drive_view_url': bill_data.get('image_drive_view_url'),
         }
 
         cols_to_use = [c for c in bill_cols if c in val_map and val_map[c] is not None]
@@ -1107,7 +1134,16 @@ def save_to_mysql(bill_data, conn=None):
         existing_record = cursor.fetchone()
 
         if existing_record:
-            logger.info(f"✓ SKIPPING EXISTING DB RECORD: {consumer_number} for {m_year}")
+            rec_id = existing_record['id']
+            drive_updates = {}
+            for col in ['pdf_drive_file_id', 'pdf_drive_view_url', 'image_drive_file_id', 'image_drive_view_url']:
+                if bill_data.get(col) and col in bill_cols:
+                    drive_updates[col] = bill_data[col]
+            if drive_updates:
+                set_str = ", ".join([f"`{k}` = %s" for k in drive_updates.keys()])
+                cursor.execute(f"UPDATE bill_generation_details SET {set_str} WHERE id = %s", list(drive_updates.values()) + [rec_id])
+                local_conn.commit()
+            logger.info(f"✓ SKIPPING EXISTING DB RECORD (updated Drive info): {consumer_number} for {m_year}")
             return "exists"
         else:
             placeholders = ", ".join(["%s"] * len(cols_to_use))
@@ -1166,31 +1202,26 @@ def get_all_bills():
     try:
         cursor = conn.cursor(dictionary=True)
         
-        # 1. Discover columns to build a safe query
-        cursor.execute("DESCRIBE bill_generation_details")
-        b_cols = [row['Field'] for row in cursor.fetchall()]
-        
-        # 2. Build the JOIN query based on available columns
-        if 'customer_id' in b_cols:
-            join_clause = "ON b.customer_id = c.id"
-        elif 'consumer_number' in b_cols:
-            join_clause = "ON b.consumer_number = c.consumer_number"
-        else:
-            # If no join column found, just return bill details
-            cursor.execute("SELECT * FROM bill_generation_details ORDER BY month_year DESC")
-            return _process_rows(cursor.fetchall())
+        # 2. Build reliable JOIN clause prioritizing consumer_number
+        join_clause = "ON b.consumer_number = c.consumer_number"
 
         query = f"""
             SELECT 
                 b.*, 
-                c.customer_name, 
-                c.solar_capacity_kw as capacity, 
-                c.commission_date,
-                c.arin_id,
-                c.panel_name,
-                c.inverter_name,
-                c.zone,
-                c.is_blacklisted
+                COALESCE(c.customer_name, b.customer_name, 'N/A') as customer_name, 
+                COALESCE(c.solar_capacity_kw, b.solar_capacity_kw, 0) as capacity, 
+                COALESCE(c.commission_date, b.commission_date) as commission_date,
+                COALESCE(c.arin_id, b.arin_id, '') as arin_id,
+                COALESCE(c.panel_name, 'Other') as panel_name,
+                COALESCE(c.inverter_name, 'Other') as inverter_name,
+                COALESCE(c.zone, 'Other') as zone,
+                COALESCE(c.is_blacklisted, 0) as is_blacklisted,
+                c.blacklisted_reason,
+                c.panel_warranty_expiry_date,
+                c.system_warranty_expiry_date,
+                c.inverter_warranty_expiry_date,
+                c.general_warranty_expiry_date,
+                c.subscription_end_date
             FROM bill_generation_details b
             LEFT JOIN customers c {join_clause}
             ORDER BY b.month_year DESC

@@ -108,4 +108,24 @@ inspect_dump.py
 CREATE_SHAREABLE_ZIP.bat
 
 
+# ── Local Sample Reference Files & Scratch (not for repository) ─────────────
+chnages ref files/
+chnages ref files
+scratch/
+backend/scratch/
+backend/temp_*
+*.zip
+
+# ── Database Backups & Dumps (stored locally/VPS only) ──────────────────────
+backups/
+backend/backups/
+*.sql
+*.sql.gz
+*.dump
+*.db
+*.sqlite
+*.sqlite3
+backend/backup_legacy_db.py
+backend/db_backup.py
+
 google_confidentials.json

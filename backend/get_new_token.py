@@ -1,24 +1,33 @@
-"""
-Run this script ONCE to generate a new Google Drive refresh token.
-It will open a browser for you to authorize, then automatically update the .env file.
-"""
 import os
-import re
+import json
 from google_auth_oauthlib.flow import InstalledAppFlow
-
-# Get credentials from .env first to be consistent
 from dotenv import load_dotenv, set_key
-# Dynamically resolve .env path (parent of backend folder)
+
 current_dir = os.path.dirname(os.path.abspath(__file__))
-dot_env_path = os.path.join(os.path.dirname(current_dir), '.env')
+project_root = os.path.dirname(current_dir)
+dot_env_path = os.path.join(project_root, '.env')
+if not os.path.exists(dot_env_path):
+    dot_env_path = os.path.join(current_dir, '.env')
 load_dotenv(dot_env_path)
 
-CLIENT_ID = os.environ.get("GOOGLE_DRIVE_CLIENT_ID", "57647831301-slmprltdearnsftettb4isjg2pnn0u3g.apps.googleusercontent.com")
-CLIENT_SECRET = os.environ.get("GOOGLE_DRIVE_CLIENT_SECRET", "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")
+CLIENT_ID = os.environ.get("GOOGLE_DRIVE_CLIENT_ID", "").strip()
+CLIENT_SECRET = os.environ.get("GOOGLE_DRIVE_CLIENT_SECRET", "").strip()
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 
+if not CLIENT_ID or not CLIENT_SECRET:
+    # Try reading from secrets/token.json
+    token_json_path = os.path.join(current_dir, 'secrets', 'token.json')
+    if os.path.exists(token_json_path):
+        try:
+            with open(token_json_path, 'r') as f:
+                tj = json.load(f)
+                CLIENT_ID = CLIENT_ID or tj.get("client_id", "")
+                CLIENT_SECRET = CLIENT_SECRET or tj.get("client_secret", "")
+        except Exception:
+            pass
+
 client_config = {
-    "web": {
+    "installed": {
         "client_id": CLIENT_ID,
         "client_secret": CLIENT_SECRET,
         "redirect_uris": ["http://localhost:8080/"],
@@ -27,26 +36,55 @@ client_config = {
     }
 }
 
-print("Initiating Google Drive Authorization flow...")
-print("A browser window will open shortly. Please grant permission.")
+print("=" * 70, flush=True)
+print("🔑 Google Drive Token Generator", flush=True)
+print("=" * 70, flush=True)
+print(f"Client ID: {CLIENT_ID[:20]}...", flush=True)
+print("\nOpening authorization server on http://localhost:8080/ ...", flush=True)
 
 try:
-    flow = InstalledAppFlow.from_client_config(client_config, SCOPES)
-    creds = flow.run_local_server(port=8080, access_type='offline', prompt='consent', open_browser=False)
+    flow = InstalledAppFlow.from_client_config(client_config, SCOPES, redirect_uri="http://localhost:8080/")
+    auth_url, _ = flow.authorization_url(access_type='offline', prompt='select_account consent')
+    print("\n" + "=" * 70, flush=True)
+    print("👉 AUTHORIZATION URL (Click or open in browser):", flush=True)
+    print(auth_url, flush=True)
+    print("=" * 70 + "\n", flush=True)
+    
+    creds = flow.run_local_server(port=8080, access_type='offline', prompt='select_account consent', open_browser=True)
     
     new_refresh_token = creds.refresh_token
+    new_access_token = creds.token
     
     if new_refresh_token:
-        # Update .env file using python-dotenv's set_key
+        # 1. Update .env
         set_key(dot_env_path, "GOOGLE_DRIVE_REFRESH_TOKEN", new_refresh_token)
-        
-        print("\n" + "="*60)
-        print("✅ SUCCESS! Refresh token has been automatically updated in .env")
-        print("="*60)
-        print(f"Token: {new_refresh_token[:10]}...")
-        print("="*60 + "\n")
+        if new_access_token:
+            set_key(dot_env_path, "GOOGLE_DRIVE_ACCESS_TOKEN", new_access_token)
+            
+        # 2. Update token.json
+        secrets_dir = os.path.join(current_dir, 'secrets')
+        os.makedirs(secrets_dir, exist_ok=True)
+        token_path = os.path.join(secrets_dir, 'token.json')
+        token_data = {
+            "token": new_access_token,
+            "access_token": new_access_token,
+            "refresh_token": new_refresh_token,
+            "client_id": CLIENT_ID,
+            "client_secret": CLIENT_SECRET,
+            "scopes": SCOPES,
+            "token_uri": "https://oauth2.googleapis.com/token"
+        }
+        with open(token_path, 'w', encoding='utf-8') as f:
+            json.dump(token_data, f, indent=2)
+            
+        print("\n" + "=" * 70)
+        print("✅ SUCCESS! Fresh refresh token saved to .env & backend/secrets/token.json")
+        print("=" * 70)
+        print(f"Refresh Token: {new_refresh_token[:15]}...")
+        print("=" * 70 + "\n")
     else:
-        print("❌ FAILED: No refresh token received. Did you forget to click 'Allow' or was a token already active?")
+        print("❌ FAILED: No refresh token returned. Ensure you clicked 'Allow' with offline access.")
 
 except Exception as e:
-    print(f"❌ ERROR occurred: {e}")
+    print(f"❌ Authorization error: {e}")
+

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
-import { Users, UserPlus, Edit3, Trash2, Shield, Lock, Mail, ShieldAlert, AlertTriangle } from 'lucide-react';
+import { Users, UserPlus, Edit3, Trash2, Shield, Lock, Mail, ShieldAlert, AlertTriangle, ShieldCheck } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from "@/components/ui/button";
 import { toast } from '@/hooks/use-toast';
@@ -245,6 +245,7 @@ export default function UserManagement() {
         </div>
 
         {/* User Statistics / Info Alert */}
+        <div className="space-y-6">
         <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="p-4 rounded-2xl border border-slate-200 bg-white shadow-sm">
             <span className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">Total Accounts</span>
@@ -359,6 +360,7 @@ export default function UserManagement() {
               </table>
             </div>
           )}
+        </div>
         </div>
 
         {/* CREATE USER DIALOG */}

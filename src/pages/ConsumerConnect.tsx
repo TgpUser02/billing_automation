@@ -9,6 +9,7 @@ import { api } from "@/lib/api";
 import { Consumer } from "@/types/consumer";
 import { exportToCSV } from "@/lib/exportData";
 import { useToast } from "@/hooks/use-toast";
+import { SubscriptionModal } from "@/components/SubscriptionModal";
 import {
     Dialog,
     DialogContent,
@@ -37,7 +38,8 @@ import {
     Wrench,
     Search,
     Loader2,
-    Trash2
+    Trash2,
+    FileSpreadsheet
 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 
@@ -47,11 +49,11 @@ const emptyCustomerProfile = {
     contact_number: "N/A",
     zone: "Other",
     current_location_link: "",
-    address: "N/A",
+    address: "",
     consumer_number: "",
     panel_name: "Other",
     panel_name_other: "",
-    panel_type: "",
+    panel_type: "Other",
     solar_wattpick: 0,
     solar_panel_count: 0,
     solar_capacity_kw: 0,
@@ -59,13 +61,14 @@ const emptyCustomerProfile = {
     inverter_name: "Other",
     inverter_name_other: "",
     inverter_capacity: 0,
-    commission_date: new Date().toISOString().split('T')[0],
+    commission_date: "",
+    bill_generation_date: "",
+    committed_year: "",
     wifi_available: 0,
     wifi_id: "",
     wifi_password: "",
     visits_per_year: 2,
     total_visits_in_5_years: 10,
-    maintenance_tenure: "",
     is_blacklisted: 0,
     inverter_warranty_expiry_date: "",
     panel_warranty_expiry_date: "",
@@ -73,13 +76,14 @@ const emptyCustomerProfile = {
     general_warranty_expiry_date: "",
     blacklisted_reason: "",
     portal_username: "",
-    portal_password: ""
+    portal_password: "",
+    maintenance_tenure: "5 Years",
+    subscription_end_date: ""
 };
 
 const ConsumerConnect = () => {
     const { toast } = useToast();
     const [viewMode, setViewMode] = useState<'profiles' | 'bills'>('profiles');
-
     const [searchQuery, setSearchQuery] = useState("");
     const [selectedMonth, setSelectedMonth] = useState("All Months");
     const [selectedConsumer, setSelectedConsumer] = useState<Consumer | null>(null);
@@ -87,6 +91,7 @@ const ConsumerConnect = () => {
     // Lists
     const [consumers, setConsumers] = useState<any[]>([]); // Bills
     const [profiles, setProfiles] = useState<any[]>([]); // Customer Profiles
+    const [lookups, setLookups] = useState<Record<string, string[]>>({});
     const [isLoading, setIsLoading] = useState(true);
 
     // Advanced Filters
@@ -112,6 +117,108 @@ const ConsumerConnect = () => {
     const [isSaving, setIsSaving] = useState(false);
     const [saveError, setSaveError] = useState<string | null>(null);
 
+    const [rawLookups, setRawLookups] = useState<any[]>([]);
+    const [warrantyRules, setWarrantyRules] = useState<any[]>([]);
+
+    // Warranty Years states for manual/automatic calculation
+    const [panelYears, setPanelYears] = useState<number | string>(25);
+    const [inverterYears, setInverterYears] = useState<number | string>(8);
+    const [systemYears, setSystemYears] = useState<number | string>(5);
+    const [generalYears, setGeneralYears] = useState<number | string>(5);
+
+    const addYearsToDate = (dateStr: string, years: number): string => {
+        if (!dateStr || isNaN(years) || years <= 0) return "";
+        try {
+            const parts = dateStr.split('T')[0].split('-');
+            if (parts.length === 3) {
+                const y = parseInt(parts[0], 10) + years;
+                const m = parts[1];
+                const d = parts[2];
+                return `${y}-${m}-${d}`;
+            }
+            const dt = new Date(dateStr);
+            if (isNaN(dt.getTime())) return "";
+            dt.setFullYear(dt.getFullYear() + years);
+            return dt.toISOString().split('T')[0];
+        } catch {
+            return "";
+        }
+    };
+
+    const getYearsBetween = (startDate: string, endDate: string): number => {
+        if (!startDate || !endDate) return 0;
+        try {
+            const d1 = new Date(startDate.split('T')[0]);
+            const d2 = new Date(endDate.split('T')[0]);
+            if (isNaN(d1.getTime()) || isNaN(d2.getTime())) return 0;
+            const diff = Math.round((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24 * 365.25));
+            return diff > 0 ? diff : 0;
+        } catch {
+            return 0;
+        }
+    };
+
+    const getEffectiveWarrantyYears = (equipmentType: "panel" | "inverter", makeName: string, commissionDate?: string): number => {
+        if (!makeName || makeName === "Other") return equipmentType === "panel" ? 25 : 8;
+        
+        // 1. Check if there is a specific rule in warrantyRules for this brand where effective_from <= commissionDate
+        if (warrantyRules && warrantyRules.length > 0) {
+            const commDtStr = commissionDate || new Date().toISOString().split('T')[0];
+            const matchingRules = warrantyRules.filter((r: any) => 
+                r.equipment_type === equipmentType && 
+                String(r.make_name).toLowerCase().trim() === String(makeName).toLowerCase().trim() &&
+                String(r.effective_from).split('T')[0] <= commDtStr
+            ).sort((a: any, b: any) => (String(b.effective_from) || '').localeCompare(String(a.effective_from) || ''));
+
+            if (matchingRules.length > 0) {
+                return matchingRules[0].warranty_years;
+            }
+
+            const anyMakeRule = warrantyRules.find((r: any) => 
+                r.equipment_type === equipmentType && 
+                String(r.make_name).toLowerCase().trim() === String(makeName).toLowerCase().trim()
+            );
+            if (anyMakeRule) {
+                return anyMakeRule.warranty_years;
+            }
+        }
+
+        // 2. Fall back to master_lookups validity_years
+        const cat = equipmentType === "panel" ? "panel_name" : "inverter_name";
+        const match = rawLookups.find(r => r.category === cat && String(r.value).toLowerCase() === String(makeName).toLowerCase());
+        if (match && match.validity_years) return match.validity_years;
+
+        return equipmentType === "panel" ? 25 : 8;
+    };
+
+    const getBrandValidity = (category: "panel_name" | "inverter_name", brandName: string): number => {
+        return getEffectiveWarrantyYears(category === "panel_name" ? "panel" : "inverter", brandName, formData?.commission_date);
+    };
+
+    // Fetch dynamic lookups and warranty rules
+    useEffect(() => {
+        const fetchLookupsAndWarranties = async () => {
+            try {
+                const [res, wRes] = await Promise.all([
+                    api.getLookups(),
+                    api.getWarrantiesMaster().catch(() => ({ data: [] }))
+                ]);
+                if (res.lookups) {
+                    setLookups(res.lookups);
+                }
+                if (res.raw) {
+                    setRawLookups(res.raw);
+                }
+                if (wRes && Array.isArray(wRes.data)) {
+                    setWarrantyRules(wRes.data);
+                }
+            } catch (e) {
+                console.warn("Could not load lookups/warranties:", e);
+            }
+        };
+        fetchLookupsAndWarranties();
+    }, []);
+
     // Delete Confirmation States
     const [isDeleteOpen, setIsDeleteOpen] = useState(false);
     const [customerToDelete, setCustomerToDelete] = useState<any | null>(null);
@@ -121,6 +228,10 @@ const ConsumerConnect = () => {
     const [showDuplicatesOnly, setShowDuplicatesOnly] = useState(false);
     const [isDeduplicateOpen, setIsDeduplicateOpen] = useState(false);
     const [isDeduplicating, setIsDeduplicating] = useState(false);
+
+    // Subscription Modal States
+    const [isSubscriptionModalOpen, setIsSubscriptionModalOpen] = useState(false);
+    const [selectedSubConsumer, setSelectedSubConsumer] = useState<{ number: string; name?: string } | null>(null);
 
     // Pagination for profiles
     const [profilePage, setProfilePage] = useState(1);
@@ -348,13 +459,44 @@ const ConsumerConnect = () => {
     // Manual Save Logic
     const handleAddCustomer = () => {
         setSelectedCustomerForEdit(null);
-        setFormData({ ...emptyCustomerProfile });
+        const commDate = new Date().toISOString().split('T')[0];
+        const pYears = getBrandValidity("panel_name", "Other");
+        const iYears = getBrandValidity("inverter_name", "Other");
+        setPanelYears(pYears);
+        setInverterYears(iYears);
+        setSystemYears(5);
+        setGeneralYears(5);
+
+        setFormData({
+            ...emptyCustomerProfile,
+            commission_date: commDate,
+            panel_warranty_expiry_date: addYearsToDate(commDate, pYears),
+            inverter_warranty_expiry_date: addYearsToDate(commDate, iYears),
+            system_warranty_expiry_date: addYearsToDate(commDate, 5),
+            general_warranty_expiry_date: addYearsToDate(commDate, 5),
+        });
         setSaveError(null);
         setIsSaveOpen(true);
     };
 
     const handleEditCustomer = (profile: any) => {
         setSelectedCustomerForEdit(profile);
+        const commDate = profile.commission_date ? profile.commission_date.split('T')[0] : "";
+        const pExp = profile.panel_warranty_expiry_date ? profile.panel_warranty_expiry_date.split('T')[0] : "";
+        const iExp = profile.inverter_warranty_expiry_date ? profile.inverter_warranty_expiry_date.split('T')[0] : "";
+        const sExp = profile.system_warranty_expiry_date ? profile.system_warranty_expiry_date.split('T')[0] : "";
+        const gExp = profile.general_warranty_expiry_date ? profile.general_warranty_expiry_date.split('T')[0] : "";
+
+        const pY = (commDate && pExp) ? (getYearsBetween(commDate, pExp) || getBrandValidity("panel_name", profile.panel_name)) : getBrandValidity("panel_name", profile.panel_name);
+        const iY = (commDate && iExp) ? (getYearsBetween(commDate, iExp) || getBrandValidity("inverter_name", profile.inverter_name)) : getBrandValidity("inverter_name", profile.inverter_name);
+        const sY = (commDate && sExp) ? (getYearsBetween(commDate, sExp) || 5) : 5;
+        const gY = (commDate && gExp) ? (getYearsBetween(commDate, gExp) || 5) : 5;
+
+        setPanelYears(pY);
+        setInverterYears(iY);
+        setSystemYears(sY);
+        setGeneralYears(gY);
+
         setFormData({
             arin_id: profile.arin_id || "",
             customer_name: profile.customer_name || "",
@@ -373,7 +515,7 @@ const ConsumerConnect = () => {
             inverter_name: profile.inverter_name || "Other",
             inverter_name_other: profile.inverter_name_other || "",
             inverter_capacity: profile.inverter_capacity || 0,
-            commission_date: profile.commission_date ? profile.commission_date.split('T')[0] : new Date().toISOString().split('T')[0],
+            commission_date: commDate || new Date().toISOString().split('T')[0],
             wifi_available: profile.wifi_available ? 1 : 0,
             wifi_id: profile.wifi_id || "",
             wifi_password: profile.wifi_password || "",
@@ -381,16 +523,96 @@ const ConsumerConnect = () => {
             total_visits_in_5_years: profile.total_visits_in_5_years || 10,
             maintenance_tenure: profile.maintenance_tenure || "",
             is_blacklisted: profile.is_blacklisted ? 1 : 0,
-            inverter_warranty_expiry_date: profile.inverter_warranty_expiry_date ? profile.inverter_warranty_expiry_date.split('T')[0] : "",
-            panel_warranty_expiry_date: profile.panel_warranty_expiry_date ? profile.panel_warranty_expiry_date.split('T')[0] : "",
-            system_warranty_expiry_date: profile.system_warranty_expiry_date ? profile.system_warranty_expiry_date.split('T')[0] : "",
-            general_warranty_expiry_date: profile.general_warranty_expiry_date ? profile.general_warranty_expiry_date.split('T')[0] : "",
+            inverter_warranty_expiry_date: iExp || (commDate ? addYearsToDate(commDate, iY) : ""),
+            panel_warranty_expiry_date: pExp || (commDate ? addYearsToDate(commDate, pY) : ""),
+            system_warranty_expiry_date: sExp || (commDate ? addYearsToDate(commDate, sY) : ""),
+            general_warranty_expiry_date: gExp || (commDate ? addYearsToDate(commDate, gY) : ""),
             blacklisted_reason: profile.blacklisted_reason || "",
             portal_username: profile.portal_username || "",
             portal_password: profile.portal_password || ""
         });
         setSaveError(null);
         setIsSaveOpen(true);
+    };
+
+    // Live Handlers for Warranty & Validity Calculation
+    const handleCommissionDateChange = (newDate: string) => {
+        const pY = parseInt(String(panelYears), 10) || 25;
+        const iY = parseInt(String(inverterYears), 10) || 8;
+        const sY = parseInt(String(systemYears), 10) || 5;
+        const gY = parseInt(String(generalYears), 10) || 5;
+
+        setFormData((prev: any) => ({
+            ...prev,
+            commission_date: newDate,
+            panel_warranty_expiry_date: addYearsToDate(newDate, pY),
+            inverter_warranty_expiry_date: addYearsToDate(newDate, iY),
+            system_warranty_expiry_date: addYearsToDate(newDate, sY),
+            general_warranty_expiry_date: addYearsToDate(newDate, gY),
+        }));
+    };
+
+    const handlePanelBrandChange = (brand: string) => {
+        const bYears = getBrandValidity("panel_name", brand);
+        setPanelYears(bYears);
+        setFormData((prev: any) => ({
+            ...prev,
+            panel_name: brand,
+            panel_warranty_expiry_date: prev.commission_date ? addYearsToDate(prev.commission_date, bYears) : prev.panel_warranty_expiry_date
+        }));
+    };
+
+    const handleInverterBrandChange = (brand: string) => {
+        const bYears = getBrandValidity("inverter_name", brand);
+        setInverterYears(bYears);
+        setFormData((prev: any) => ({
+            ...prev,
+            inverter_name: brand,
+            inverter_warranty_expiry_date: prev.commission_date ? addYearsToDate(prev.commission_date, bYears) : prev.inverter_warranty_expiry_date
+        }));
+    };
+
+    const handlePanelYearsChange = (val: string) => {
+        setPanelYears(val);
+        const y = parseInt(val, 10);
+        if (!isNaN(y) && y > 0 && formData.commission_date) {
+            setFormData((prev: any) => ({ ...prev, panel_warranty_expiry_date: addYearsToDate(prev.commission_date, y) }));
+        }
+    };
+
+    const handleInverterYearsChange = (val: string) => {
+        setInverterYears(val);
+        const y = parseInt(val, 10);
+        if (!isNaN(y) && y > 0 && formData.commission_date) {
+            setFormData((prev: any) => ({ ...prev, inverter_warranty_expiry_date: addYearsToDate(prev.commission_date, y) }));
+        }
+    };
+
+    const handleSystemYearsChange = (val: string) => {
+        setSystemYears(val);
+        const y = parseInt(val, 10);
+        if (!isNaN(y) && y > 0 && formData.commission_date) {
+            setFormData((prev: any) => ({ ...prev, system_warranty_expiry_date: addYearsToDate(prev.commission_date, y) }));
+        }
+    };
+
+    const handleGeneralYearsChange = (val: string) => {
+        setGeneralYears(val);
+        const y = parseInt(val, 10);
+        if (!isNaN(y) && y > 0 && formData.commission_date) {
+            setFormData((prev: any) => ({ ...prev, general_warranty_expiry_date: addYearsToDate(prev.commission_date, y) }));
+        }
+    };
+
+    const handleManualDateChange = (field: string, val: string) => {
+        setFormData((prev: any) => ({ ...prev, [field]: val }));
+        if (formData.commission_date && val) {
+            const diff = getYearsBetween(formData.commission_date, val);
+            if (field === "panel_warranty_expiry_date") setPanelYears(diff || 25);
+            else if (field === "inverter_warranty_expiry_date") setInverterYears(diff || 8);
+            else if (field === "system_warranty_expiry_date") setSystemYears(diff || 5);
+            else if (field === "general_warranty_expiry_date") setGeneralYears(diff || 5);
+        }
     };
 
     const handleViewHistory = (profile: any) => {
@@ -544,41 +766,26 @@ const ConsumerConnect = () => {
         }
     };
 
-    const handleDownloadTemplate = () => {
-        const headers = [
-            "Arin ID",
-            "Consumer Number",
-            "Customer Name",
-            "Contact Number",
-            "Zone",
-            "Address",
-            "Panel Name",
-            "Panel Type",
-            "Solar Panel Count",
-            "Solar Capacity KW",
-            "Panel Capacity KW",
-            "Inverter Name",
-            "Inverter Capacity",
-            "Commission Date",
-            "Wifi Available",
-            "Wifi ID",
-            "Wifi Password",
-            "Visits Per Year",
-            "Total Visits In 5 Years",
-            "Is Blacklisted"
-        ];
-        const rows = [
-            ["ARIN-001", "425320007691", "Naresh Energy Corp", "9876543210", "Zone A", "Mumbai, India", "Tata Solar", "Monocrystalline", "20", "5", "5", "Growatt", "5", "2026-01-01", "1", "Naresh_WiFi", "pass123", "2", "10", "0"]
-        ];
-        const csvContent = "data:text/csv;charset=utf-8,"
-            + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
-        const encodedUri = encodeURI(csvContent);
-        const link = document.createElement("a");
-        link.setAttribute("href", encodedUri);
-        link.setAttribute("download", "arin_consumers_template.csv");
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+    const handleDownloadTemplate = async () => {
+        try {
+            toast({
+                title: "Generating Excel Template",
+                description: "Preparing .xlsx template with embedded dropdown picklists...",
+            });
+            await api.downloadConsumersTemplateXlsx();
+            toast({
+                title: "Template Downloaded",
+                description: "arin_consumers_template_with_dropdowns.xlsx is ready.",
+                className: "bg-emerald-600 text-white font-bold shadow-lg"
+            });
+        } catch (err: any) {
+            console.error("Template download failed:", err);
+            toast({
+                title: "Download Failed",
+                description: err.message || "Failed to generate Excel template",
+                variant: "destructive"
+            });
+        }
     };
 
     const consumerHistory = useMemo(() => {
@@ -1304,124 +1511,268 @@ const ConsumerConnect = () => {
 
                             <TabsContent value="technical" className="space-y-4 m-0">
                                 <div className="grid grid-cols-2 gap-4">
-                                    <div className="flex flex-col gap-1.5">
-                                        <Label htmlFor="solar_cap" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Solar Capacity (kW)</Label>
-                                        <Input
-                                            id="solar_cap"
-                                            type="number"
-                                            value={formData.solar_capacity_kw}
-                                            onChange={e => setFormData(prev => ({ ...prev, solar_capacity_kw: Number(e.target.value) }))}
-                                            className="rounded-xl"
-                                        />
-                                    </div>
-                                    <div className="flex flex-col gap-1.5">
-                                        <Label htmlFor="panel_count" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Solar Panel Count</Label>
-                                        <Input
-                                            id="panel_count"
-                                            type="number"
-                                            value={formData.solar_panel_count}
-                                            onChange={e => setFormData(prev => ({ ...prev, solar_panel_count: Number(e.target.value) }))}
-                                            className="rounded-xl"
-                                        />
-                                    </div>
-                                    <div className="flex flex-col gap-1.5">
-                                        <Label htmlFor="panel_name" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Panel Make Brand</Label>
-                                        <Input
-                                            id="panel_name"
-                                            value={formData.panel_name}
-                                            onChange={e => setFormData(prev => ({ ...prev, panel_name: e.target.value }))}
-                                            className="rounded-xl"
-                                        />
-                                    </div>
-                                    <div className="flex flex-col gap-1.5">
-                                        <Label htmlFor="solar_wattpick" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Solar Panel Wp</Label>
-                                        <Input
-                                            id="solar_wattpick"
-                                            type="number"
-                                            value={formData.solar_wattpick}
-                                            onChange={e => setFormData(prev => ({ ...prev, solar_wattpick: Number(e.target.value) }))}
-                                            className="rounded-xl"
-                                        />
-                                    </div>
-                                    <div className="flex flex-col gap-1.5">
-                                        <Label htmlFor="panel_cap" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Total Panel Capacity (kW)</Label>
-                                        <Input
-                                            id="panel_cap"
-                                            type="number"
-                                            value={formData.panel_capacity_kw}
-                                            onChange={e => setFormData(prev => ({ ...prev, panel_capacity_kw: Number(e.target.value) }))}
-                                            className="rounded-xl"
-                                        />
-                                    </div>
-                                    <div className="flex flex-col gap-1.5">
-                                        <Label htmlFor="inverter_name" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Inverter Name / Brand</Label>
-                                        <Input
-                                            id="inverter_name"
-                                            value={formData.inverter_name}
-                                            onChange={e => setFormData(prev => ({ ...prev, inverter_name: e.target.value }))}
-                                            className="rounded-xl"
-                                        />
-                                    </div>
-                                    <div className="flex flex-col gap-1.5">
-                                        <Label htmlFor="inverter_cap" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Inverter Capacity</Label>
-                                        <Input
-                                            id="inverter_cap"
-                                            type="number"
-                                            value={formData.inverter_capacity}
-                                            onChange={e => setFormData(prev => ({ ...prev, inverter_capacity: Number(e.target.value) }))}
-                                            className="rounded-xl"
-                                        />
-                                    </div>
-                                    <div className="flex flex-col gap-1.5">
-                                        <Label htmlFor="comm_date" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">System Commissioning date</Label>
-                                        <Input
-                                            id="comm_date"
-                                            type="date"
-                                            value={formData.commission_date}
-                                            onChange={e => setFormData(prev => ({ ...prev, commission_date: e.target.value }))}
-                                            className="rounded-xl"
-                                        />
-                                    </div>
-                                    <div className="flex flex-col gap-1.5">
-                                        <Label htmlFor="panel_warranty_date" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Panel Warranty Expiry</Label>
-                                        <Input
-                                            id="panel_warranty_date"
-                                            type="date"
-                                            value={formData.panel_warranty_expiry_date || ""}
-                                            onChange={e => setFormData(prev => ({ ...prev, panel_warranty_expiry_date: e.target.value }))}
-                                            className="rounded-xl"
-                                        />
-                                    </div>
-                                    <div className="flex flex-col gap-1.5">
-                                        <Label htmlFor="inverter_warranty_date" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Inverter Warranty Expiry</Label>
-                                        <Input
-                                            id="inverter_warranty_date"
-                                            type="date"
-                                            value={formData.inverter_warranty_expiry_date || ""}
-                                            onChange={e => setFormData(prev => ({ ...prev, inverter_warranty_expiry_date: e.target.value }))}
-                                            className="rounded-xl"
-                                        />
-                                    </div>
-                                    <div className="flex flex-col gap-1.5">
-                                        <Label htmlFor="system_warranty_date" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">System Warranty Expiry</Label>
-                                        <Input
-                                            id="system_warranty_date"
-                                            type="date"
-                                            value={formData.system_warranty_expiry_date || ""}
-                                            onChange={e => setFormData(prev => ({ ...prev, system_warranty_expiry_date: e.target.value }))}
-                                            className="rounded-xl"
-                                        />
-                                    </div>
-                                    <div className="flex flex-col gap-1.5">
-                                        <Label htmlFor="general_warranty_date" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">General Warranty Expiry</Label>
-                                        <Input
-                                            id="general_warranty_date"
-                                            type="date"
-                                            value={formData.general_warranty_expiry_date || ""}
-                                            onChange={e => setFormData(prev => ({ ...prev, general_warranty_expiry_date: e.target.value }))}
-                                            className="rounded-xl"
-                                        />
-                                    </div>
+                                     <div className="flex flex-col gap-1.5">
+                                         <Label htmlFor="solar_cap" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Solar Capacity (kW)</Label>
+                                         <Input
+                                             id="solar_cap"
+                                             type="number"
+                                             step="0.01"
+                                             value={formData.solar_capacity_kw}
+                                             onChange={e => setFormData(prev => ({ ...prev, solar_capacity_kw: parseFloat(e.target.value) || 0 }))}
+                                             className="rounded-xl"
+                                         />
+                                     </div>
+                                     <div className="flex flex-col gap-1.5">
+                                         <Label htmlFor="panel_count" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Solar Panel Count</Label>
+                                         <Input
+                                             id="panel_count"
+                                             type="number"
+                                             value={formData.solar_panel_count}
+                                             onChange={e => {
+                                                 const count = Number(e.target.value) || 0;
+                                                 setFormData(prev => {
+                                                     const wp = prev.solar_wattpick || 0;
+                                                     const autoCap = (count > 0 && wp > 0) ? Number(((count * wp) / 1000).toFixed(2)) : prev.solar_capacity_kw;
+                                                     return { ...prev, solar_panel_count: count, solar_capacity_kw: autoCap };
+                                                 });
+                                             }}
+                                             className="rounded-xl"
+                                         />
+                                     </div>
+                                     <div className="flex flex-col gap-1.5">
+                                         <Label htmlFor="solar_wattpick" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Solar Panel Wp</Label>
+                                         <Input
+                                             id="solar_wattpick"
+                                             type="number"
+                                             value={formData.solar_wattpick}
+                                             onChange={e => {
+                                                 const wp = Number(e.target.value) || 0;
+                                                 setFormData(prev => {
+                                                     const count = prev.solar_panel_count || 0;
+                                                     const autoCap = (count > 0 && wp > 0) ? Number(((count * wp) / 1000).toFixed(2)) : prev.solar_capacity_kw;
+                                                     return { ...prev, solar_wattpick: wp, solar_capacity_kw: autoCap };
+                                                 });
+                                             }}
+                                             className="rounded-xl"
+                                         />
+                                     </div>
+                                      <div className="flex flex-col gap-1.5">
+                                          <Label htmlFor="panel_name" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Panel Make Brand</Label>
+                                          <select
+                                              id="panel_name"
+                                              value={formData.panel_name || "Other"}
+                                              onChange={e => handlePanelBrandChange(e.target.value)}
+                                              className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 font-bold"
+                                          >
+                                              {Array.from(new Set([...(lookups['panel_name'] || []), 'Adani', 'NovaSys', 'Waaree', 'ECE', 'Tata', 'Pahal', 'Awada', 'Vikram', 'Gautam', 'Asot', 'Rayzon', 'Premier', 'Ikon', 'Other'])).map(b => (
+                                                  <option key={b} value={b}>{b}</option>
+                                              ))}
+                                          </select>
+                                      </div>
+                                      <div className="flex flex-col gap-1.5">
+                                          <Label htmlFor="panel_type" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Panel Type</Label>
+                                          <select
+                                              id="panel_type"
+                                              value={formData.panel_type || "Other"}
+                                              onChange={e => setFormData(prev => ({ ...prev, panel_type: e.target.value }))}
+                                              className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 font-bold"
+                                          >
+                                              {Array.from(new Set([...(lookups['panel_type'] || []), 'Topcon', 'Bifacial', 'Monocrystalline', 'Polycrystalline', 'Other'])).map(t => (
+                                                  <option key={t} value={t}>{t}</option>
+                                              ))}
+                                          </select>
+                                      </div>
+                                      <div className="flex flex-col gap-1.5">
+                                          <Label htmlFor="panel_cap" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Total Panel Capacity (kW)</Label>
+                                          <Input
+                                              id="panel_cap"
+                                              type="number"
+                                              step="0.01"
+                                              value={formData.panel_capacity_kw}
+                                              onChange={e => setFormData(prev => ({ ...prev, panel_capacity_kw: parseFloat(e.target.value) || 0 }))}
+                                              className="rounded-xl"
+                                          />
+                                      </div>
+                                      <div className="flex flex-col gap-1.5">
+                                          <Label htmlFor="inverter_name" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Inverter Brand</Label>
+                                          <select
+                                              id="inverter_name"
+                                              value={formData.inverter_name || "Other"}
+                                              onChange={e => handleInverterBrandChange(e.target.value)}
+                                              className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 font-bold"
+                                          >
+                                              {Array.from(new Set([...(lookups['inverter_name'] || []), 'Solaryaan', 'Cathod Power', 'Solaryaan Microinverter', 'Vsole', 'Goodwe', 'Okaya', 'Xwatt', 'Polycab', 'UTL', 'Havells', 'Growatt', 'Solax', 'Solis', 'Other'])).map(b => (
+                                                  <option key={b} value={b}>{b}</option>
+                                              ))}
+                                          </select>
+                                      </div>
+                                      <div className="flex flex-col gap-1.5">
+                                          <Label htmlFor="inverter_cap" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Inverter Capacity</Label>
+                                          <Input
+                                              id="inverter_cap"
+                                              type="number"
+                                              step="0.01"
+                                              value={formData.inverter_capacity}
+                                              onChange={e => setFormData(prev => ({ ...prev, inverter_capacity: parseFloat(e.target.value) || 0 }))}
+                                              className="rounded-xl"
+                                          />
+                                      </div>
+                                     <div className="flex flex-col gap-1.5 col-span-2 sm:col-span-1">
+                                         <Label htmlFor="comm_date" className="text-[10px] font-black text-slate-500 uppercase tracking-widest">System Commissioning date</Label>
+                                         <Input
+                                             id="comm_date"
+                                             type="date"
+                                             value={formData.commission_date}
+                                             onChange={e => handleCommissionDateChange(e.target.value)}
+                                             className="rounded-xl font-bold"
+                                         />
+                                     </div>
+
+                                     {/* Warranty & Validity Schedules */}
+                                     <div className="flex flex-col gap-2.5 col-span-2 border-t border-border/60 pt-4 mt-2">
+                                         <div>
+                                             <h4 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                                                 Equipment & System Warranty Validity
+                                             </h4>
+                                             <p className="text-[11px] text-muted-foreground">
+                                                 Enter duration in years (auto-calculates from Commissioning Date) or pick a custom date manually.
+                                             </p>
+                                         </div>
+
+                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
+                                             {/* Panel Warranty */}
+                                             <div className="p-3 rounded-2xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/80 dark:border-amber-800/40 space-y-2">
+                                                 <div className="flex items-center justify-between">
+                                                     <Label htmlFor="panel_warranty_date" className="text-[10px] font-black text-amber-900 dark:text-amber-300 uppercase tracking-widest flex items-center gap-1.5">
+                                                         <span className="w-2 h-2 rounded-full bg-amber-500" />
+                                                         Panel Warranty
+                                                     </Label>
+                                                     <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400">
+                                                         {formData.panel_name || "Panel"}
+                                                     </span>
+                                                 </div>
+                                                 <div className="flex items-center gap-2">
+                                                     <div className="flex items-center gap-1 bg-background border border-border rounded-xl px-2.5 h-10 shrink-0">
+                                                         <Input
+                                                             type="number"
+                                                             min="1"
+                                                             max="50"
+                                                             value={panelYears}
+                                                             onChange={e => handlePanelYearsChange(e.target.value)}
+                                                             className="w-10 h-7 p-0 text-center font-black text-xs border-0 shadow-none focus-visible:ring-0"
+                                                             title="Validity duration in years"
+                                                         />
+                                                         <span className="text-[10px] font-black text-muted-foreground uppercase">Yrs</span>
+                                                     </div>
+                                                     <Input
+                                                         id="panel_warranty_date"
+                                                         type="date"
+                                                         value={formData.panel_warranty_expiry_date || ""}
+                                                         onChange={e => handleManualDateChange("panel_warranty_expiry_date", e.target.value)}
+                                                         className="h-10 text-xs font-bold rounded-xl bg-background border-border flex-1"
+                                                     />
+                                                 </div>
+                                             </div>
+
+                                             {/* Inverter Warranty */}
+                                             <div className="p-3 rounded-2xl bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200/80 dark:border-blue-800/40 space-y-2">
+                                                 <div className="flex items-center justify-between">
+                                                     <Label htmlFor="inverter_warranty_date" className="text-[10px] font-black text-blue-900 dark:text-blue-300 uppercase tracking-widest flex items-center gap-1.5">
+                                                         <span className="w-2 h-2 rounded-full bg-blue-500" />
+                                                         Inverter Warranty
+                                                     </Label>
+                                                     <span className="text-[10px] font-bold text-blue-700 dark:text-blue-400">
+                                                         {formData.inverter_name || "Inverter"}
+                                                     </span>
+                                                 </div>
+                                                 <div className="flex items-center gap-2">
+                                                     <div className="flex items-center gap-1 bg-background border border-border rounded-xl px-2.5 h-10 shrink-0">
+                                                         <Input
+                                                             type="number"
+                                                             min="1"
+                                                             max="50"
+                                                             value={inverterYears}
+                                                             onChange={e => handleInverterYearsChange(e.target.value)}
+                                                             className="w-10 h-7 p-0 text-center font-black text-xs border-0 shadow-none focus-visible:ring-0"
+                                                             title="Validity duration in years"
+                                                         />
+                                                         <span className="text-[10px] font-black text-muted-foreground uppercase">Yrs</span>
+                                                     </div>
+                                                     <Input
+                                                         id="inverter_warranty_date"
+                                                         type="date"
+                                                         value={formData.inverter_warranty_expiry_date || ""}
+                                                         onChange={e => handleManualDateChange("inverter_warranty_expiry_date", e.target.value)}
+                                                         className="h-10 text-xs font-bold rounded-xl bg-background border-border flex-1"
+                                                     />
+                                                 </div>
+                                             </div>
+
+                                             {/* System Warranty */}
+                                             <div className="p-3 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/80 dark:border-emerald-800/40 space-y-2">
+                                                 <div className="flex items-center justify-between">
+                                                     <Label htmlFor="system_warranty_date" className="text-[10px] font-black text-emerald-900 dark:text-emerald-300 uppercase tracking-widest flex items-center gap-1.5">
+                                                         <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                                                         System Warranty
+                                                     </Label>
+                                                     <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400">Plant System</span>
+                                                 </div>
+                                                 <div className="flex items-center gap-2">
+                                                     <div className="flex items-center gap-1 bg-background border border-border rounded-xl px-2.5 h-10 shrink-0">
+                                                         <Input
+                                                             type="number"
+                                                             min="1"
+                                                             max="50"
+                                                             value={systemYears}
+                                                             onChange={e => handleSystemYearsChange(e.target.value)}
+                                                             className="w-10 h-7 p-0 text-center font-black text-xs border-0 shadow-none focus-visible:ring-0"
+                                                             title="Validity duration in years"
+                                                         />
+                                                         <span className="text-[10px] font-black text-muted-foreground uppercase">Yrs</span>
+                                                     </div>
+                                                     <Input
+                                                         id="system_warranty_date"
+                                                         type="date"
+                                                         value={formData.system_warranty_expiry_date || ""}
+                                                         onChange={e => handleManualDateChange("system_warranty_expiry_date", e.target.value)}
+                                                         className="h-10 text-xs font-bold rounded-xl bg-background border-border flex-1"
+                                                     />
+                                                 </div>
+                                             </div>
+
+                                             {/* General Warranty */}
+                                             <div className="p-3 rounded-2xl bg-purple-50/60 dark:bg-purple-950/20 border border-purple-200/80 dark:border-purple-800/40 space-y-2">
+                                                 <div className="flex items-center justify-between">
+                                                     <Label htmlFor="general_warranty_date" className="text-[10px] font-black text-purple-900 dark:text-purple-300 uppercase tracking-widest flex items-center gap-1.5">
+                                                         <span className="w-2 h-2 rounded-full bg-purple-500" />
+                                                         General AMC Warranty
+                                                     </Label>
+                                                     <span className="text-[10px] font-bold text-purple-700 dark:text-purple-400">Workmanship</span>
+                                                 </div>
+                                                 <div className="flex items-center gap-2">
+                                                     <div className="flex items-center gap-1 bg-background border border-border rounded-xl px-2.5 h-10 shrink-0">
+                                                         <Input
+                                                             type="number"
+                                                             min="1"
+                                                             max="50"
+                                                             value={generalYears}
+                                                             onChange={e => handleGeneralYearsChange(e.target.value)}
+                                                             className="w-10 h-7 p-0 text-center font-black text-xs border-0 shadow-none focus-visible:ring-0"
+                                                             title="Validity duration in years"
+                                                         />
+                                                         <span className="text-[10px] font-black text-muted-foreground uppercase">Yrs</span>
+                                                     </div>
+                                                     <Input
+                                                         id="general_warranty_date"
+                                                         type="date"
+                                                         value={formData.general_warranty_expiry_date || ""}
+                                                         onChange={e => handleManualDateChange("general_warranty_expiry_date", e.target.value)}
+                                                         className="h-10 text-xs font-bold rounded-xl bg-background border-border flex-1"
+                                                     />
+                                                 </div>
+                                             </div>
+                                         </div>
+                                     </div>
                                     <div className="flex flex-col gap-1.5 col-span-2 border-t border-border/40 pt-3 mt-1">
                                         <div className="flex items-center gap-2">
                                             <input
@@ -1525,15 +1876,15 @@ const ConsumerConnect = () => {
                     <div className="space-y-6 mt-4">
                         {/* Download Template Button */}
                         <div className="flex flex-col gap-2">
-                            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Template File</span>
+                            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Official Data Template</span>
                             <Button
                                 type="button"
                                 variant="outline"
                                 onClick={handleDownloadTemplate}
-                                className="flex items-center justify-center gap-2 border-dashed border-arin-teal/50 text-arin-teal hover:bg-arin-teal/5 transition-all text-sm font-semibold rounded-xl py-6"
+                                className="flex items-center justify-center gap-2.5 border-2 border-dashed border-emerald-500/40 text-emerald-800 bg-emerald-50/60 hover:bg-emerald-100/80 transition-all text-sm font-bold rounded-xl py-6 shadow-sm"
                             >
-                                <Download className="w-4 h-4" />
-                                Download Excel/CSV Template
+                                <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
+                                Download Excel Template (.xlsx with Dropdown Picklists)
                             </Button>
                         </div>
 
@@ -1661,6 +2012,20 @@ const ConsumerConnect = () => {
                     </div>
                 </DialogContent>
             </Dialog>
+
+            {/* SUBSCRIPTION EXTENSION MODAL */}
+            {selectedSubConsumer && (
+                <SubscriptionModal
+                    isOpen={isSubscriptionModalOpen}
+                    onClose={() => {
+                        setIsSubscriptionModalOpen(false);
+                        setSelectedSubConsumer(null);
+                    }}
+                    consumerNumber={selectedSubConsumer.number}
+                    customerName={selectedSubConsumer.name}
+                    onSuccess={() => loadAllData()}
+                />
+            )}
         </div>
     );
 };

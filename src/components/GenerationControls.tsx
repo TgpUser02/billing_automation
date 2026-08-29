@@ -121,11 +121,21 @@ export function GenerationControls({
     inverter_name: 'Other',
   });
 
+  const [allCustomers, setAllCustomers] = useState<any[]>([]);
+
   useEffect(() => {
     const fetchDbConsumers = async () => {
       try {
-        const data = await api.getBills();
-        setAllBills(data);
+        const [billsData, custRes] = await Promise.all([
+          api.getBills().catch(() => []),
+          api.getAllCustomersDB().catch(() => ({ data: [] }))
+        ]);
+        if (Array.isArray(billsData)) {
+          setAllBills(billsData);
+        }
+        if (custRes?.status === 'success' && Array.isArray(custRes.data)) {
+          setAllCustomers(custRes.data);
+        }
       } catch (e) {
         console.error("Failed to fetch consumers", e);
       }
@@ -147,63 +157,113 @@ export function GenerationControls({
     fetchPortalAccounts();
   }, []);
 
-  // Removed redundant fetchDateConsumers for dayConsumerIds as we filter by allBills month/year
+  const parseBillDate = (dateVal: any): Date | null => {
+    if (!dateVal) return null;
+    if (dateVal instanceof Date && !isNaN(dateVal.getTime())) return dateVal;
+    
+    const s = String(dateVal).trim();
+    if (!s) return null;
+    
+    // Try ISO / standard YYYY-MM-DD or YYYY-MM
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) return d;
+    
+    // Try MMM-YYYY or MMM YYYY or MMM_YYYY (e.g. AUG-2026)
+    const mmmYyyyMatch = s.match(/^([A-Za-z]+)[-\s/_](\d{4})$/);
+    if (mmmYyyyMatch) {
+      const monthNames = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+      const mIndex = monthNames.findIndex(m => mmmYyyyMatch[1].toLowerCase().startsWith(m));
+      if (mIndex !== -1) {
+        return new Date(parseInt(mmmYyyyMatch[2], 10), mIndex, 1);
+      }
+    }
+    
+    // Try DD/MM/YYYY or DD-MM-YYYY
+    const dmyMatch = s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{2,4})$/);
+    if (dmyMatch) {
+      const yr = dmyMatch[3].length === 2 ? parseInt(`20${dmyMatch[3]}`, 10) : parseInt(dmyMatch[3], 10);
+      return new Date(yr, parseInt(dmyMatch[2], 10) - 1, parseInt(dmyMatch[1], 10));
+    }
+    
+    return null;
+  };
 
   const dayBills = useMemo(() => {
     const unique = new Map();
     const selMonth = selectedDate.getMonth();
     const selYear = selectedDate.getFullYear();
 
+    // 1. Process allBills (bills with generation metrics)
     allBills.forEach((b: any) => {
-      // 1. Include if month matches
-      const bDate = new Date(b.month_year || b.bill_month);
-      const isMonthMatch = bDate.getMonth() === selMonth && bDate.getFullYear() === selYear;
-      
-      // 2. Include if it's the currently selected consumer OR in the "ticked" list
+      const bDate = parseBillDate(b.month_year || b.bill_month || b.reading_date || b.bill_date);
+      const isMonthMatch = bDate ? (bDate.getMonth() === selMonth && bDate.getFullYear() === selYear) : true;
       const isSelected = selectedConsumerId === b.consumer_number || selectedForDownload.has(b.consumer_number);
 
       if (isMonthMatch || isSelected) {
-        // Filter by selected ID if one is picked (Portal Account filter)
-        if (selectedId && isMonthMatch) {
-          const consumerArinId = String(b.arin_id || "").toLowerCase();
-          const targetId = selectedId.toLowerCase();
-          
-          const idNumMatch = selectedId.match(/\d+/);
-          const idNumStr = idNumMatch ? idNumMatch[0] : "";
-          const idNum = parseInt(idNumStr, 10);
-          
-          const consumerArinIdNumStr = consumerArinId.replace(/\D/g, "");
-          const consumerIdNum = parseInt(consumerArinIdNumStr, 10);
-
-          const isExactMatch = consumerArinId.includes(targetId) || targetId.includes(consumerArinId);
-          const isDigitMatch = (idNumStr && consumerArinIdNumStr.includes(idNumStr)) || 
-                               (!isNaN(idNum) && !isNaN(consumerIdNum) && idNum === consumerIdNum);
-
-          if (!isExactMatch && !isDigitMatch) {
-            return;
-          }
-        }
-
         if (!unique.has(b.consumer_number)) {
           unique.set(b.consumer_number, {
             ...b,
             consumer_number: b.consumer_number,
             consumer_name: b.customer_name || b.consumer_name || "N/A",
+            arin_id: b.arin_id || "",
           });
         }
       }
     });
-    return Array.from(unique.values());
-  }, [allBills, selectedDate, selectedId, selectedConsumerId, selectedForDownload]);
+
+    // 2. Include all registered customers from database so they are always selectable/searchable
+    allCustomers.forEach((c: any) => {
+      const cNum = c.consumer_number || c.consumerNumber;
+      if (cNum && !unique.has(cNum)) {
+        unique.set(cNum, {
+          ...c,
+          consumer_number: cNum,
+          consumer_name: c.customer_name || c.consumer_name || "N/A",
+          arin_id: c.arin_id || "",
+          capacity: parseFloat(c.solar_capacity_kw || c.capacity) || 0,
+        });
+      }
+    });
+
+    let list = Array.from(unique.values());
+
+    // Filter by selected ID if one is picked (Portal Account / Hash ID filter)
+    if (selectedId && selectedId !== 'all') {
+      const targetId = selectedId.toLowerCase().trim();
+      const targetClean = targetId.replace(/[^a-z0-9]/g, '');
+
+      list = list.filter((b: any) => {
+        const consumerArinId = String(b.arin_id || "").toLowerCase().trim();
+        const consumerClean = consumerArinId.replace(/[^a-z0-9]/g, '');
+        const cNumClean = String(b.consumer_number || '').replace(/[^0-9]/g, '');
+        
+        const isExactMatch = consumerArinId === targetId || consumerArinId.includes(targetId) || targetId.includes(consumerArinId);
+        const isCleanMatch = !!(targetClean && consumerClean && (consumerClean.includes(targetClean) || targetClean.includes(consumerClean)));
+        const isConsumerMatch = !!(targetClean && cNumClean && cNumClean.includes(targetClean));
+
+        return isExactMatch || isCleanMatch || isConsumerMatch;
+      });
+    }
+
+    return list;
+  }, [allBills, allCustomers, selectedDate, selectedId, selectedConsumerId, selectedForDownload]);
 
   const filteredDayBills = useMemo(() => {
     if (!consumerFilterQuery.trim()) return dayBills;
     const query = consumerFilterQuery.toLowerCase().trim();
-    return dayBills.filter(b => 
-      b.consumer_number.toLowerCase().includes(query) ||
-      b.consumer_name.toLowerCase().includes(query) ||
-      String(b.arin_id || "").toLowerCase().includes(query)
-    );
+    const queryClean = query.replace(/[^a-z0-9]/g, '');
+    return dayBills.filter(b => {
+      const cNum = String(b.consumer_number || '').toLowerCase();
+      const cName = String(b.consumer_name || b.customer_name || '').toLowerCase();
+      const aId = String(b.arin_id || '').toLowerCase();
+      const aIdClean = aId.replace(/[^a-z0-9]/g, '');
+      const cNumClean = cNum.replace(/[^0-9]/g, '');
+      
+      return cNum.includes(query) ||
+        cName.includes(query) ||
+        aId.includes(query) ||
+        (queryClean ? (aIdClean.includes(queryClean) || cNumClean.includes(queryClean)) : false);
+    });
   }, [dayBills, consumerFilterQuery]);
 
   useEffect(() => {
@@ -238,14 +298,25 @@ export function GenerationControls({
     if (isAllSelected) {
       setSelectedForDownload(new Set());
     } else {
-      setSelectedForDownload(new Set(dayBills.map(b => b.consumer_number)));
+      const allIds = dayBills.map(b => b.consumer_number);
+      setSelectedForDownload(new Set(allIds));
+      if (allIds.length > 0 && !selectedConsumerId) {
+        setSelectedConsumerId(allIds[0]);
+      }
     }
   };
 
   const toggleSelect = (id: string) => {
     const newSet = new Set(selectedForDownload);
-    if (newSet.has(id)) newSet.delete(id);
-    else newSet.add(id);
+    if (newSet.has(id)) {
+      newSet.delete(id);
+    } else {
+      newSet.add(id);
+      // Auto select active consumer if none selected or if this is the only one
+      if (!selectedConsumerId || newSet.size === 1) {
+        setSelectedConsumerId(id);
+      }
+    }
     setSelectedForDownload(newSet);
   };
 
@@ -429,21 +500,30 @@ export function GenerationControls({
     }
   }, [selectedConsumerId, selectedDate]);
 
-  const handleInputChange = (field: keyof BillInputs, value: any) => {
-    setInputs(prev => ({ ...prev, [field]: value }));
-  };
+  const effectiveConsumerId = selectedConsumerId || (selectedForDownload.size > 0 ? Array.from(selectedForDownload)[0] : (inputs.consumerNumber || ''));
 
   const manualSubmit = () => {
-    onGenerate({ id: 'manual' }, inputs);
+    onGenerate({ id: effectiveConsumerId || 'manual' }, inputs);
     toast({ title: "Analysis Updated", description: "Preview refreshed with your changes." });
   };
 
   const handleGenerateAndSaveSingle = () => {
     if (isBlacklisted) return;
-    onGenerate({ id: selectedConsumerId || 'manual' } as any, inputs);
+    const targetId = effectiveConsumerId;
+    if (!targetId) {
+      toast({ title: "No Consumer Selected", description: "Please select a consumer profile from the list first.", variant: "destructive" });
+      return;
+    }
+    const consumerObj = dayBills.find(c => c.consumer_number === targetId) || allBills.find(c => c.consumer_number === targetId) || allCustomers.find(c => (c.consumer_number || c.consumerNumber) === targetId) || { id: targetId, consumerNumber: targetId };
+    
+    if (targetId !== selectedConsumerId) {
+      setSelectedConsumerId(targetId);
+    }
+    
+    onGenerate(consumerObj as any, inputs);
     setTimeout(() => {
       onDownloadImage();
-    }, 150);
+    }, 350);
   };
 
   return (
@@ -671,13 +751,21 @@ export function GenerationControls({
               <div className="space-y-3 bg-slate-50/50 p-4 rounded-xl border border-slate-100">
                 <h3 className="text-[10px] font-black uppercase text-arin-teal tracking-widest border-b pb-1">Client Profile</h3>
                 <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-[9px] font-black uppercase text-slate-500">Arin ID / Hash ID</Label>
+                    <Input value={inputs.arin_id || ""} onChange={(e) => handleInputChange('arin_id', e.target.value)} className="font-bold h-9 text-xs" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[9px] font-black uppercase text-slate-500">Consumer Number</Label>
+                    <Input value={inputs.consumerNumber} onChange={(e) => handleInputChange('consumerNumber', e.target.value)} className="font-bold h-9 text-xs" />
+                  </div>
                   <div className="col-span-2 space-y-1">
                     <Label className="text-[9px] font-black uppercase text-slate-500">Consumer Name</Label>
                     <Input value={inputs.consumerName} onChange={(e) => handleInputChange('consumerName', e.target.value)} className="font-bold h-9 text-xs" />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-[9px] font-black uppercase text-slate-500">Consumer Number</Label>
-                    <Input value={inputs.consumerNumber} onChange={(e) => handleInputChange('consumerNumber', e.target.value)} className="font-bold h-9 text-xs" />
+                    <Label className="text-[9px] font-black uppercase text-slate-500">Reading Date</Label>
+                    <Input value={inputs.readingDate} onChange={(e) => handleInputChange('readingDate', e.target.value)} className="font-bold h-9 text-xs" />
                   </div>
                   <div className="space-y-1">
                     <Label className="text-[9px] font-black uppercase text-slate-500">Commission Date</Label>
@@ -734,7 +822,31 @@ export function GenerationControls({
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <Label className="text-[9px] font-black uppercase text-slate-500">Capacity (kW)</Label>
-                    <Input type="number" value={inputs.capacity} onChange={(e) => handleInputChange('capacity', parseFloat(e.target.value) || 0)} className="font-bold h-9 text-xs" />
+                    <Input type="number" step="0.01" value={inputs.capacity} onChange={(e) => handleInputChange('capacity', parseFloat(e.target.value) || 0)} className="font-bold h-9 text-xs" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[9px] font-black uppercase text-slate-500">Panel Brand</Label>
+                    <select
+                      value={inputs.panel_name || 'Other'}
+                      onChange={(e) => handleInputChange('panel_name', e.target.value)}
+                      className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-xs font-bold shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                    >
+                      {['Adani', 'Novasys', 'Waaree', 'ECE', 'Tata', 'Paha', 'Awada', 'Vikram', 'Gautam', 'Asot', 'Rayzon', 'premier', 'ikon', 'Other'].map(b => (
+                        <option key={b} value={b}>{b}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[9px] font-black uppercase text-slate-500">Inverter Brand</Label>
+                    <select
+                      value={inputs.inverter_name || 'Other'}
+                      onChange={(e) => handleInputChange('inverter_name', e.target.value)}
+                      className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-xs font-bold shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                    >
+                      {['Solaryaan', 'Cathod power', 'Solaryaan Microinverter', 'Vsole', 'Goodwe', 'Okaya', 'Xwatt', 'Polycab', 'UTL', 'Havells', 'Growatt', 'Solax', 'solis', 'Other'].map(b => (
+                        <option key={b} value={b}>{b}</option>
+                      ))}
+                    </select>
                   </div>
                   <div className="space-y-1">
                     <Label className="text-[9px] font-black uppercase text-slate-500">Panel Warranty</Label>
@@ -821,7 +933,7 @@ export function GenerationControls({
           
           <Button
             onClick={manualSubmit}
-            disabled={!selectedConsumerId || isBlacklisted || isGeneratingSingle || isBulkDownloading}
+            disabled={!effectiveConsumerId || isBlacklisted || isGeneratingSingle || isBulkDownloading}
             className="w-full bg-arin-teal hover:bg-arin-teal/90 font-black uppercase text-xs h-11 rounded-xl shadow-lg shadow-arin-teal/15 disabled:opacity-50"
           >
             {isBlacklisted ? "Generation Blocked (Blacklisted)" : "Apply Edits & Refresh Preview"}
@@ -831,7 +943,7 @@ export function GenerationControls({
             <Button
               variant="outline"
               onClick={handleGenerateAndSaveSingle}
-              disabled={!selectedConsumerId || isBlacklisted || isGeneratingSingle || isBulkDownloading}
+              disabled={!effectiveConsumerId || isBlacklisted || isGeneratingSingle || isBulkDownloading}
               className="border-2 font-bold h-11 text-xs rounded-xl hover:bg-slate-50 disabled:opacity-50"
             >
               {isGeneratingSingle ? (

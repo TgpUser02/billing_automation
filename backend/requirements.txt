@@ -17,3 +17,6 @@ passlib[bcrypt]
 python-jose[cryptography]
 httpx
 fpdf2
+pytesseract
+pillow
+

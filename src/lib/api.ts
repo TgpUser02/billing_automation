@@ -551,6 +551,196 @@ export const api = {
             method: "DELETE",
         });
         return checkResponse(response);
+    },
+
+    // ── WARRANTIES & SUBSCRIPTION MANAGEMENT ──
+    getWarrantiesMaster: async () => {
+        const response = await authFetch(`${API_BASE_URL}/admin/warranties-master`);
+        return checkResponse(response);
+    },
+    createWarrantyMaster: async (data: any) => {
+        const response = await authFetch(`${API_BASE_URL}/admin/warranties-master`, {
+            method: "POST",
+            body: JSON.stringify(data),
+        });
+        return checkResponse(response);
+    },
+    deleteWarrantyMaster: async (ruleId: number) => {
+        const response = await authFetch(`${API_BASE_URL}/admin/warranties-master/${ruleId}`, {
+            method: "DELETE",
+        });
+        return checkResponse(response);
+    },
+    getSubscriptionSettings: async () => {
+        const response = await authFetch(`${API_BASE_URL}/admin/subscription-settings`);
+        return checkResponse(response);
+    },
+    updateSubscriptionSettings: async (enabled: boolean) => {
+        const response = await authFetch(`${API_BASE_URL}/admin/subscription-settings`, {
+            method: "POST",
+            body: JSON.stringify({ enabled }),
+        });
+        return checkResponse(response);
+    },
+    extendSubscription: async (data: any) => {
+        const response = await authFetch(`${API_BASE_URL}/subscriptions/extend`, {
+            method: "POST",
+            body: JSON.stringify(data),
+        });
+        return checkResponse(response);
+    },
+    analyzeBillOcr: async (fileOrFormData: File | FormData) => {
+        const token = getToken();
+        const headers: Record<string, string> = {};
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+        let body: FormData;
+        if (fileOrFormData instanceof FormData) {
+            body = fileOrFormData;
+        } else {
+            body = new FormData();
+            body.append("file", fileOrFormData);
+        }
+        const response = await fetch(`${API_BASE_URL}/analyze-bill-ocr`, {
+            method: "POST",
+            headers,
+            body,
+        });
+        return checkResponse(response);
+    },
+    analyzeProspectiveBill: async (fileOrFormData: File | FormData) => {
+        const token = getToken();
+        const headers: Record<string, string> = {};
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+        let body: FormData;
+        if (fileOrFormData instanceof FormData) {
+            body = fileOrFormData;
+        } else {
+            body = new FormData();
+            body.append("file", fileOrFormData);
+        }
+        const response = await fetch(`${API_BASE_URL}/analyze-prospective-bill`, {
+            method: "POST",
+            headers,
+            body,
+        });
+        return checkResponse(response);
+    },
+    downloadConsumersTemplateXlsx: async () => {
+        const response = await authFetch(`${API_BASE_URL}/download-consumers-template-xlsx`);
+        if (!response.ok) throw new Error("Failed to download Excel template");
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "arin_consumers_template_with_dropdowns.xlsx";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+        return { status: "success" };
+    },
+    getLookups: async (category?: string) => {
+        const url = category ? `${API_BASE_URL}/lookups?category=${encodeURIComponent(category)}` : `${API_BASE_URL}/lookups`;
+        const response = await authFetch(url);
+        return checkResponse(response);
+    },
+    addLookup: async (category: string, value: string, label?: string, validity_years?: number) => {
+        const response = await authFetch(`${API_BASE_URL}/lookups`, {
+            method: "POST",
+            body: JSON.stringify({ category, value, label, validity_years }),
+        });
+        return checkResponse(response);
+    },
+    updateLookup: async (lookupId: number, data: { label?: string; validity_years?: number; is_active?: number }) => {
+        const response = await authFetch(`${API_BASE_URL}/lookups/${lookupId}`, {
+            method: "PUT",
+            body: JSON.stringify(data),
+        });
+        return checkResponse(response);
+    },
+    bulkUpdateCategoryValidity: async (category: string, validity_years: number) => {
+        const response = await authFetch(`${API_BASE_URL}/admin/bulk-update-category-validity`, {
+            method: "POST",
+            body: JSON.stringify({ category, validity_years }),
+        });
+        return checkResponse(response);
+    },
+    recalculateConsumerWarranties: async (force_all: boolean = false) => {
+        const response = await authFetch(`${API_BASE_URL}/admin/recalculate-consumer-warranties`, {
+            method: "POST",
+            body: JSON.stringify({ force_all }),
+        });
+        return checkResponse(response);
+    },
+    deleteLookup: async (idOrCategory: number | string, value?: string) => {
+        let url = `${API_BASE_URL}/lookups`;
+        if (typeof idOrCategory === 'number') {
+            url = `${API_BASE_URL}/lookups/${idOrCategory}`;
+        } else if (value) {
+            url = `${API_BASE_URL}/lookups?category=${encodeURIComponent(idOrCategory)}&value=${encodeURIComponent(value)}`;
+        }
+        const response = await authFetch(url, { method: "DELETE" });
+        return checkResponse(response);
+    },
+    getDriveFiles: async (consumer_number?: string, category?: string, limit: number = 100) => {
+        let url = `${API_BASE_URL}/drive/files?limit=${limit}`;
+        if (consumer_number) url += `&consumer_number=${encodeURIComponent(consumer_number)}`;
+        if (category) url += `&category=${encodeURIComponent(category)}`;
+        const response = await authFetch(url);
+        return checkResponse(response);
+    },
+    getConsumerDriveFiles: async (consumer_number: string) => {
+        const response = await authFetch(`${API_BASE_URL}/drive/consumer/${encodeURIComponent(consumer_number)}/files`);
+        return checkResponse(response);
+    },
+    getDbStats: async () => {
+        const response = await authFetch(`${API_BASE_URL}/admin/db/stats`);
+        return checkResponse(response);
+    },
+    getDbBackups: async () => {
+        const response = await authFetch(`${API_BASE_URL}/admin/db/backups`);
+        return checkResponse(response);
+    },
+    createDbBackup: async () => {
+        const response = await authFetch(`${API_BASE_URL}/admin/db/backup`, {
+            method: "POST",
+        });
+        return checkResponse(response);
+    },
+    updateDbBackupSettings: async (settings: { enabled: boolean; frequency: string; time: string; retention_days: number }) => {
+        const response = await authFetch(`${API_BASE_URL}/admin/db/backup/settings`, {
+            method: "POST",
+            body: JSON.stringify(settings),
+        });
+        return checkResponse(response);
+    },
+    restoreDbBackup: async (backup_id: number) => {
+        const response = await authFetch(`${API_BASE_URL}/admin/db/restore`, {
+            method: "POST",
+            body: JSON.stringify({ backup_id }),
+        });
+        return checkResponse(response);
+    },
+    getDbBackupDownloadUrl: (backup_id: number) => {
+        const token = getToken();
+        return `${API_BASE_URL}/admin/db/backup/download/${backup_id}${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+    },
+    downloadDbBackup: async (backup_id: number, filename: string) => {
+        const response = await authFetch(`${API_BASE_URL}/admin/db/backup/download/${backup_id}`);
+        if (!response.ok) throw new Error("Failed to download backup archive");
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+    },
+    testDriveConnection: async () => {
+        const response = await authFetch(`${API_BASE_URL}/admin/drive/test`);
+        return checkResponse(response);
     }
 };
 

@@ -18,6 +18,7 @@ import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
+import JSZip from 'jszip';
 
 const downloadCSVClient = (data: any[], filename: string) => {
     if (!data) data = [];
@@ -136,22 +137,48 @@ export default function ArinBillGenerator() {
     useEffect(() => {
         const fetchConsumers = async () => {
             try {
-                const data = await api.getBills();
+                const [billsData, custRes] = await Promise.all([
+                    api.getBills().catch(() => []),
+                    api.getAllCustomersDB().catch(() => ({ data: [] }))
+                ]);
                 const unique = new Map();
-                data.forEach((b: any) => {
-                    if (!unique.has(b.consumer_number)) {
-                        unique.set(b.consumer_number, {
-                            id: b.consumer_number,
-                            consumerNumber: b.consumer_number,
-                            name: b.customer_name || b.consumer_name || "N/A",
-                            capacity: b.capacity,
-                            comm_date: b.commission_date,
-                            panel_name: b.panel_name || 'Other',
-                            inverter_name: b.inverter_name || 'Other',
-                            arin_id: b.arin_id || ""
+                
+                // Add all registered customers from database
+                const dbList = Array.isArray(custRes?.data) ? custRes.data : [];
+                dbList.forEach((c: any) => {
+                    const cNum = c.consumer_number || c.consumerNumber;
+                    if (cNum) {
+                        unique.set(cNum, {
+                            id: cNum,
+                            consumerNumber: cNum,
+                            name: c.customer_name || c.consumer_name || c.name || "N/A",
+                            capacity: parseFloat(c.solar_capacity_kw || c.capacity) || 0,
+                            comm_date: c.commission_date,
+                            panel_name: c.panel_name || 'Other',
+                            inverter_name: c.inverter_name || 'Other',
+                            arin_id: c.arin_id || ""
                         });
                     }
                 });
+
+                // Merge with bills data
+                if (Array.isArray(billsData)) {
+                    billsData.forEach((b: any) => {
+                        if (b.consumer_number) {
+                            const existing = unique.get(b.consumer_number) || {};
+                            unique.set(b.consumer_number, {
+                                id: b.consumer_number,
+                                consumerNumber: b.consumer_number,
+                                name: b.customer_name || b.consumer_name || existing.name || "N/A",
+                                capacity: parseFloat(b.capacity || existing.capacity) || 0,
+                                comm_date: b.commission_date || existing.comm_date,
+                                panel_name: b.panel_name || existing.panel_name || 'Other',
+                                inverter_name: b.inverter_name || existing.inverter_name || 'Other',
+                                arin_id: b.arin_id || existing.arin_id || ""
+                            });
+                        }
+                    });
+                }
                 setDbConsumers(Array.from(unique.values()));
             } catch (e) {
                 console.error("Failed to fetch consumers", e);
@@ -217,27 +244,27 @@ export default function ArinBillGenerator() {
 
             const base64Image = canvas.toDataURL('image/jpeg', 1.0);
             
-            // 1. Local Download
+            // 1. Direct Local Download
             const link = document.createElement('a');
-            link.download = `bill-${billData.consumerNumber}-${selectedDate.getMonth() + 1}-${selectedDate.getFullYear()}.jpg`;
+            link.download = `bill-${billData.consumerNumber || 'consumer'}-${selectedDate.getMonth() + 1}-${selectedDate.getFullYear()}.jpg`;
             link.href = base64Image;
+            document.body.appendChild(link);
             link.click();
+            document.body.removeChild(link);
 
-            // 2. Google Drive Save
             toast({
-                title: "Uploading to Drive",
-                description: "Saving this bill to your Google Drive folder...",
-                className: "font-semibold shadow-md"
+                title: "Image Downloaded",
+                description: `Saved bill image for ${billData.consumerName || billData.consumerNumber}.`,
+                className: "bg-emerald-600 text-white font-bold border-none shadow-2xl"
             });
-            
-            const dayStr = format(selectedDate, 'yyyy-MM-dd');
-            const res = await api.saveBillImage(billData.consumerNumber, dayStr, base64Image);
-            
-            toast({
-                title: "Saved",
-                description: res.message || "Bill image has been saved to Drive.",
-                className: "bg-green-600 text-white font-bold border-none shadow-2xl"
-            });
+
+            // 2. Background Server/Drive Save
+            try {
+                const dayStr = format(selectedDate, 'yyyy-MM-dd');
+                await api.saveBillImage(billData.consumerNumber, dayStr, base64Image);
+            } catch (saveErr) {
+                console.warn("Server save note:", saveErr);
+            }
         } catch (error: any) {
             toast({
                 title: "Error",
@@ -303,6 +330,7 @@ export default function ArinBillGenerator() {
         const genLessThanExportList: any[] = [];
         const genEqualToExportList: any[] = [];
         const billAmtGreaterThan1000List: any[] = [];
+        const zip = new JSZip();
         let successCount = 0;
         let processedCount = 0;
 
@@ -452,7 +480,9 @@ export default function ArinBillGenerator() {
                             scrollY: 0,
                             windowWidth: 1200,
                         });
-                        const base64Image = canvas.toDataURL('image/jpeg', 1.0);
+                        const base64Image = canvas.toDataURL('image/jpeg', 0.95);
+                        const rawBase64 = base64Image.split(',')[1];
+                        zip.file(`bill-${targetId}-${selectedDate.getMonth() + 1}-${selectedDate.getFullYear()}.jpg`, rawBase64, { base64: true });
                         await api.saveBillImage(targetId, dayStr, base64Image);
                         successCount++;
                     } finally {
@@ -467,7 +497,24 @@ export default function ArinBillGenerator() {
                 setBatchProgress(prev => ({ ...prev, current: processedCount }));
             }
 
-            // ── 3. AUTOMATED REPORT PERSISTENCE (Rule #1 & #2) ──
+            // ── 3. LOCAL ZIP DOWNLOAD ──
+            if (successCount > 0) {
+                try {
+                    const zipBlob = await zip.generateAsync({ type: 'blob' });
+                    const zipUrl = URL.createObjectURL(zipBlob);
+                    const zipLink = document.createElement('a');
+                    zipLink.href = zipUrl;
+                    zipLink.download = `Arin_Bills_${dayStr}.zip`;
+                    document.body.appendChild(zipLink);
+                    zipLink.click();
+                    document.body.removeChild(zipLink);
+                    URL.revokeObjectURL(zipUrl);
+                } catch (zipErr) {
+                    console.error("Failed to generate local ZIP file", zipErr);
+                }
+            }
+
+            // ── 4. AUTOMATED REPORT PERSISTENCE (Rule #1 & #2) ──
             // Always create/update reports in the background on the server
             // identifying them as csv/xlsx format specifically, even if empty
             await api.saveReports("zero_generation_consumers.csv", zeroGenList, dayStr);
@@ -480,7 +527,7 @@ export default function ArinBillGenerator() {
             
             await api.saveReports("bill_amount_greater_than_1000.xlsx", billAmtGreaterThan1000List, dayStr);
 
-            // ── 4. COMPLETION SUMMARY POPUP (User Request) ──
+            // ── 5. COMPLETION SUMMARY POPUP (User Request) ──
             toast({
                 title: "🔥 Batch Process Complete",
                 description: (
@@ -488,7 +535,7 @@ export default function ArinBillGenerator() {
                         <p className="font-bold text-green-600 underline">Client Summary:</p>
                         <ul className="text-xs list-disc pl-4">
                             <li>Total Analyzed: {selectedIds.length}</li>
-                            <li>Saved to Drive: {successCount}</li>
+                            <li>Saved & Packed to ZIP: {successCount}</li>
                             <li>Skipped (Zero Gen): {zeroGenList.length}</li>
                             <li>Poor Progress: {poorStatusList.length}</li>
                             <li>Gen &lt; Export: {genLessThanExportList.length}</li>
@@ -496,7 +543,7 @@ export default function ArinBillGenerator() {
                             <li>Bill &gt; 1000 Rs: {billAmtGreaterThan1000List.length}</li>
                         </ul>
                         <p className="text-[9px] pt-1 italic opacity-70 border-t mt-1">
-                            Files saved on Desktop/arin/{dayStr}/reports/
+                            ZIP downloaded & files saved on Desktop/arin/{dayStr}/reports/
                         </p>
                     </div>
                 ),

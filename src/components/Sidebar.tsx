@@ -1,4 +1,4 @@
-import { FileText, Sun, Home, DownloadCloud, Database, Settings, Trash2, Key, ChevronLeft, FolderDown, Users } from 'lucide-react';
+import { FileText, Sun, Home, DownloadCloud, Database, Settings, Trash2, Key, ChevronLeft, FolderDown, Users, Cpu } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useState, useEffect } from 'react';
@@ -127,7 +127,9 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
     { icon: DownloadCloud, label: 'Auto Downloader', path: '/download' },
     { icon: FileText, label: 'Bill Analysis Generation', path: '/bill-buddy' },
     { icon: Database, label: 'Consumer Connect', path: '/consumer-connect' },
+    { icon: Cpu, label: 'Quick Bill AI', path: '/quick-analysis' },
     { icon: FolderDown, label: 'Generated Reports', path: '/reports' },
+    { icon: Settings, label: 'Settings & Master Data', path: '/settings' },
   ];
 
   if (userRole === "admin") {
@@ -194,9 +196,9 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
           <div className="flex flex-col gap-2 mb-4">
             <div className="flex gap-2">
               <button
-                onClick={() => setShowSettings(true)}
+                onClick={() => navigate('/settings')}
                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-slate-300 hover:bg-white/10 transition-colors font-bold text-sm tracking-wide bg-white/5"
-                title="Manage Users"
+                title="Settings & Master Data"
               >
                 <Settings className="w-4 h-4" />
               </button>
