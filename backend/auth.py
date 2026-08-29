@@ -211,7 +211,7 @@ def get_user_from_db(username: str) -> Optional[dict]:
             logger.error("MySQL connection unavailable for user lookup")
             return None
 
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor(dictionary=True, buffered=True)
         cursor.execute(
             "SELECT id, username, password_hash, role, is_active, failed_attempts, locked_until FROM users WHERE username = %s OR email = %s",
             (username, username)
