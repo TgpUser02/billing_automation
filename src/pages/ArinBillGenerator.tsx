@@ -20,6 +20,11 @@ import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 import JSZip from 'jszip';
 
+const sanitizeFilename = (name: string): string => {
+    if (!name) return 'Consumer';
+    return name.replace(/[/\\?%*:|"<>]/g, '_').trim();
+};
+
 const downloadCSVClient = (data: any[], filename: string) => {
     if (!data) data = [];
     const headers = ["Consumer Number", "Consumer Name", "Arin ID", "Generation", "Capacity (kW)"];
@@ -246,7 +251,9 @@ export default function ArinBillGenerator() {
             
             // 1. Direct Local Download
             const link = document.createElement('a');
-            link.download = `bill-${billData.consumerNumber || 'consumer'}-${selectedDate.getMonth() + 1}-${selectedDate.getFullYear()}.jpg`;
+            const custName = sanitizeFilename(billData.consumerName || selectedConsumer?.name || 'Consumer');
+            const consNum = billData.consumerNumber || selectedConsumer?.consumerNumber || selectedConsumer?.id || 'consumer';
+            link.download = `${custName}_${consNum}.jpg`;
             link.href = base64Image;
             document.body.appendChild(link);
             link.click();
@@ -254,7 +261,7 @@ export default function ArinBillGenerator() {
 
             toast({
                 title: "Image Downloaded",
-                description: `Saved bill image for ${billData.consumerName || billData.consumerNumber}.`,
+                description: `Saved bill image as ${custName}_${consNum}.jpg`,
                 className: "bg-emerald-600 text-white font-bold border-none shadow-2xl"
             });
 
@@ -482,7 +489,10 @@ export default function ArinBillGenerator() {
                         });
                         const base64Image = canvas.toDataURL('image/jpeg', 0.95);
                         const rawBase64 = base64Image.split(',')[1];
-                        zip.file(`bill-${targetId}-${selectedDate.getMonth() + 1}-${selectedDate.getFullYear()}.jpg`, rawBase64, { base64: true });
+                        const custName = sanitizeFilename(rawInputs.consumerName || consumer.name || 'Consumer');
+                        const consNum = rawInputs.consumerNumber || targetId;
+                        const zipImageFilename = `${custName}_${consNum}.jpg`;
+                        zip.file(zipImageFilename, rawBase64, { base64: true });
                         await api.saveBillImage(targetId, dayStr, base64Image);
                         successCount++;
                     } finally {

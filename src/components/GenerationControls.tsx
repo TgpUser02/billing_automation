@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { format } from 'date-fns';
-import { Eye, Download, FolderDown, Settings, User, Hash, Zap, Loader2, RotateCcw, Search } from 'lucide-react';
+import { Eye, Download, FolderDown, Settings, User, Hash, Zap, Loader2, RotateCcw, Search, CheckSquare, FileCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -188,6 +188,19 @@ export function GenerationControls({
     return null;
   };
 
+  const downloadedConsumerNumbers = useMemo(() => {
+    const set = new Set<string>();
+    const selMonth = selectedDate.getMonth();
+    const selYear = selectedDate.getFullYear();
+    allBills.forEach((b: any) => {
+      const bDate = parseBillDate(b.month_year || b.bill_month || b.reading_date || b.bill_date);
+      if (!bDate || (bDate.getMonth() === selMonth && bDate.getFullYear() === selYear)) {
+        if (b.consumer_number) set.add(String(b.consumer_number));
+      }
+    });
+    return set;
+  }, [allBills, selectedDate]);
+
   const dayBills = useMemo(() => {
     const unique = new Map();
     const selMonth = selectedDate.getMonth();
@@ -206,6 +219,7 @@ export function GenerationControls({
             consumer_number: b.consumer_number,
             consumer_name: b.customer_name || b.consumer_name || "N/A",
             arin_id: b.arin_id || "",
+            hasBillData: true,
           });
         }
       }
@@ -214,14 +228,21 @@ export function GenerationControls({
     // 2. Include all registered customers from database so they are always selectable/searchable
     allCustomers.forEach((c: any) => {
       const cNum = c.consumer_number || c.consumerNumber;
-      if (cNum && !unique.has(cNum)) {
-        unique.set(cNum, {
-          ...c,
-          consumer_number: cNum,
-          consumer_name: c.customer_name || c.consumer_name || "N/A",
-          arin_id: c.arin_id || "",
-          capacity: parseFloat(c.solar_capacity_kw || c.capacity) || 0,
-        });
+      if (cNum) {
+        const hasBill = downloadedConsumerNumbers.has(String(cNum));
+        if (!unique.has(cNum)) {
+          unique.set(cNum, {
+            ...c,
+            consumer_number: cNum,
+            consumer_name: c.customer_name || c.consumer_name || "N/A",
+            arin_id: c.arin_id || "",
+            capacity: parseFloat(c.solar_capacity_kw || c.capacity) || 0,
+            hasBillData: hasBill,
+          });
+        } else {
+          const existing = unique.get(cNum);
+          existing.hasBillData = hasBill || !!existing.hasBillData;
+        }
       }
     });
 
@@ -246,7 +267,7 @@ export function GenerationControls({
     }
 
     return list;
-  }, [allBills, allCustomers, selectedDate, selectedId, selectedConsumerId, selectedForDownload]);
+  }, [allBills, allCustomers, selectedDate, selectedId, selectedConsumerId, selectedForDownload, downloadedConsumerNumbers]);
 
   const filteredDayBills = useMemo(() => {
     if (!consumerFilterQuery.trim()) return dayBills;
@@ -265,6 +286,27 @@ export function GenerationControls({
         (queryClean ? (aIdClean.includes(queryClean) || cNumClean.includes(queryClean)) : false);
     });
   }, [dayBills, consumerFilterQuery]);
+
+  const downloadedIds = useMemo(() => {
+    return filteredDayBills
+      .filter(b => downloadedConsumerNumbers.has(String(b.consumer_number)))
+      .map(b => b.consumer_number);
+  }, [filteredDayBills, downloadedConsumerNumbers]);
+
+  const isDownloadedSelected = downloadedIds.length > 0 && downloadedIds.every(id => selectedForDownload.has(id));
+
+  const toggleSelectDownloaded = () => {
+    const newSet = new Set(selectedForDownload);
+    if (isDownloadedSelected) {
+      downloadedIds.forEach(id => newSet.delete(id));
+    } else {
+      downloadedIds.forEach(id => newSet.add(id));
+      if (downloadedIds.length > 0 && !selectedConsumerId) {
+        setSelectedConsumerId(downloadedIds[0]);
+      }
+    }
+    setSelectedForDownload(newSet);
+  };
 
   useEffect(() => {
     // Clear selections and previous list bindings when month changes
@@ -292,13 +334,13 @@ export function GenerationControls({
     }
   }, [isFetching, onFetchingChange]);
 
-  const isAllSelected = dayBills.length > 0 && selectedForDownload.size === dayBills.length;
+  const isAllSelected = filteredDayBills.length > 0 && filteredDayBills.every(b => selectedForDownload.has(b.consumer_number));
 
   const toggleSelectAll = () => {
     if (isAllSelected) {
       setSelectedForDownload(new Set());
     } else {
-      const allIds = dayBills.map(b => b.consumer_number);
+      const allIds = filteredDayBills.map(b => b.consumer_number);
       setSelectedForDownload(new Set(allIds));
       if (allIds.length > 0 && !selectedConsumerId) {
         setSelectedConsumerId(allIds[0]);
@@ -651,9 +693,14 @@ export function GenerationControls({
                     Select Consumer Profile
                   </Label>
                   {filteredDayBills.length > 0 && (
-                    <span className="text-[10px] font-bold text-arin-teal tracking-wider">
-                      {filteredDayBills.length} FOUND
-                    </span>
+                    <div className="flex items-center gap-1.5 text-[10px] font-bold">
+                      <span className="text-slate-500">{filteredDayBills.length} TOTAL</span>
+                      {downloadedIds.length > 0 && (
+                        <span className="text-emerald-700 bg-emerald-100/70 px-1.5 py-0.5 rounded-md border border-emerald-300/60 font-black">
+                          {downloadedIds.length} DOWNLOADED
+                        </span>
+                      )}
+                    </div>
                   )}
                 </div>
 
@@ -668,20 +715,43 @@ export function GenerationControls({
                   />
                 </div>
 
-                {/* Select All Checkbox */}
+                {/* Select All / Select Downloaded Buttons */}
                 {filteredDayBills.length > 0 && (
-                  <div
-                    className="flex items-center gap-3 p-2.5 bg-arin-teal/5 border border-arin-teal/20 rounded-xl cursor-pointer hover:bg-arin-teal/10 transition-all"
-                    onClick={toggleSelectAll}
-                  >
-                    <Checkbox
-                      checked={isAllSelected}
-                      onCheckedChange={toggleSelectAll}
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                    <span className="text-[10px] font-black uppercase text-arin-teal tracking-wider">
-                      {isAllSelected ? `Deselect All (${filteredDayBills.length})` : `Select All (${filteredDayBills.length})`}
-                    </span>
+                  <div className="grid grid-cols-2 gap-2">
+                    {downloadedIds.length > 0 ? (
+                      <button
+                        type="button"
+                        onClick={toggleSelectDownloaded}
+                        className={cn(
+                          "flex items-center justify-center gap-1.5 p-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border shadow-sm",
+                          isDownloadedSelected
+                            ? "bg-emerald-600 text-white border-emerald-600 shadow-emerald-600/20"
+                            : "bg-emerald-50/80 text-emerald-700 border-emerald-200 hover:bg-emerald-100/80"
+                        )}
+                      >
+                        <FileCheck className="w-3.5 h-3.5" />
+                        <span className="truncate">
+                          {isDownloadedSelected ? `Deselect Downloaded (${downloadedIds.length})` : `Select Downloaded (${downloadedIds.length})`}
+                        </span>
+                      </button>
+                    ) : (
+                      <div />
+                    )}
+                    <button
+                      type="button"
+                      onClick={toggleSelectAll}
+                      className={cn(
+                        "flex items-center justify-center gap-1.5 p-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border shadow-sm",
+                        isAllSelected
+                          ? "bg-arin-teal text-white border-arin-teal shadow-arin-teal/20"
+                          : "bg-arin-teal/5 text-arin-teal border-arin-teal/20 hover:bg-arin-teal/10"
+                      )}
+                    >
+                      <CheckSquare className="w-3.5 h-3.5" />
+                      <span className="truncate">
+                        {isAllSelected ? `Deselect All (${filteredDayBills.length})` : `Select All (${filteredDayBills.length})`}
+                      </span>
+                    </button>
                   </div>
                 )}
 
@@ -715,6 +785,15 @@ export function GenerationControls({
                           </div>
                         </div>
                         <div className="flex items-center gap-1.5 shrink-0">
+                          {downloadedConsumerNumbers.has(String(c.consumer_number)) ? (
+                            <span className="px-1.5 py-0.5 rounded text-[8px] font-black uppercase bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              Bill Ready
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.5 rounded text-[8px] font-black uppercase bg-slate-100 text-slate-400 border border-slate-200">
+                              No Bill Data
+                            </span>
+                          )}
                           {c.is_blacklisted ? (
                             <span className="px-1.5 py-0.5 rounded text-[8px] font-black uppercase bg-red-100 text-red-600">Blocked</span>
                           ) : c.system_health === 'POOR' ? (
