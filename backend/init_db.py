@@ -165,6 +165,12 @@ def init_database():
                 bill_status VARCHAR(50) DEFAULT 'Normal',
                 image_url TEXT NULL,
                 pdf_path TEXT NULL,
+                pdf_drive_file_id VARCHAR(255) NULL,
+                pdf_drive_view_url TEXT NULL,
+                pdf_file_name VARCHAR(255) NULL,
+                image_drive_file_id VARCHAR(255) NULL,
+                image_drive_view_url TEXT NULL,
+                image_file_name VARCHAR(255) NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 UNIQUE KEY unique_consumer_month (consumer_number, month_year),
@@ -172,6 +178,21 @@ def init_database():
                 INDEX idx_bill_month (month_year)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
         """)
+
+        alter_bill_queries = [
+            "ALTER TABLE bill_generation_details ADD COLUMN pdf_drive_file_id VARCHAR(255) NULL",
+            "ALTER TABLE bill_generation_details ADD COLUMN pdf_drive_view_url TEXT NULL",
+            "ALTER TABLE bill_generation_details ADD COLUMN pdf_file_name VARCHAR(255) NULL",
+            "ALTER TABLE bill_generation_details ADD COLUMN image_drive_file_id VARCHAR(255) NULL",
+            "ALTER TABLE bill_generation_details ADD COLUMN image_drive_view_url TEXT NULL",
+            "ALTER TABLE bill_generation_details ADD COLUMN image_file_name VARCHAR(255) NULL",
+        ]
+        for ab in alter_bill_queries:
+            try:
+                cursor.execute(ab)
+            except Exception:
+                pass
+
         logger.info("Table 'bill_generation_details' created/verified.")
 
         # ── 1f. Create warranties_master table ──

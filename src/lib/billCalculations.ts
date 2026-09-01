@@ -73,6 +73,8 @@ export interface CalculatedBillData {
   inverter_name: string;
   daysSinceInstallation: number;
   arin_id?: string;
+  lifetimeSavings?: string;
+  annualSavings?: string;
 }
 
 export function calculateBillData(
@@ -168,6 +170,19 @@ export function calculateBillData(
     (today.getTime() - commDateObj.getTime()) / (1000 * 60 * 60 * 24)
   );
 
+  // 8) Dynamic ROI Savings Calculation
+  const monthlySolarGen = gen > 0 ? gen : (capacity ? capacity * 120 : 360);
+  const annualSavingsNum = Math.round(monthlySolarGen * 12 * 8.5);
+  let cumulative25YrSavings = 0;
+  let annualRunSavings = annualSavingsNum;
+  for (let y = 0; y < 25; y++) {
+    cumulative25YrSavings += annualRunSavings;
+    annualRunSavings *= 1.03;
+  }
+  const lifetimeSavingsFormatted = cumulative25YrSavings >= 100000 
+    ? `${(cumulative25YrSavings / 100000).toFixed(1)} Lakhs` 
+    : `${Math.round(cumulative25YrSavings).toLocaleString()}`;
+
   return {
     consumerName: inputs.consumerName,
     consumerNumber: inputs.consumerNumber,
@@ -193,6 +208,8 @@ export function calculateBillData(
     inverter_name: inputs.inverter_name,
     daysSinceInstallation: isNaN(daysSinceInstallation) || daysSinceInstallation < 0 ? 0 : daysSinceInstallation,
     arin_id: inputs.arin_id || consumer.arin_id || "",
+    lifetimeSavings: lifetimeSavingsFormatted,
+    annualSavings: `₹${annualSavingsNum.toLocaleString()}`,
   };
 }
 

@@ -40,7 +40,12 @@ import {
     FileArchive,
     ExternalLink,
     Server,
-    RefreshCw
+    RefreshCw,
+    FileText,
+    Image as ImageIcon,
+    Cloud,
+    Folder,
+    FileSpreadsheet
 } from "lucide-react";
 
 interface LookupItem {
@@ -164,7 +169,25 @@ export default function Settings() {
     const [autoBackupTime, setAutoBackupTime] = useState("02:00");
     const [autoBackupRetention, setAutoBackupRetention] = useState("30");
 
-    // Fetch lookups from backend
+    // Google Drive Synchronized Files State
+    const [driveFiles, setDriveFiles] = useState<any[]>([]);
+    const [isLoadingDriveFiles, setIsLoadingDriveFiles] = useState(false);
+    const [driveSearchQuery, setDriveSearchQuery] = useState("");
+    const [driveFilterType, setDriveFilterType] = useState("all");
+
+    const fetchDriveFiles = async () => {
+        setIsLoadingDriveFiles(true);
+        try {
+            const res = await api.getDriveFiles(undefined, undefined, 200);
+            if (res.data && Array.isArray(res.data)) {
+                setDriveFiles(res.data);
+            }
+        } catch (err: any) {
+            console.error("Failed to load drive files:", err);
+        } finally {
+            setIsLoadingDriveFiles(false);
+        }
+    };
     const fetchLookups = async () => {
         setIsLoadingLookups(true);
         try {
@@ -309,7 +332,54 @@ export default function Settings() {
         fetchLookups();
         fetchPortalUsers();
         fetchDbBackupsAndStats();
+        fetchDriveFiles();
     }, []);
+
+    useEffect(() => {
+        if (activeTab === "drive") {
+            fetchDriveFiles();
+        } else if (activeTab === "backups") {
+            fetchDbBackupsAndStats();
+        }
+    }, [activeTab]);
+
+    const driveCounts = useMemo(() => {
+        let pdfs = 0, images = 0, sheets = 0, backups = 0;
+        driveFiles.forEach(f => {
+            const isSheet = f.file_name?.match(/\.(xlsx|xls|csv)$/i) || f.mime_type?.includes("spreadsheet") || f.mime_type === "text/csv";
+            const isBackup = f.category === "database_backup" || f.category === "db_backup" || f.file_name?.includes("backup");
+            const isImg = f.file_type === "image" || f.file_name?.match(/\.(png|jpg|jpeg)$/i) || f.category === "bill_image";
+            const isPdf = (f.file_type === "pdf" || f.file_name?.endsWith(".pdf") || f.category === "bill_pdf") && !isSheet;
+            
+            if (isBackup) backups++;
+            else if (isSheet) sheets++;
+            else if (isImg) images++;
+            else if (isPdf) pdfs++;
+        });
+        return { pdfs, images, sheets, backups, total: driveFiles.length };
+    }, [driveFiles]);
+
+    const filteredDriveFiles = useMemo(() => {
+        return driveFiles.filter(f => {
+            const matchSearch = !driveSearchQuery || 
+                (f.file_name && f.file_name.toLowerCase().includes(driveSearchQuery.toLowerCase())) ||
+                (f.consumer_number && String(f.consumer_number).includes(driveSearchQuery)) ||
+                (f.category && f.category.toLowerCase().includes(driveSearchQuery.toLowerCase()));
+            
+            const isSheet = f.file_name?.match(/\.(xlsx|xls|csv)$/i) || f.mime_type?.includes("spreadsheet") || f.mime_type === "text/csv";
+            const isBackup = f.category === "database_backup" || f.category === "db_backup" || f.file_name?.includes("backup");
+            const isImg = f.file_type === "image" || f.file_name?.match(/\.(png|jpg|jpeg)$/i) || f.category === "bill_image";
+            const isPdf = (f.file_type === "pdf" || f.file_name?.endsWith(".pdf") || f.category === "bill_pdf") && !isSheet;
+
+            const matchType = driveFilterType === "all" || 
+                (driveFilterType === "pdf" && isPdf) ||
+                (driveFilterType === "image" && isImg) ||
+                (driveFilterType === "sheet" && isSheet) ||
+                (driveFilterType === "backup" && isBackup);
+
+            return matchSearch && matchType;
+        });
+    }, [driveFiles, driveSearchQuery, driveFilterType]);
 
     // Active category config
     const currentCategoryConfig = useMemo(() => {
@@ -328,6 +398,7 @@ export default function Settings() {
     }, [selectedCategory]);
 
     const filteredOptions = useMemo(() => {
+        if (selectedCategory === "zone") return [];
         const categoryItems = rawLookups.filter(item => item.category === selectedCategory);
         if (!searchFilter.trim()) return categoryItems;
         const q = searchFilter.toLowerCase();
@@ -341,6 +412,7 @@ export default function Settings() {
     // Add option with validity
     const handleAddOption = async (e?: React.FormEvent) => {
         if (e) e.preventDefault();
+        if (selectedCategory === "zone") return;
         const trimmed = newOptionValue.trim();
         if (!trimmed) {
             toast({
@@ -563,6 +635,7 @@ export default function Settings() {
     };
 
     const hasValidity = selectedCategory === "panel_name" || selectedCategory === "inverter_name";
+    const isZone = selectedCategory === "zone";
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-background via-accent/5 to-secondary/20 pb-16">
@@ -576,10 +649,19 @@ export default function Settings() {
 
                 {/* Main Tabs */}
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6 w-full">
-                    <TabsList className="grid grid-cols-2 sm:grid-cols-4 w-full bg-card border border-border p-1.5 rounded-2xl shadow-sm gap-1">
+                    <TabsList className="grid grid-cols-2 sm:grid-cols-5 w-full bg-card border border-border p-1.5 rounded-2xl shadow-sm gap-1">
                         <TabsTrigger value="lookups" className="flex items-center justify-center gap-2 rounded-xl text-xs font-bold py-2.5">
                             <Database className="w-4 h-4 text-emerald-600" />
                             Dropdowns
+                        </TabsTrigger>
+                        <TabsTrigger value="drive" className="flex items-center justify-center gap-2 rounded-xl text-xs font-bold py-2.5">
+                            <Cloud className="w-4 h-4 text-blue-600" />
+                            Drive Files
+                            {driveCounts.total > 0 && (
+                                <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-black bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300">
+                                    {driveCounts.total}
+                                </span>
+                            )}
                         </TabsTrigger>
                         <TabsTrigger value="backups" className="flex items-center justify-center gap-2 rounded-xl text-xs font-bold py-2.5">
                             <HardDrive className="w-4 h-4 text-cyan-600" />
@@ -602,7 +684,7 @@ export default function Settings() {
                             {CATEGORIES.map((cat) => {
                                 const Icon = cat.icon;
                                 const isSelected = selectedCategory === cat.id;
-                                const count = rawLookups.filter(i => i.category === cat.id).length;
+                                const count = cat.id === "zone" ? 0 : rawLookups.filter(i => i.category === cat.id).length;
                                 return (
                                     <button
                                         key={cat.id}
@@ -645,11 +727,11 @@ export default function Settings() {
                                         <h2 className="text-xl font-black text-foreground flex items-center gap-2">
                                             {currentCategoryConfig.label} Manager
                                             <Badge variant="outline" className="text-xs font-bold border-emerald-500/30 text-emerald-700 bg-emerald-50/50 dark:bg-emerald-950/40">
-                                                {filteredOptions.length} of {rawLookups.filter(i => i.category === selectedCategory).length} options
+                                                {isZone ? "0 options" : `${filteredOptions.length} of ${rawLookups.filter(i => i.category === selectedCategory).length} options`}
                                             </Badge>
                                         </h2>
                                         <p className="text-xs text-muted-foreground mt-0.5">
-                                            {currentCategoryConfig.description}
+                                            {isZone ? "Zone and region management." : currentCategoryConfig.description}
                                         </p>
                                     </div>
                                 </div>
@@ -689,15 +771,18 @@ export default function Settings() {
                                     <div className="relative flex-1">
                                         <Input
                                             type="text"
-                                            placeholder={currentCategoryConfig.placeholder}
-                                            value={newOptionValue}
-                                            onChange={e => setNewOptionValue(e.target.value)}
-                                            className="h-12 rounded-xl bg-background border-border pr-4 font-semibold text-sm shadow-sm"
+                                            placeholder={isZone ? "Adding new zones is disabled" : currentCategoryConfig.placeholder}
+                                            value={isZone ? "" : newOptionValue}
+                                            onChange={e => !isZone && setNewOptionValue(e.target.value)}
+                                            disabled={isZone || isAddingOption}
+                                            className={`h-12 rounded-xl bg-background border-border pr-4 font-semibold text-sm shadow-sm ${
+                                                isZone ? "opacity-60 cursor-not-allowed bg-muted/20 select-none" : ""
+                                            }`}
                                         />
                                     </div>
 
                                     {/* Validity Years Input for Panels and Inverters */}
-                                    {hasValidity && (
+                                    {hasValidity && !isZone && (
                                         <div className="flex items-center gap-1.5 bg-background border border-border rounded-xl px-3 h-12 shrink-0">
                                             <span className="text-[10px] font-black text-muted-foreground uppercase">Validity:</span>
                                             <Input
@@ -714,8 +799,10 @@ export default function Settings() {
 
                                     <Button
                                         type="submit"
-                                        disabled={isAddingOption || !newOptionValue.trim()}
-                                        className="h-12 px-6 rounded-xl bg-gradient-to-r from-arin-green to-arin-teal hover:opacity-95 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-arin-green/20 shrink-0"
+                                        disabled={isZone || isAddingOption || !newOptionValue.trim()}
+                                        className={`h-12 px-6 rounded-xl bg-gradient-to-r from-arin-green to-arin-teal hover:opacity-95 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-arin-green/20 shrink-0 ${
+                                            isZone ? "opacity-50 cursor-not-allowed pointer-events-none" : ""
+                                        }`}
                                     >
                                         {isAddingOption ? (
                                             <>
@@ -736,12 +823,15 @@ export default function Settings() {
                                     <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
                                     <Input
                                         type="text"
-                                        placeholder={`Filter ${currentCategoryConfig.label.toLowerCase()}...`}
-                                        value={searchFilter}
-                                        onChange={e => setSearchFilter(e.target.value)}
-                                        className="h-12 pl-10 rounded-xl bg-background border-border text-sm"
+                                        placeholder={isZone ? "Search disabled" : `Filter ${currentCategoryConfig.label.toLowerCase()}...`}
+                                        value={isZone ? "" : searchFilter}
+                                        onChange={e => !isZone && setSearchFilter(e.target.value)}
+                                        disabled={isZone}
+                                        className={`h-12 pl-10 rounded-xl bg-background border-border text-sm ${
+                                            isZone ? "opacity-60 cursor-not-allowed bg-muted/20 select-none" : ""
+                                        }`}
                                     />
-                                    {searchFilter && (
+                                    {!isZone && searchFilter && (
                                         <button
                                             type="button"
                                             onClick={() => setSearchFilter("")}
@@ -755,7 +845,7 @@ export default function Settings() {
 
                             {/* Options Display List */}
                             <div className="pt-2">
-                                {isLoadingLookups ? (
+                                {isZone ? null : isLoadingLookups ? (
                                     <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-3">
                                         <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
                                         <span className="text-xs font-bold uppercase tracking-wider">Loading options...</span>
@@ -859,7 +949,235 @@ export default function Settings() {
                         </div>
                     </TabsContent>
 
+                    {/* TAB 2: GOOGLE DRIVE CLOUD FILES EXPLORER */}
+                    <TabsContent value="drive" className="space-y-6 animate-in fade-in-50 duration-300">
+                        {/* Top Action & Overview Bar */}
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-card border border-border/80 rounded-3xl p-6 shadow-sm">
+                            <div className="flex items-center gap-3.5">
+                                <div className="p-3 rounded-2xl border bg-blue-50 dark:bg-blue-950/50 border-blue-500/20 text-blue-600 dark:text-blue-400">
+                                    <Cloud className="w-6 h-6" />
+                                </div>
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <h2 className="text-xl font-black text-foreground">Google Drive Cloud Files & Assets</h2>
+                                        <Badge variant="outline" className="text-xs font-black border-blue-500/30 text-blue-700 bg-blue-50/50 dark:bg-blue-950/40">
+                                            {filteredDriveFiles.length} / {driveCounts.total} files
+                                        </Badge>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground mt-0.5">
+                                        Centralized index of all downloaded bills, ROI image cards, zero-gen spreadsheets, and database backups uploaded to Google Drive.
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2.5 w-full sm:w-auto">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={handleTestDrive}
+                                    disabled={isTestingDrive}
+                                    className="rounded-xl border-border text-xs font-bold gap-1.5 h-10 px-3.5"
+                                >
+                                    <UploadCloud className={`w-3.5 h-3.5 text-blue-500 ${isTestingDrive ? "animate-spin" : ""}`} />
+                                    Test Drive Connection
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={fetchDriveFiles}
+                                    disabled={isLoadingDriveFiles}
+                                    className="rounded-xl border-border text-xs font-bold gap-1.5 h-10 px-3.5"
+                                >
+                                    <RefreshCw className={`w-3.5 h-3.5 ${isLoadingDriveFiles ? "animate-spin" : ""}`} />
+                                    Refresh List
+                                </Button>
+                                <a
+                                    href="https://drive.google.com/drive/folders/1JVDN8rf6QRYMtGke03S_sW6glNSY5kGO"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-md h-10 px-4 transition-colors"
+                                >
+                                    <ExternalLink className="w-4 h-4" />
+                                    Open Folder
+                                </a>
+                            </div>
+                        </div>
 
+                        {/* Summary Metrics Cards */}
+                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                            <div className="bg-card border border-border/80 rounded-2xl p-4 shadow-xs">
+                                <div className="flex items-center justify-between">
+                                    <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Total Synced</p>
+                                    <Cloud className="w-4 h-4 text-blue-600" />
+                                </div>
+                                <p className="text-2xl font-black text-foreground mt-1">{driveCounts.total}</p>
+                                <p className="text-[10px] text-muted-foreground mt-0.5">Total files in Google Drive</p>
+                            </div>
+                            <div className="bg-card border border-border/80 rounded-2xl p-4 shadow-xs">
+                                <div className="flex items-center justify-between">
+                                    <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Bill PDFs & Visuals</p>
+                                    <ImageIcon className="w-4 h-4 text-emerald-600" />
+                                </div>
+                                <p className="text-2xl font-black text-emerald-600 mt-1">{driveCounts.pdfs + driveCounts.images}</p>
+                                <p className="text-[10px] text-muted-foreground mt-0.5">{driveCounts.pdfs} PDFs, {driveCounts.images} Image Cards</p>
+                            </div>
+                            <div className="bg-card border border-border/80 rounded-2xl p-4 shadow-xs">
+                                <div className="flex items-center justify-between">
+                                    <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Excel & CSV Reports</p>
+                                    <FileSpreadsheet className="w-4 h-4 text-amber-600" />
+                                </div>
+                                <p className="text-2xl font-black text-amber-600 mt-1">{driveCounts.sheets}</p>
+                                <p className="text-[10px] text-muted-foreground mt-0.5">Zero-Gen & billing summaries</p>
+                            </div>
+                            <div className="bg-card border border-border/80 rounded-2xl p-4 shadow-xs">
+                                <div className="flex items-center justify-between">
+                                    <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Database Backups</p>
+                                    <FileArchive className="w-4 h-4 text-cyan-600" />
+                                </div>
+                                <p className="text-2xl font-black text-cyan-600 mt-1">{driveCounts.backups}</p>
+                                <p className="text-[10px] text-muted-foreground mt-0.5">Compressed SQL snapshots</p>
+                            </div>
+                        </div>
+
+                        {/* Search & Filter Toolbar */}
+                        <div className="bg-card border border-border/80 rounded-3xl p-6 shadow-sm space-y-5">
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                                <div className="relative flex-1 w-full sm:max-w-md">
+                                    <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                                    <Input
+                                        type="text"
+                                        placeholder="Search by Consumer No, File Name, or Category..."
+                                        value={driveSearchQuery}
+                                        onChange={(e) => setDriveSearchQuery(e.target.value)}
+                                        className="pl-10 h-10 text-xs rounded-xl bg-background border-border/80"
+                                    />
+                                </div>
+                                <div className="flex flex-wrap items-center gap-1.5 bg-muted/60 p-1 rounded-xl">
+                                    {[
+                                        { id: "all", label: `All (${driveCounts.total})` },
+                                        { id: "sheet", label: `Reports (${driveCounts.sheets})` },
+                                        { id: "image", label: `Images (${driveCounts.images})` },
+                                        { id: "pdf", label: `PDFs (${driveCounts.pdfs})` },
+                                        { id: "backup", label: `Backups (${driveCounts.backups})` },
+                                    ].map((tab) => (
+                                        <button
+                                            key={tab.id}
+                                            type="button"
+                                            onClick={() => setDriveFilterType(tab.id)}
+                                            className={`px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase transition-all ${
+                                                driveFilterType === tab.id
+                                                    ? "bg-card text-foreground shadow-xs"
+                                                    : "text-muted-foreground hover:text-foreground"
+                                            }`}
+                                        >
+                                            {tab.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Files Table */}
+                            <div className="border border-border/60 rounded-2xl overflow-hidden bg-background">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow className="bg-muted/40 text-[10px] font-black uppercase tracking-wider">
+                                            <TableHead className="py-3 px-4">Upload Date & Time</TableHead>
+                                            <TableHead>Consumer No</TableHead>
+                                            <TableHead>File Name</TableHead>
+                                            <TableHead>Category / Purpose</TableHead>
+                                            <TableHead>Drive Folder Path</TableHead>
+                                            <TableHead className="text-right px-4">Google Drive Actions</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {isLoadingDriveFiles ? (
+                                            <TableRow>
+                                                <TableCell colSpan={6} className="h-40 text-center">
+                                                    <Loader2 className="w-7 h-7 animate-spin text-blue-600 mx-auto mb-2" />
+                                                    <span className="text-xs text-muted-foreground">Loading files from Google Drive...</span>
+                                                </TableCell>
+                                            </TableRow>
+                                        ) : filteredDriveFiles.length === 0 ? (
+                                            <TableRow>
+                                                <TableCell colSpan={6} className="h-40 text-center text-xs text-muted-foreground">
+                                                    No files found matching your search.
+                                                </TableCell>
+                                            </TableRow>
+                                        ) : (
+                                            filteredDriveFiles.map((file) => (
+                                                <TableRow key={file.id} className="hover:bg-muted/20 text-xs">
+                                                    <TableCell className="py-3 px-4 font-mono text-muted-foreground">
+                                                        {file.uploaded_at || "Recent"}
+                                                    </TableCell>
+                                                    <TableCell className="font-mono font-bold text-foreground">
+                                                        {file.consumer_number ? (
+                                                            <span className="bg-muted px-2 py-0.5 rounded text-xs">
+                                                                {file.consumer_number}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-muted-foreground italic">System / Master</span>
+                                                        )}
+                                                    </TableCell>
+                                                    <TableCell className="font-semibold text-foreground">
+                                                        <div className="flex items-center gap-2.5">
+                                                            {file.file_name?.match(/\.(xlsx|xls|csv)$/i) || file.mime_type?.includes("spreadsheet") || file.mime_type === "text/csv" ? (
+                                                                <FileSpreadsheet className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                                                            ) : file.file_type === "image" || file.file_name?.match(/\.(png|jpg|jpeg)$/i) ? (
+                                                                <ImageIcon className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                                                            ) : file.file_type === "pdf" || file.file_name?.endsWith(".pdf") ? (
+                                                                <FileText className="w-4 h-4 text-red-500 flex-shrink-0" />
+                                                            ) : (
+                                                                <FileArchive className="w-4 h-4 text-cyan-500 flex-shrink-0" />
+                                                            )}
+                                                            <span className="truncate max-w-[280px]" title={file.file_name}>
+                                                                {file.file_name}
+                                                            </span>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Badge variant="secondary" className="font-mono text-[10px] uppercase">
+                                                            {file.category || file.file_type || "file"}
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell className="text-muted-foreground text-[11px] font-mono">
+                                                        {file.folder_path ? file.folder_path : "Bill_Generation1"}
+                                                    </TableCell>
+                                                    <TableCell className="text-right px-4">
+                                                        <div className="flex items-center justify-end gap-2">
+                                                            {file.view_url && (
+                                                                <a
+                                                                    href={file.view_url}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-600 hover:text-blue-700 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 px-3 py-1.5 rounded-xl transition-colors shadow-2xs"
+                                                                >
+                                                                    <UploadCloud className="w-3.5 h-3.5" />
+                                                                    <span>Open</span>
+                                                                    <ExternalLink className="w-3 h-3 opacity-70" />
+                                                                </a>
+                                                            )}
+                                                            {file.download_url && file.download_url !== file.view_url && (
+                                                                <a
+                                                                    href={file.download_url}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2.5 py-1.5 rounded-xl transition-colors"
+                                                                >
+                                                                    <Download className="w-3.5 h-3.5" />
+                                                                    <span>Download</span>
+                                                                </a>
+                                                            )}
+                                                        </div>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))
+                                        )}
+                                    </TableBody>
+                                </Table>
+                            </div>
+                        </div>
+                    </TabsContent>
 
                     {/* TAB: DATABASE MANAGEMENT & AUTO-BACKUP */}
                     <TabsContent value="backups" className="space-y-6 animate-in fade-in-50 duration-300">

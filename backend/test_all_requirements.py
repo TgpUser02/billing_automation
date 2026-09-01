@@ -75,9 +75,9 @@ calc_cap = round((test_panel_count * test_wattpick) / 1000.0, 2)
 assert calc_cap == 4.36, f"Expected 4.36, got {calc_cap}"
 print(f"Auto-calculated Capacity: {test_panel_count} panels * {test_wattpick} Wp / 1000 = {calc_cap} kW [PASSED]")
 
-raw_arin_id = "ARIN#101$2026_TEST"
+raw_arin_id = "Arin#005"
 cleaned_id = raw_arin_id if not raw_arin_id.endswith(".0") else raw_arin_id[:-2]
-assert cleaned_id == "ARIN#101$2026_TEST", "Arin ID special characters must not be stripped"
+assert cleaned_id == "Arin#005", "Arin ID special characters must not be stripped"
 print(f"Preserved Raw Arin ID: '{cleaned_id}' [PASSED]")
 
 print("\n=== 3. TESTING DATABASE SCHEMA INTEGRITY ===")

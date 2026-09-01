@@ -644,11 +644,37 @@ def process_downloads(download_dir="downloads", progress_callback=None, threshol
             if not extracted_data.get("bill_month_date"):
                 results_map[consumer_num] = "failed"
             else:
+                # Upload to Google Drive under Bill_Generation1/<consumer_number>/ if not already uploaded
+                if not extracted_data.get("pdf_drive_view_url"):
+                    try:
+                        drive_folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
+                        if drive_folder_id and os.path.exists(file_path):
+                            from gdrive_utils import get_drive_service, get_or_create_date_folder, upload_file_to_drive
+                            service = get_drive_service()
+                            if service:
+                                bill_gen_root_id = get_or_create_date_folder(service, "Bill_Generation1", drive_folder_id)
+                                if bill_gen_root_id:
+                                    consumer_folder_id = get_or_create_date_folder(service, consumer_num, bill_gen_root_id)
+                                    if consumer_folder_id:
+                                        up_ok, pdf_fid, pdf_vurl, _ = upload_file_to_drive(
+                                            service, file_path, filename, consumer_folder_id,
+                                            consumer_number=consumer_num,
+                                            month_year=extracted_data.get("bill_month_date"),
+                                            category='bill_pdf'
+                                        )
+                                        if up_ok:
+                                            extracted_data["pdf_drive_file_id"] = pdf_fid
+                                            extracted_data["pdf_drive_view_url"] = pdf_vurl
+                                            extracted_data["pdf_file_name"] = filename
+                                            logger.info(f"✓ Uploaded {filename} to Drive: {pdf_vurl}")
+                    except Exception as d_err:
+                        logger.warning(f"Drive upload before save failed: {d_err}")
+
                 save_status = save_to_mysql(extracted_data, conn=conn)
                 if save_status in (True, "exists"):
                     results_map[consumer_num] = "success"
                     all_extracted_data.append(extracted_data)
-                    # Delete the PDF after DB save
+                    # Delete the local PDF only after confirmed DB save
                     try:
                         os.remove(file_path)
                     except: pass

@@ -249,9 +249,9 @@ export default function QuickBillAnalysis() {
   };
 
   // Dynamic Calculations for Prospective Tool (re-evaluates live when dynamicCap slider changes)
-  const currentMonthlyBill = prospectiveResult?.extracted_data?.current_monthly_bill ?? prospectiveResult?.extracted_data?.billing_amount ?? 6800;
-  const currentUnits = prospectiveResult?.extracted_data?.monthly_consumption_kwh ?? prospectiveResult?.extracted_data?.billing_units ?? 650;
-  const defaultRecommendedCap = prospectiveResult?.solar_savings_analysis?.recommended_capacity_kw ?? prospectiveResult?.financial_proposals?.recommended_solar_capacity_kw ?? Math.max(1, Math.round(currentUnits / 120)) ?? 4;
+  const currentMonthlyBill = prospectiveResult?.extracted_data?.current_monthly_bill ?? prospectiveResult?.extracted_data?.billing_amount ?? 0;
+  const currentUnits = prospectiveResult?.extracted_data?.monthly_consumption_kwh ?? prospectiveResult?.extracted_data?.billing_units ?? 0;
+  const defaultRecommendedCap = prospectiveResult?.solar_savings_analysis?.recommended_capacity_kw ?? prospectiveResult?.financial_proposals?.recommended_solar_capacity_kw ?? (currentUnits > 0 ? Math.max(1, Math.round(currentUnits / 120)) : 3);
   const dynamicCap = customCapacity !== null ? customCapacity : defaultRecommendedCap;
   
   // Live dynamic metrics based on dynamicCap
@@ -273,27 +273,37 @@ export default function QuickBillAnalysis() {
   }
   dynamicLifetimeSavings = Math.round(dynamicLifetimeSavings);
 
+  // Dynamic Solar Calculations for mappedBillData
+  const parsedGenUnits = parseFloat(String(solarResult?.extracted_data.generated_electricity || "0").replace(/[^0-9.]/g, '')) || 0;
+  const parsedCap = parseFloat(String(solarResult?.extracted_data.capacity || "3.0").replace(/[^0-9.]/g, '')) || 3.0;
+  const dynAnnualSavingsVal = solarResult?.extracted_data.annual_savings 
+    ? Number(solarResult.extracted_data.annual_savings) 
+    : Math.round((parsedGenUnits > 0 ? parsedGenUnits : parsedCap * 120) * 12 * 8.5);
+  const dynLifetimeSavingsVal = solarResult?.extracted_data.lifetime_savings
+    ? String(solarResult.extracted_data.lifetime_savings)
+    : `${(dynAnnualSavingsVal * 25 / 100000).toFixed(1)} Lakhs`;
+
   // Map Solar OCR Result into BillPreview Props
   const mappedBillData = solarResult ? {
     consumerName: solarResult.extracted_data.consumer_name || "MSEDCL Consumer",
-    consumerNumber: solarResult.extracted_data.consumer_number || "410012450188",
-    capacity: solarResult.extracted_data.capacity || "4.0",
+    consumerNumber: solarResult.extracted_data.consumer_number || "",
+    capacity: String(parsedCap),
     readingDate: solarResult.extracted_data.reading_date || format(new Date(), "dd/MM/yyyy"),
-    billingAmount: String(solarResult.extracted_data.billing_amount || 1950),
-    billingUnits: String(solarResult.extracted_data.billing_units || "177").replace(/\s*kWh/gi, ''),
-    generatedElectricity: String(solarResult.extracted_data.generated_electricity || "430 kWh"),
-    exportedToGrid: String(solarResult.extracted_data.exported_to_grid || "225 kWh"),
-    importedFromGrid: String(solarResult.extracted_data.imported_from_grid || "755 kWh"),
-    daytimeSelfConsumption: String(solarResult.extracted_data.daytime_self_consumption || "205 kWh"),
-    totalConsumption: String(solarResult.extracted_data.total_consumption || "960 kWh"),
-    previousBankedUnit: String(solarResult.extracted_data.previous_banked_unit || "120 Units").replace(/\s*Units/gi, ''),
-    currentBankedUnit: String(solarResult.extracted_data.current_banked_unit || "180 Units").replace(/\s*Units/gi, ''),
+    billingAmount: String(solarResult.extracted_data.billing_amount ?? 0),
+    billingUnits: String(solarResult.extracted_data.billing_units ?? "0").replace(/\s*kWh/gi, ''),
+    generatedElectricity: String(solarResult.extracted_data.generated_electricity || `${Math.round(parsedCap * 120)} kWh`),
+    exportedToGrid: String(solarResult.extracted_data.exported_to_grid || `${Math.round(parsedCap * 65)} kWh`),
+    importedFromGrid: String(solarResult.extracted_data.imported_from_grid || `${Math.round(parsedCap * 55)} kWh`),
+    daytimeSelfConsumption: String(solarResult.extracted_data.daytime_self_consumption || `${Math.round(parsedCap * 55)} kWh`),
+    totalConsumption: String(solarResult.extracted_data.total_consumption || `${Math.round(parsedCap * 110)} kWh`),
+    previousBankedUnit: String(solarResult.extracted_data.previous_banked_unit || "0 Units").replace(/\s*Units/gi, ''),
+    currentBankedUnit: String(solarResult.extracted_data.current_banked_unit || "0 Units").replace(/\s*Units/gi, ''),
     systemHealth: solarResult.extracted_data.system_health || "GOOD",
     weatherCondition: solarResult.weather_ai_analysis?.weather_condition,
     performanceScore: solarResult.weather_ai_analysis?.performance_score,
-    recommendedCapacity: solarResult.extracted_data.capacity || "4.0",
-    annualSavings: "45,000",
-    lifetimeSavings: "12.5 Lakhs"
+    recommendedCapacity: String(parsedCap),
+    annualSavings: `₹${dynAnnualSavingsVal.toLocaleString()}`,
+    lifetimeSavings: dynLifetimeSavingsVal
   } : null;
 
   return (
@@ -578,7 +588,7 @@ export default function QuickBillAnalysis() {
                     {/* Header Info Card */}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", backgroundColor: "#f8fafc", padding: "16px 20px", borderRadius: "20px", border: "1px solid #e2e8f0" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-                        <img src={logo} alt="Arin Energy" style={{ height: "45px", objectFit: "contain" }} />
+                        <img src={logo} alt="Arin Energy" style={{ height: "64px", objectFit: "contain" }} />
                         <div>
                           <h4 style={{ fontSize: "16px", fontWeight: "900", color: "#0f172a", margin: 0 }}>
                             {prospectiveResult.extracted_data.consumer_name || "Prospective Client"}

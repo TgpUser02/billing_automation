@@ -59,11 +59,11 @@ const styles = {
   topCard: {
     backgroundColor: "#ffffff",
     borderRadius: "20px",
-    padding: "18px 24px",
+    padding: "20px 28px",
     display: "grid",
-    gridTemplateColumns: "200px 1fr 230px",
+    gridTemplateColumns: "230px 1fr 230px",
     alignItems: "center",
-    gap: "20px",
+    gap: "24px",
     boxShadow: "0 4px 20px rgba(0,0,0,0.03)",
     border: "1px solid #e2e8f0",
   },
@@ -73,14 +73,16 @@ const styles = {
     justifyContent: "flex-start",
   },
   logo: {
-    height: "75px",
+    height: "92px",
+    maxHeight: "95px",
+    maxWidth: "220px",
     objectFit: "contain" as const,
   },
   headerInfoGrid: {
     display: "grid",
     gridTemplateColumns: "1fr 1fr",
-    gap: "12px 24px",
-    padding: "0 8px",
+    gap: "14px 24px",
+    padding: "0 12px",
   },
   infoItem: {
     display: "flex",
@@ -269,7 +271,7 @@ export const BillPreview = forwardRef<HTMLDivElement, BillPreviewProps>(
             <img 
               src={solarRooftopImg} 
               alt="Solar Rooftop System" 
-              style={{ width: '210px', height: '80px', objectFit: 'cover', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.06)' }} 
+              style={{ width: '230px', height: '92px', objectFit: 'cover', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.06)' }} 
             />
           </div>
         </div>
@@ -544,7 +546,9 @@ export const BillPreview = forwardRef<HTMLDivElement, BillPreviewProps>(
                     </div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: '14px', fontWeight: '800', color: '#16a34a' }}>₹{billData.lifetimeSavings || '12.5 Lakhs'}</div>
+                    <div style={{ fontSize: '14px', fontWeight: '800', color: '#16a34a' }}>
+                      {billData.lifetimeSavings ? (billData.lifetimeSavings.startsWith('₹') ? billData.lifetimeSavings : `₹${billData.lifetimeSavings}`) : '₹12.5 Lakhs'}
+                    </div>
                     <div style={{ fontSize: '10px', color: '#94a3b8' }}>Est. Cumulative ROI</div>
                   </div>
                 </div>

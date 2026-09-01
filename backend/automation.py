@@ -1213,6 +1213,31 @@ class BillAutomation:
                         os.replace(tmp_path, final_target_path)
                         logger.info(f"[{self.port}] Renamed: {final_local_name}")
                         downloaded += 1
+
+                        # Upload PDF to Google Drive under Bill_Generation1/<consumer_number>/
+                        try:
+                            drive_folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
+                            if drive_folder_id and os.path.exists(final_target_path):
+                                service = get_drive_service()
+                                if service:
+                                    bill_gen_root_id = get_or_create_date_folder(service, "Bill_Generation1", drive_folder_id)
+                                    if bill_gen_root_id:
+                                        consumer_folder_id = get_or_create_date_folder(service, final_c_num, bill_gen_root_id)
+                                        if consumer_folder_id:
+                                            up_ok, pdf_fid, pdf_vurl, _ = upload_file_to_drive(
+                                                service, final_target_path, final_local_name, consumer_folder_id,
+                                                consumer_number=final_c_num,
+                                                month_year=extracted_data.get("bill_month_date"),
+                                                category='bill_pdf'
+                                            )
+                                            if up_ok:
+                                                logger.info(f"[{self.port}] ✓ Uploaded PDF to Drive: {final_local_name} -> {pdf_vurl}")
+                                                extracted_data["pdf_drive_file_id"] = pdf_fid
+                                                extracted_data["pdf_drive_view_url"] = pdf_vurl
+                                                extracted_data["pdf_file_name"] = final_local_name
+                        except Exception as drive_err:
+                            logger.warning(f"[{self.port}] Drive PDF upload note: {drive_err}")
+
                         # Cleanup stale files
                         for pattern in [f"*{c_num}*.pdf", "EB*.pdf"]:
                             for stale in glob.glob(os.path.join(target_dir, pattern)):
@@ -1256,6 +1281,31 @@ class BillAutomation:
                                     os.remove(final_target_path)
                                 os.replace(pdf_file, final_target_path)
                             downloaded += 1
+
+                            # Upload straggler PDF to Google Drive under Bill_Generation1/<consumer_number>/
+                            try:
+                                drive_folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
+                                if drive_folder_id and os.path.exists(final_target_path):
+                                    service = get_drive_service()
+                                    if service:
+                                        bill_gen_root_id = get_or_create_date_folder(service, "Bill_Generation1", drive_folder_id)
+                                        if bill_gen_root_id:
+                                            consumer_folder_id = get_or_create_date_folder(service, final_c_num, bill_gen_root_id)
+                                            if consumer_folder_id:
+                                                up_ok, pdf_fid, pdf_vurl, _ = upload_file_to_drive(
+                                                    service, final_target_path, final_local_name, consumer_folder_id,
+                                                    consumer_number=final_c_num,
+                                                    month_year=extracted_data.get("bill_month_date"),
+                                                    category='bill_pdf'
+                                                )
+                                                if up_ok:
+                                                    logger.info(f"[{self.port}] ✓ Uploaded straggler PDF to Drive: {final_local_name} -> {pdf_vurl}")
+                                                    extracted_data["pdf_drive_file_id"] = pdf_fid
+                                                    extracted_data["pdf_drive_view_url"] = pdf_vurl
+                                                    extracted_data["pdf_file_name"] = final_local_name
+                            except Exception as drive_err:
+                                logger.warning(f"[{self.port}] Straggler Drive PDF upload note: {drive_err}")
+
                             self._update_cache_and_stats(target_dir, extracted_data)
                     except Exception as e:
                         logger.error(f"[{self.port}] Failed to bulk rename {pdf_file}: {e}")
