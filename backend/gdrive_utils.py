@@ -138,58 +138,86 @@ def persist_tokens(access_token=None, refresh_token=None, expiry=None, client_id
         except Exception as e:
             logger.warning(f"Failed to write tokens to {token_path}: {e}")
 
+def get_service_account_service():
+    """Initializes Google Drive API service using service account JSON."""
+    sa_file = os.environ.get("GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE")
+    candidates = []
+    if sa_file:
+        if not os.path.isabs(sa_file):
+            candidates.append(os.path.abspath(os.path.join(PROJECT_ROOT, sa_file)))
+        else:
+            candidates.append(sa_file)
+    candidates.extend([
+        os.path.join(BACKEND_DIR, 'secrets', 'service_account.json'),
+        os.path.join(PROJECT_ROOT, 'google_confidentials.json'),
+        os.path.join(PROJECT_ROOT, 'backend', 'secrets', 'service_account.json')
+    ])
+    for c in candidates:
+        if c and os.path.exists(c):
+            try:
+                creds = service_account.Credentials.from_service_account_file(c, scopes=SCOPES)
+                service = build('drive', 'v3', credentials=creds, cache_discovery=False)
+                logger.info(f"✓ Initialized Google Drive service with service account: {c}")
+                return service
+            except Exception as e:
+                logger.error(f"Failed to initialize Drive service account from {c}: {e}")
+    logger.error("No valid service account file found for Google Drive.")
+    return None
+
 def get_drive_service():
-    """Initializes and returns the Google Drive API service with robust auto-refresh and token persistence."""
+    """Initializes and returns the Google Drive API service with robust auto-refresh, token persistence, and service account fallback."""
     sync_drive_env_from_file()
-    auth_mode = os.environ.get("GOOGLE_DRIVE_AUTH_MODE", "oauth").lower().strip()
+    auth_mode = os.environ.get("GOOGLE_DRIVE_AUTH_MODE", "service_account").lower().strip()
 
-    if auth_mode == "oauth":
-        creds_path = get_credentials_file_path()
-        token_path = get_token_file_path()
+    if auth_mode == "service_account":
+        sa_srv = get_service_account_service()
+        if sa_srv:
+            return sa_srv
 
-        creds_json = read_json_file(creds_path) if creds_path else None
-        token_json = read_json_file(token_path) if token_path else None
+    # OAuth mode (or fallback attempt)
+    creds_path = get_credentials_file_path()
+    token_path = get_token_file_path()
 
-        installed = (
-            creds_json.get("installed") or creds_json.get("web")
-            if isinstance(creds_json, dict) else None
-        )
+    creds_json = read_json_file(creds_path) if creds_path else None
+    token_json = read_json_file(token_path) if token_path else None
 
-        client_id = (
-            (installed.get("client_id") if installed else None)
-            or (token_json.get("client_id") if token_json else None)
-            or os.environ.get("GOOGLE_DRIVE_CLIENT_ID")
-            or ""
-        ).strip()
+    installed = (
+        creds_json.get("installed") or creds_json.get("web")
+        if isinstance(creds_json, dict) else None
+    )
 
-        client_secret = (
-            (installed.get("client_secret") if installed else None)
-            or (token_json.get("client_secret") if token_json else None)
-            or os.environ.get("GOOGLE_DRIVE_CLIENT_SECRET")
-            or ""
-        ).strip()
+    client_id = (
+        (installed.get("client_id") if installed else None)
+        or (token_json.get("client_id") if token_json else None)
+        or os.environ.get("GOOGLE_DRIVE_CLIENT_ID")
+        or ""
+    ).strip()
 
-        refresh_token = (
-            (token_json.get("refresh_token") if token_json else None)
-            or os.environ.get("GOOGLE_DRIVE_REFRESH_TOKEN")
-            or ""
-        ).strip()
+    client_secret = (
+        (installed.get("client_secret") if installed else None)
+        or (token_json.get("client_secret") if token_json else None)
+        or os.environ.get("GOOGLE_DRIVE_CLIENT_SECRET")
+        or ""
+    ).strip()
 
-        access_token = (
-            (token_json.get("token") or token_json.get("access_token") if token_json else None)
-            or os.environ.get("GOOGLE_DRIVE_ACCESS_TOKEN")
-            or ""
-        ).strip()
+    refresh_token = (
+        (token_json.get("refresh_token") if token_json else None)
+        or os.environ.get("GOOGLE_DRIVE_REFRESH_TOKEN")
+        or ""
+    ).strip()
 
-        if not client_id or not client_secret:
-            logger.error("Missing GOOGLE_DRIVE_CLIENT_ID / GOOGLE_DRIVE_CLIENT_SECRET or credentials file.")
-            return None
+    access_token = (
+        (token_json.get("token") or token_json.get("access_token") if token_json else None)
+        or os.environ.get("GOOGLE_DRIVE_ACCESS_TOKEN")
+        or ""
+    ).strip()
 
-        if not refresh_token and not access_token:
-            logger.error("Missing GOOGLE_DRIVE_REFRESH_TOKEN or token.json file.")
-            return None
+    if not client_id or not client_secret or (not refresh_token and not access_token):
+        logger.warning("OAuth credentials incomplete. Falling back to service account...")
+        return get_service_account_service()
 
-        # Build Credentials
+    # Build Credentials
+    try:
         creds = Credentials(
             token=access_token or None,
             refresh_token=refresh_token or None,
@@ -200,9 +228,9 @@ def get_drive_service():
         )
 
         # Proactive check / refresh
-        try:
-            if not creds.valid or not creds.token:
-                logger.info("Refreshing Google Drive access token proactively...")
+        if not creds.valid or not creds.token:
+            logger.info("Refreshing Google Drive access token proactively...")
+            try:
                 creds.refresh(Request())
                 persist_tokens(
                     access_token=creds.token,
@@ -211,9 +239,8 @@ def get_drive_service():
                     client_id=client_id,
                     client_secret=client_secret
                 )
-        except Exception as ref_err:
-            logger.warning(f"google.auth refresh attempt failed ({ref_err}); attempting manual token endpoint refresh...")
-            try:
+            except Exception as ref_err:
+                logger.warning(f"google.auth refresh failed ({ref_err}); attempting token endpoint...")
                 resp = requests.post(
                     "https://oauth2.googleapis.com/token",
                     data={
@@ -241,28 +268,14 @@ def get_drive_service():
                         client_id=client_id,
                         client_secret=client_secret
                     )
-                    logger.info("✓ Manual token refresh succeeded!")
                 else:
-                    logger.error(f"Manual token refresh failed: {resp.status_code} {res_data}")
-                    return None
-            except Exception as mex:
-                logger.error(f"Manual token refresh exception: {mex}")
-                return None
+                    logger.warning(f"Manual OAuth refresh failed: {res_data}. Falling back to service account...")
+                    return get_service_account_service()
 
         return build('drive', 'v3', credentials=creds, cache_discovery=False)
-
-    else:
-        # Service account mode
-        sa_file = os.environ.get("GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE")
-        if sa_file and not os.path.isabs(sa_file):
-            sa_file = os.path.abspath(os.path.join(PROJECT_ROOT, sa_file))
-            
-        if sa_file and os.path.exists(sa_file):
-            creds = service_account.Credentials.from_service_account_file(sa_file, scopes=SCOPES)
-            return build('drive', 'v3', credentials=creds, cache_discovery=False)
-            
-        logger.error(f"Service account file {sa_file} not found.")
-        return None
+    except Exception as oauth_err:
+        logger.warning(f"OAuth service init error ({oauth_err}); falling back to service account...")
+        return get_service_account_service()
 
 def get_or_create_date_folder(service, folder_name, parent_folder_id=None):
     """Finds or creates a folder with the given name under parent_folder_id."""
@@ -359,34 +372,70 @@ def record_drive_upload_metadata(
             uploaded_by
         ))
 
-        # 2. If consumer_number is provided, update bill_generation_details record
+        # 2. If consumer_number is provided, update or insert bill_generation_details record
         if consumer_number:
+            # Normalize consumer_number
+            clean_cnum = str(consumer_number).strip()
+            parsed_month_year = None
+            if month_year:
+                try:
+                    from datetime import datetime
+                    if re.match(r"^\d{4}-\d{2}-\d{2}$", str(month_year)):
+                        parsed_month_year = str(month_year)
+                    else:
+                        for fmt in ("%b_%Y", "%B_%Y", "%b %Y", "%B %Y", "%Y-%m", "%d-%m-%Y", "%d/%m/%Y", "%d-%m-%y", "%d/%m/%y"):
+                            try:
+                                parsed_month_year = datetime.strptime(str(month_year).strip(), fmt).strftime("%Y-%m-01")
+                                break
+                            except: pass
+                except Exception:
+                    pass
+
+            target_id = None
+            if parsed_month_year:
+                cursor.execute(
+                    "SELECT id FROM bill_generation_details WHERE consumer_number = %s AND month_year = %s LIMIT 1",
+                    (clean_cnum, parsed_month_year)
+                )
+                r = cursor.fetchone()
+                if r:
+                    target_id = r[0]
+
+            if not target_id:
+                cursor.execute(
+                    "SELECT id FROM bill_generation_details WHERE consumer_number = %s ORDER BY month_year DESC, id DESC LIMIT 1",
+                    (clean_cnum,)
+                )
+                r = cursor.fetchone()
+                if r:
+                    target_id = r[0]
+
             if ext_type == 'pdf' or category in ('bill_pdf', 'report_pdf'):
-                if month_year:
+                if target_id:
                     cursor.execute("""
                         UPDATE bill_generation_details 
                         SET pdf_drive_file_id = %s, pdf_drive_view_url = %s, pdf_file_name = %s 
-                        WHERE consumer_number = %s AND month_year = %s
-                    """, (file_id, actual_view_url, file_name, consumer_number, month_year))
+                        WHERE id = %s
+                    """, (file_id, actual_view_url, file_name, target_id))
                 else:
                     cursor.execute("""
-                        UPDATE bill_generation_details 
-                        SET pdf_drive_file_id = %s, pdf_drive_view_url = %s, pdf_file_name = %s 
-                        WHERE consumer_number = %s ORDER BY month_year DESC LIMIT 1
-                    """, (file_id, actual_view_url, file_name, consumer_number))
+                        INSERT INTO bill_generation_details 
+                        (consumer_number, month_year, reading_date, pdf_drive_file_id, pdf_drive_view_url, pdf_file_name)
+                        VALUES (%s, COALESCE(%s, CURDATE()), CURDATE(), %s, %s, %s)
+                    """, (clean_cnum, parsed_month_year, file_id, actual_view_url, file_name))
             elif ext_type == 'image' or category in ('bill_image', 'image'):
-                if month_year:
+                if target_id:
                     cursor.execute("""
                         UPDATE bill_generation_details 
-                        SET image_drive_file_id = %s, image_drive_view_url = %s, image_file_name = %s 
-                        WHERE consumer_number = %s AND month_year = %s
-                    """, (file_id, actual_view_url, file_name, consumer_number, month_year))
+                        SET image_drive_file_id = %s, image_drive_view_url = %s, image_file_name = %s, image_url = %s 
+                        WHERE id = %s
+                    """, (file_id, actual_view_url, file_name, actual_view_url, target_id))
                 else:
                     cursor.execute("""
-                        UPDATE bill_generation_details 
-                        SET image_drive_file_id = %s, image_drive_view_url = %s, image_file_name = %s 
-                        WHERE consumer_number = %s ORDER BY month_year DESC LIMIT 1
-                    """, (file_id, actual_view_url, file_name, consumer_number))
+                        INSERT INTO bill_generation_details 
+                        (consumer_number, month_year, reading_date, image_drive_file_id, image_drive_view_url, image_file_name, image_url)
+                        VALUES (%s, COALESCE(%s, CURDATE()), CURDATE(), %s, %s, %s, %s)
+                    """, (clean_cnum, parsed_month_year, file_id, actual_view_url, file_name, actual_view_url))
 
         conn.commit()
         cursor.close()

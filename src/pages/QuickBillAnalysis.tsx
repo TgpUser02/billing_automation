@@ -15,7 +15,7 @@ import { BillPreview } from "@/components/BillPreview";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import { format } from "date-fns";
-import logo from "@/assets/arin_logo.jpg";
+import logo from "@/assets/arin_logo.png";
 
 export default function QuickBillAnalysis() {
   const [activeTab, setActiveTab] = useState<"prospective" | "solar">("prospective");
@@ -190,6 +190,17 @@ export default function QuickBillAnalysis() {
       link.click();
       document.body.removeChild(link);
       toast.success("Report image downloaded successfully!");
+
+      // Background Drive Save
+      try {
+        const rawCNum = solarResult?.extracted_data?.consumer_number;
+        const bDate = solarResult?.extracted_data?.billing_date || solarResult?.extracted_data?.reading_date || format(new Date(), "yyyy-MM-dd");
+        if (rawCNum) {
+          api.saveBillImage(rawCNum, bDate, imgData).catch((err) => console.warn("Drive image save warning:", err));
+        }
+      } catch (saveErr) {
+        console.warn("Background drive save error:", saveErr);
+      }
     } catch (err: any) {
       toast.error("Image export failed: " + err.message);
     } finally {
@@ -241,6 +252,18 @@ export default function QuickBillAnalysis() {
       const cNum = solarResult?.extracted_data?.consumer_number || "Bill";
       pdf.save(`Arin_Energy_AI_Solar_Bill_Analysis_${cNum}.pdf`);
       toast.success("Report PDF with Attached Bill downloaded successfully!");
+
+      // Background Drive Save
+      try {
+        const rawCNum = solarResult?.extracted_data?.consumer_number;
+        const bDate = solarResult?.extracted_data?.billing_date || solarResult?.extracted_data?.reading_date || format(new Date(), "yyyy-MM-dd");
+        if (rawCNum) {
+          const pdfBase64 = pdf.output("datauristring");
+          api.saveBillImage(rawCNum, bDate, reportImg, pdfBase64).catch((err) => console.warn("Drive PDF save warning:", err));
+        }
+      } catch (saveErr) {
+        console.warn("Background drive save error:", saveErr);
+      }
     } catch (err: any) {
       toast.error("PDF export failed: " + err.message);
     } finally {
@@ -283,12 +306,23 @@ export default function QuickBillAnalysis() {
     ? String(solarResult.extracted_data.lifetime_savings)
     : `${(dynAnnualSavingsVal * 25 / 100000).toFixed(1)} Lakhs`;
 
+  // Dynamic Banking Calculation safeguard
+  const rawPrevBanked = parseFloat(String(solarResult?.extracted_data.previous_banked_unit || "0").replace(/[^0-9.]/g, '')) || 0;
+  const rawExpUnits = parseFloat(String(solarResult?.extracted_data.exported_to_grid || "0").replace(/[^0-9.]/g, '')) || 0;
+  const rawImpUnits = parseFloat(String(solarResult?.extracted_data.imported_from_grid || "0").replace(/[^0-9.]/g, '')) || 0;
+  let calculatedBanked = parseFloat(String(solarResult?.extracted_data.current_banked_unit || "0").replace(/[^0-9.]/g, '')) || 0;
+  if (calculatedBanked === 0 || (calculatedBanked === rawPrevBanked && rawExpUnits !== rawImpUnits)) {
+    calculatedBanked = Math.max(0, Math.round(rawPrevBanked + (rawExpUnits - rawImpUnits)));
+  }
+
   // Map Solar OCR Result into BillPreview Props
   const mappedBillData = solarResult ? {
     consumerName: solarResult.extracted_data.consumer_name || "MSEDCL Consumer",
     consumerNumber: solarResult.extracted_data.consumer_number || "",
     capacity: String(parsedCap),
     readingDate: solarResult.extracted_data.reading_date || format(new Date(), "dd/MM/yyyy"),
+    billingDate: solarResult.extracted_data.billing_date || solarResult.extracted_data.bill_date || solarResult.extracted_data.month_year || solarResult.extracted_data.reading_date || format(new Date(), "dd/MM/yyyy"),
+    billMonth: solarResult.extracted_data.bill_month || "",
     billingAmount: String(solarResult.extracted_data.billing_amount ?? 0),
     billingUnits: String(solarResult.extracted_data.billing_units ?? "0").replace(/\s*kWh/gi, ''),
     generatedElectricity: String(solarResult.extracted_data.generated_electricity || `${Math.round(parsedCap * 120)} kWh`),
@@ -297,7 +331,7 @@ export default function QuickBillAnalysis() {
     daytimeSelfConsumption: String(solarResult.extracted_data.daytime_self_consumption || `${Math.round(parsedCap * 55)} kWh`),
     totalConsumption: String(solarResult.extracted_data.total_consumption || `${Math.round(parsedCap * 110)} kWh`),
     previousBankedUnit: String(solarResult.extracted_data.previous_banked_unit || "0 Units").replace(/\s*Units/gi, ''),
-    currentBankedUnit: String(solarResult.extracted_data.current_banked_unit || "0 Units").replace(/\s*Units/gi, ''),
+    currentBankedUnit: String(calculatedBanked),
     systemHealth: solarResult.extracted_data.system_health || "GOOD",
     weatherCondition: solarResult.weather_ai_analysis?.weather_condition,
     performanceScore: solarResult.weather_ai_analysis?.performance_score,

@@ -149,6 +149,7 @@ def init_database():
                 consumer_number VARCHAR(50) NOT NULL,
                 month_year VARCHAR(20) NOT NULL,
                 bill_month VARCHAR(50) NULL,
+                billing_date DATE NULL,
                 reading_date DATE NULL,
                 import_units DECIMAL(10,2) DEFAULT 0,
                 export_units DECIMAL(10,2) DEFAULT 0,
@@ -180,6 +181,7 @@ def init_database():
         """)
 
         alter_bill_queries = [
+            "ALTER TABLE bill_generation_details ADD COLUMN billing_date DATE NULL",
             "ALTER TABLE bill_generation_details ADD COLUMN pdf_drive_file_id VARCHAR(255) NULL",
             "ALTER TABLE bill_generation_details ADD COLUMN pdf_drive_view_url TEXT NULL",
             "ALTER TABLE bill_generation_details ADD COLUMN pdf_file_name VARCHAR(255) NULL",

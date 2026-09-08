@@ -104,7 +104,9 @@ for fname in os.listdir(pdf_folder):
     print(f"Uploading {fname} as {consumer_folder_name}/{drive_filename} ...")
     
     # Global retry handled in gdrive_utils.py
-    success, msg = upload_file_to_drive(service, fpath, drive_filename, consumer_folder_id)
+    up_res = upload_file_to_drive(service, fpath, drive_filename, consumer_folder_id, consumer_number=c_num, category='bill_pdf')
+    success = up_res[0] if isinstance(up_res, (tuple, list)) else bool(up_res)
+    msg = up_res[3] if isinstance(up_res, (tuple, list)) and len(up_res) > 3 else str(up_res)
 
     if success:
         print(f"Successfully uploaded: {drive_filename}")
@@ -146,7 +148,9 @@ if os.path.exists(report_folder_local):
                 if rname.endswith((".csv", ".xlsx")):
                     rpath = os.path.join(report_folder_local, rname)
                     print(f"Uploading report: {rname} to Report/{formatted_date}/ ...")
-                    success, msg = upload_file_to_drive(service, rpath, rname, report_date_folder_id)
+                    up_res = upload_file_to_drive(service, rpath, rname, report_date_folder_id, category='report')
+                    success = up_res[0] if isinstance(up_res, (tuple, list)) else bool(up_res)
+                    msg = up_res[3] if isinstance(up_res, (tuple, list)) and len(up_res) > 3 else str(up_res)
                     if success:
                         print(f"Successfully uploaded report: {rname}")
                         # We don't delete local reports, just keep them organized

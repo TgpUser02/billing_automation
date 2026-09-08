@@ -335,10 +335,10 @@ export const api = {
         return checkResponse(response);
     },
 
-    saveBillImage: async (consumerNumber: string, dateStr: string, imageBase64: string) => {
+    saveBillImage: async (consumerNumber: string, dateStr: string, imageBase64?: string, pdfBase64?: string) => {
         const response = await authFetch(`${API_BASE_URL}/save-bill-images`, {
             method: "POST",
-            body: JSON.stringify({ consumerNumber, dateStr, imageBase64 }),
+            body: JSON.stringify({ consumerNumber, dateStr, imageBase64: imageBase64 || "", pdfBase64: pdfBase64 || null }),
         });
         return checkResponse(response);
     },
@@ -740,6 +740,25 @@ export const api = {
     },
     testDriveConnection: async () => {
         const response = await authFetch(`${API_BASE_URL}/admin/drive/test`);
+        return checkResponse(response);
+    },
+    getDriveConfig: async () => {
+        const response = await authFetch(`${API_BASE_URL}/admin/drive/config`);
+        return checkResponse(response);
+    },
+    saveDriveConfig: async (config: {
+        auth_mode?: string;
+        refresh_token?: string;
+        auth_code?: string;
+        client_id?: string;
+        client_secret?: string;
+        folder_id?: string;
+        service_account_json?: string;
+    }) => {
+        const response = await authFetch(`${API_BASE_URL}/admin/drive/config`, {
+            method: "POST",
+            body: JSON.stringify(config),
+        });
         return checkResponse(response);
     }
 };

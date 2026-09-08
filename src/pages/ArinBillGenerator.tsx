@@ -376,6 +376,7 @@ export default function ArinBillGenerator() {
                     consumerName: targetData.customer_name || consumer.name || "N/A",
                     consumerNumber: targetData.consumer_number || targetId,
                     readingDate: formatDate(targetData.reading_date),
+                    billingDate: formatDate(targetData.billing_date || targetData.month_year || targetData.reading_date),
                     generatedElectricity: targetData.generated || 0,
                     exportedToGrid: targetData.export || 0,
                     importedFromGrid: targetData.import || 0,

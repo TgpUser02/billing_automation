@@ -1,8 +1,8 @@
 import { forwardRef } from 'react';
 import { format } from 'date-fns';
 import { getMonthYear } from '@/lib/billCalculations';
-import logo from "@/assets/arin_logo.jpg";
-import solarRooftopImg from "@/assets/solar_rooftop_system.png";
+import logo from "@/assets/arin_logo.png";
+import aiSolarBrainImg from "@/assets/ai_solar_brain.jpg";
 import panelIconImg from "@/assets/panel_icon.png";
 import {
   Zap,
@@ -32,6 +32,81 @@ interface BillPreviewProps {
   selectedDate: Date;
 }
 
+const getBillMonthYear = (billData: any, fallbackDate: Date): { monthName: string; yearStr: string } => {
+  const candidates = [
+    billData?.billingDate,
+    billData?.billDate,
+    billData?.billMonth,
+    billData?.billingMonth,
+    billData?.monthYear,
+    billData?.readingDate
+  ];
+
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== 'string') continue;
+    const trimmed = candidate.trim();
+    if (!trimmed || trimmed.toUpperCase() === 'N/A') continue;
+
+    // DD/MM/YYYY or DD/MM/YY (Indian bill format: DD/MM/YY)
+    const ddmmyy = trimmed.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})$/);
+    if (ddmmyy) {
+      const day = parseInt(ddmmyy[1], 10);
+      const month = parseInt(ddmmyy[2], 10);
+      let year = parseInt(ddmmyy[3], 10);
+      if (year < 100) year += 2000;
+      const monthIdx = month - 1;
+      if (monthIdx >= 0 && monthIdx <= 11 && year > 1990 && year < 2100) {
+        const d = new Date(year, monthIdx, 1);
+        return { monthName: format(d, 'MMMM').toUpperCase(), yearStr: String(year) };
+      }
+    }
+
+    // DD-MMM-YYYY or DD-MMM-YY (e.g. 02-Aug-26, 02-August-2026)
+    const ddmmmyy = trimmed.match(/^(\d{1,2})[-/.\s]+([A-Za-z]+)[-/.\s]+(\d{2,4})$/);
+    if (ddmmmyy) {
+      const mStr = ddmmmyy[2];
+      let yNum = parseInt(ddmmmyy[3], 10);
+      if (yNum < 100) yNum += 2000;
+      const parsedDate = new Date(`${mStr} 1, ${yNum}`);
+      if (!isNaN(parsedDate.getTime())) {
+        return { monthName: format(parsedDate, 'MMMM').toUpperCase(), yearStr: String(yNum) };
+      }
+    }
+
+    // YYYY-MM-DD
+    const yyyymmdd = trimmed.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+    if (yyyymmdd) {
+      const year = parseInt(yyyymmdd[1], 10);
+      const monthIdx = parseInt(yyyymmdd[2], 10) - 1;
+      if (monthIdx >= 0 && monthIdx <= 11 && year > 1990 && year < 2100) {
+        const d = new Date(year, monthIdx, 1);
+        return { monthName: format(d, 'MMMM').toUpperCase(), yearStr: String(year) };
+      }
+    }
+
+    // "Aug-26", "Aug-2026", "August 2026", "AUGUST-2026"
+    const myMatch = trimmed.match(/^([A-Za-z]+)[-\s/]+(\d{2,4})$/);
+    if (myMatch) {
+      const mStr = myMatch[1];
+      let yNum = parseInt(myMatch[2], 10);
+      if (yNum < 100) yNum += 2000;
+      const parsedDate = new Date(`${mStr} 1, ${yNum}`);
+      if (!isNaN(parsedDate.getTime())) {
+        return { monthName: format(parsedDate, 'MMMM').toUpperCase(), yearStr: String(yNum) };
+      }
+    }
+
+    // Native Date parse fallback
+    const d = new Date(trimmed);
+    if (!isNaN(d.getTime())) {
+      return { monthName: format(d, 'MMMM').toUpperCase(), yearStr: format(d, 'yyyy') };
+    }
+  }
+
+  const safeDate = fallbackDate instanceof Date && !isNaN(fallbackDate.getTime()) ? fallbackDate : new Date();
+  return { monthName: format(safeDate, 'MMMM').toUpperCase(), yearStr: format(safeDate, 'yyyy') };
+};
+
 const styles = {
   container: {
     width: "1200px",
@@ -59,30 +134,33 @@ const styles = {
   topCard: {
     backgroundColor: "#ffffff",
     borderRadius: "20px",
-    padding: "20px 28px",
+    padding: 0,
     display: "grid",
-    gridTemplateColumns: "230px 1fr 230px",
-    alignItems: "center",
-    gap: "24px",
+    gridTemplateColumns: "250px 1fr 180px",
+    alignItems: "stretch",
+    gap: "0",
     boxShadow: "0 4px 20px rgba(0,0,0,0.03)",
     border: "1px solid #e2e8f0",
+    overflow: "hidden",
   },
   logoSection: {
     display: "flex",
     alignItems: "center",
     justifyContent: "flex-start",
+    padding: "16px 20px 16px 24px",
   },
   logo: {
     height: "92px",
-    maxHeight: "95px",
-    maxWidth: "220px",
+    maxHeight: "96px",
+    maxWidth: "245px",
     objectFit: "contain" as const,
   },
   headerInfoGrid: {
     display: "grid",
     gridTemplateColumns: "1fr 1fr",
-    gap: "14px 24px",
-    padding: "0 12px",
+    gap: "10px 24px",
+    padding: "16px 20px",
+    alignItems: "center",
   },
   infoItem: {
     display: "flex",
@@ -218,9 +296,7 @@ export const BillPreview = forwardRef<HTMLDivElement, BillPreviewProps>(
       );
     }
 
-    const safeDate = selectedDate instanceof Date && !isNaN(selectedDate.getTime()) ? selectedDate : new Date();
-    const monthName = format(safeDate, 'MMMM').toUpperCase();
-    const yearStr = format(safeDate, 'yyyy');
+    const { monthName, yearStr } = getBillMonthYear(billData, selectedDate);
     const isHealthPoor = (billData.systemHealth || 'GOOD').toUpperCase() === 'POOR';
 
     const hasWarrantyInfo = Boolean(
@@ -243,35 +319,60 @@ export const BillPreview = forwardRef<HTMLDivElement, BillPreviewProps>(
           </div>
 
           <div style={styles.headerInfoGrid}>
-            <div style={styles.infoItem}>
-              <User size={18} color="#16a34a" />
-              <span style={styles.infoLabel}>Consumer:</span>
-              <span style={{ color: '#0f172a', fontWeight: '800', fontSize: '15px' }}>{billData.consumerName}</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={styles.infoItem}>
+                <User size={18} color="#16a34a" />
+                <span style={styles.infoLabel}>Consumer:</span>
+                <span style={{ color: '#0f172a', fontWeight: '800', fontSize: '15px' }}>{billData.consumerName}</span>
+              </div>
+              <div style={styles.infoItem}>
+                <Calendar size={18} color="#16a34a" />
+                <span style={styles.infoLabel}>Reading Date:</span>
+                <span style={{ color: '#0f172a', fontWeight: '800', fontSize: '15px' }}>{billData.readingDate || 'N/A'}</span>
+              </div>
+              <div style={styles.infoItem}>
+                <Calendar size={18} color="#16a34a" />
+                <span style={styles.infoLabel}>Billing Date:</span>
+                <span style={{ color: '#0f172a', fontWeight: '800', fontSize: '15px' }}>{billData.billingDate || billData.readingDate || 'N/A'}</span>
+              </div>
             </div>
-            <div style={styles.infoItem}>
-              <Zap size={18} color="#16a34a" />
-              <span style={styles.infoLabel}>Capacity:</span>
-              <span style={{ color: '#0f172a', fontWeight: '800', fontSize: '15px' }}>{billData.capacity} kW</span>
-            </div>
-            <div style={styles.infoItem}>
-              <Calendar size={18} color="#16a34a" />
-              <span style={styles.infoLabel}>Reading Date:</span>
-              <span style={{ color: '#0f172a', fontWeight: '800', fontSize: '15px' }}>{billData.readingDate}</span>
-            </div>
-            <div style={styles.infoItem}>
-              <Hash size={18} color="#16a34a" />
-              <span style={styles.infoLabel}>Consumer No:</span>
-              <span style={{ color: '#0f172a', fontWeight: '800', fontSize: '15px', letterSpacing: '0.5px' }}>
-                {billData.consumerNumber || billData.consumerNo || 'N/A'}
-              </span>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={styles.infoItem}>
+                <Zap size={18} color="#16a34a" />
+                <span style={styles.infoLabel}>Capacity:</span>
+                <span style={{ color: '#0f172a', fontWeight: '800', fontSize: '15px' }}>{billData.capacity} kW</span>
+              </div>
+              <div style={styles.infoItem}>
+                <Hash size={18} color="#16a34a" />
+                <span style={styles.infoLabel}>Consumer No:</span>
+                <span style={{ color: '#0f172a', fontWeight: '800', fontSize: '15px', letterSpacing: '0.5px' }}>
+                  {billData.consumerNumber || billData.consumerNo || 'N/A'}
+                </span>
+              </div>
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+          <div style={{ 
+            height: '100%', 
+            minHeight: '124px',
+            width: '100%', 
+            backgroundColor: '#01040d', 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            overflow: 'hidden' 
+          }}>
             <img 
-              src={solarRooftopImg} 
-              alt="Solar Rooftop System" 
-              style={{ width: '230px', height: '92px', objectFit: 'cover', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.06)' }} 
+              src={aiSolarBrainImg} 
+              alt="AI Solar Bill Analysis" 
+              style={{ 
+                width: '100%', 
+                height: '100%', 
+                objectFit: 'cover',
+                objectPosition: 'center',
+                display: 'block' 
+              }} 
             />
           </div>
         </div>

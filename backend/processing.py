@@ -234,6 +234,7 @@ def extract_data_from_pdf(pdf_path, default_date=None):
         "generation_units": 0.0,
         "billing_amount": 0.0,
         "reading_date": None,
+        "billing_date": None,
         "bill_month_date": None,
         "prev_bank_units": 0.0,
         "bank_solar_units": 0.0,
@@ -390,6 +391,18 @@ def extract_data_from_pdf(pdf_path, default_date=None):
                 try:
                     data["reading_date"] = datetime.strptime(raw_rd, "%d-%m-%Y").strftime("%Y-%m-%d")
                 except: pass
+
+            # ── 4b. Billing Date (देयक दिनांक) ──────────────────────────────
+            bd_match = re.search(r"(?:देयक\s*दिनांक|Bill\s*Date|Date\s*of\s*Bill|देयक\s*तारीख|Deyak\s*Dinank)[\s:\-]+(\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})", text_trans, re.IGNORECASE)
+            if bd_match:
+                raw_bd = bd_match.group(1).replace("/", "-")
+                try:
+                    data["billing_date"] = datetime.strptime(raw_bd, "%d-%m-%Y").strftime("%Y-%m-%d")
+                except: pass
+            elif data.get("bill_month_date"):
+                data["billing_date"] = data["bill_month_date"]
+            elif data.get("reading_date"):
+                data["billing_date"] = data["reading_date"]
 
             # ── 5. Solar Units (Import / Export / Generation) ───────────────
             # Extraction based on consumption table columns
@@ -832,12 +845,14 @@ def generate_generation_reports(target_dir, data_list, threshold=75):
                 if drive_root_id:
                     service = get_drive_service()
                     if service:
-                        bill_gen_root_id = get_or_create_date_folder(service, "billing_automation", drive_root_id)
+                        bill_gen_root_id = get_or_create_date_folder(service, "Bill_Generation1", drive_root_id)
                         report_root_id = get_or_create_date_folder(service, "Report", bill_gen_root_id)
                         report_date_folder_id = get_or_create_date_folder(service, formatted_date, report_root_id)
                         
                         if report_date_folder_id:
-                            success, g_msg = upload_file_to_drive(service, filepath, filename, report_date_folder_id)
+                            up_res = upload_file_to_drive(service, filepath, filename, report_date_folder_id, category='report')
+                            success = up_res[0] if isinstance(up_res, (tuple, list)) else bool(up_res)
+                            g_msg = up_res[3] if isinstance(up_res, (tuple, list)) and len(up_res) > 3 else str(up_res)
                             if success:
                                 logger.info(f"✓ Successfully uploaded report {filename} to Google Drive")
                             else:
@@ -930,12 +945,14 @@ def generate_mismatch_report(target_dir, portal_consumers, date_str):
             if drive_root_id:
                 service = get_drive_service()
                 if service:
-                    bill_gen_root_id = get_or_create_date_folder(service, "billing_automation", drive_root_id)
+                    bill_gen_root_id = get_or_create_date_folder(service, "Bill_Generation1", drive_root_id)
                     report_root_id = get_or_create_date_folder(service, "Report", bill_gen_root_id)
                     report_date_folder_id = get_or_create_date_folder(service, formatted_date, report_root_id)
                     
                     if report_date_folder_id:
-                        success, g_msg = upload_file_to_drive(service, filepath, filename, report_date_folder_id)
+                        up_res = upload_file_to_drive(service, filepath, filename, report_date_folder_id, category='report')
+                        success = up_res[0] if isinstance(up_res, (tuple, list)) else bool(up_res)
+                        g_msg = up_res[3] if isinstance(up_res, (tuple, list)) and len(up_res) > 3 else str(up_res)
                         if success:
                             logger.info(f"✓ Successfully uploaded mismatch report {filename} to Google Drive")
                         else:
@@ -1093,7 +1110,7 @@ def save_to_mysql(bill_data, conn=None):
                 return val.strftime('%Y-%m-%d')
 
             val_str = str(val).strip()
-            for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%b %Y', '%B %Y', '%b%Y', '%B%Y'):
+            for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%d/%m/%y', '%d-%m-%y', '%d.%m.%Y', '%d.%m.%y', '%b %Y', '%B %Y', '%b%Y', '%B%Y'):
                 try:
                     return dt_mod.datetime.strptime(val_str, fmt).strftime('%Y-%m-%d')
                 except Exception:
@@ -1102,6 +1119,7 @@ def save_to_mysql(bill_data, conn=None):
 
         m_year = parse_date(bill_month_date)
         r_date = parse_date(reading_date_raw) or m_year
+        b_date_parsed = parse_date(bill_data.get('billing_date') or bill_data.get('bill_date') or bill_data.get('bill_generation_date')) or m_year or r_date
 
         if not m_year:
             if re.match(r"\d{4}-\d{2}-\d{2}", str(bill_month_date)):
@@ -1131,6 +1149,7 @@ def save_to_mysql(bill_data, conn=None):
             'consumer_number': consumer_number,
             'month_year': m_year,
             'bill_month': m_year,
+            'billing_date': b_date_parsed,
             'reading_date': r_date,
             'bill_date': r_date,
             'import_units': import_units,

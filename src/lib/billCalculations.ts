@@ -25,6 +25,7 @@ export interface BillInputs {
   consumerName: string;
   consumerNumber: string;
   readingDate: string;
+  billingDate?: string;
   generatedElectricity: number;
   exportedToGrid: number;
   importedFromGrid: number;
@@ -52,6 +53,7 @@ export interface CalculatedBillData {
   consumerName: string;
   consumerNumber: string;
   readingDate: string;
+  billingDate?: string;
   generatedElectricity: number;
   exportedToGrid: number;
   importedFromGrid: number;
@@ -101,9 +103,12 @@ export function calculateBillData(
   const billingUnits = totalConsumption - gen;
 
   // 4) current banked units
-  let currentBankedUnit = prevBanked;
-  if ((exp - imp) > 0) {
-    currentBankedUnit = prevBanked + (exp - imp);
+  let currentBankedUnit = Math.max(0, prevBanked + (exp - imp));
+  if (inputs.currentBankedUnit !== undefined && inputs.currentBankedUnit !== null && !isNaN(Number(inputs.currentBankedUnit))) {
+    const passedVal = Number(inputs.currentBankedUnit);
+    if (passedVal > 0 || (prevBanked === 0 && exp === 0 && imp === 0)) {
+      currentBankedUnit = passedVal;
+    }
   }
 
   // 5) system health: GOOD if gen/capacity > threshold, else POOR (default threshold 75)
@@ -187,6 +192,7 @@ export function calculateBillData(
     consumerName: inputs.consumerName,
     consumerNumber: inputs.consumerNumber,
     readingDate: inputs.readingDate,
+    billingDate: inputs.billingDate || inputs.readingDate,
     generatedElectricity: gen,
     exportedToGrid: exp,
     importedFromGrid: imp,

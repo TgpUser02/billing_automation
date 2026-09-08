@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { PageHeader } from "@/components/PageHeader";
-import { api } from "@/lib/api";
+import { api, API_BASE_URL } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { confirmAction } from "@/lib/swal";
 import { Button } from "@/components/ui/button";
@@ -45,7 +45,11 @@ import {
     Image as ImageIcon,
     Cloud,
     Folder,
-    FileSpreadsheet
+    FileSpreadsheet,
+    Copy,
+    Eye,
+    EyeOff,
+    Lock
 } from "lucide-react";
 
 interface LookupItem {
@@ -174,6 +178,103 @@ export default function Settings() {
     const [isLoadingDriveFiles, setIsLoadingDriveFiles] = useState(false);
     const [driveSearchQuery, setDriveSearchQuery] = useState("");
     const [driveFilterType, setDriveFilterType] = useState("all");
+
+    // Google Drive Authentication & Configuration State
+    const [driveConfig, setDriveConfig] = useState<any>(null);
+    const [inputRefreshToken, setInputRefreshToken] = useState("");
+    const [inputFolderId, setInputFolderId] = useState("");
+    const [inputClientId, setInputClientId] = useState("");
+    const [inputClientSecret, setInputClientSecret] = useState("");
+    const [inputAuthMode, setInputAuthMode] = useState("oauth");
+    const [inputServiceAccountJson, setInputServiceAccountJson] = useState("");
+    const [isLoadingDriveConfig, setIsLoadingDriveConfig] = useState(false);
+    const [isSavingDriveConfig, setIsSavingDriveConfig] = useState(false);
+    const [showAdvancedDriveConfig, setShowAdvancedDriveConfig] = useState(false);
+    const [showRefreshToken, setShowRefreshToken] = useState(false);
+    const [hasCopiedUri, setHasCopiedUri] = useState(false);
+
+    const fetchDriveConfig = async () => {
+        setIsLoadingDriveConfig(true);
+        try {
+            const res = await api.getDriveConfig();
+            if (res.status === "success") {
+                setDriveConfig(res);
+                setInputAuthMode(res.auth_mode || "oauth");
+                setInputFolderId(res.folder_id || "");
+                setInputClientId(res.client_id || "");
+            }
+        } catch (err: any) {
+            console.error("Failed to load drive config:", err);
+        } finally {
+            setIsLoadingDriveConfig(false);
+        }
+    };
+
+    const handleSaveDriveConfig = async (e?: React.FormEvent) => {
+        if (e) e.preventDefault();
+        setIsSavingDriveConfig(true);
+        try {
+            const payload: any = {
+                auth_mode: inputAuthMode,
+            };
+            if (inputRefreshToken.trim()) {
+                payload.refresh_token = inputRefreshToken.trim();
+            }
+            if (inputFolderId.trim()) {
+                payload.folder_id = inputFolderId.trim();
+            }
+            if (inputClientId.trim()) {
+                payload.client_id = inputClientId.trim();
+            }
+            if (inputClientSecret.trim()) {
+                payload.client_secret = inputClientSecret.trim();
+            }
+            if (inputServiceAccountJson.trim()) {
+                payload.service_account_json = inputServiceAccountJson.trim();
+            }
+
+            const res = await api.saveDriveConfig(payload);
+            if (res.status === "success") {
+                toast({
+                    title: "Drive Settings Saved!",
+                    description: res.connection?.connected
+                        ? `Connected: ${res.connection.user_email || res.connection.user_display_name} (${res.connection.storage_usage_mb || 0} MB used)`
+                        : res.message || "Drive credentials updated.",
+                    className: res.connection?.connected ? "bg-emerald-600 text-white font-bold" : undefined
+                });
+                setInputRefreshToken("");
+                setInputClientSecret("");
+                setInputServiceAccountJson("");
+                fetchDriveConfig();
+                fetchDriveFiles();
+            } else {
+                toast({
+                    title: "Update Failed",
+                    description: res.message || "Failed to update drive config.",
+                    variant: "destructive"
+                });
+            }
+        } catch (err: any) {
+            toast({
+                title: "Error Saving Drive Config",
+                description: err.message || "Could not save settings.",
+                variant: "destructive"
+            });
+        } finally {
+            setIsSavingDriveConfig(false);
+        }
+    };
+
+    const handleCopyRedirectUri = (uri: string) => {
+        if (!uri) return;
+        navigator.clipboard.writeText(uri);
+        setHasCopiedUri(true);
+        toast({
+            title: "Redirect URI Copied!",
+            description: "Paste this into Google Cloud Console -> Credentials -> Authorized redirect URIs."
+        });
+        setTimeout(() => setHasCopiedUri(false), 3000);
+    };
 
     const fetchDriveFiles = async () => {
         setIsLoadingDriveFiles(true);
@@ -333,11 +434,13 @@ export default function Settings() {
         fetchPortalUsers();
         fetchDbBackupsAndStats();
         fetchDriveFiles();
+        fetchDriveConfig();
     }, []);
 
     useEffect(() => {
         if (activeTab === "drive") {
             fetchDriveFiles();
+            fetchDriveConfig();
         } else if (activeTab === "backups") {
             fetchDbBackupsAndStats();
         }
@@ -951,6 +1054,269 @@ export default function Settings() {
 
                     {/* TAB 2: GOOGLE DRIVE CLOUD FILES EXPLORER */}
                     <TabsContent value="drive" className="space-y-6 animate-in fade-in-50 duration-300">
+                        {/* GOOGLE DRIVE ACCOUNT & AUTHENTICATION MANAGEMENT CARD */}
+                        <div className="bg-card border border-border/80 rounded-3xl p-6 shadow-sm space-y-6">
+                            {/* Card Header & Status */}
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-border/60">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400">
+                                        <Key className="w-5 h-5" />
+                                    </div>
+                                    <div>
+                                        <div className="flex items-center gap-2">
+                                            <h3 className="text-lg font-black text-foreground">Google Drive Account & Authentication</h3>
+                                            {driveConfig?.connection?.connected ? (
+                                                <Badge className="bg-emerald-600 text-white font-black text-[11px] gap-1 py-0.5 px-2.5 shadow-xs">
+                                                    <Check className="w-3 h-3 stroke-[3]" />
+                                                    Connected
+                                                </Badge>
+                                            ) : (
+                                                <Badge variant="outline" className="border-amber-500/40 text-amber-700 dark:text-amber-400 bg-amber-500/10 font-black text-[11px] gap-1 py-0.5 px-2.5">
+                                                    <AlertCircle className="w-3 h-3" />
+                                                    Setup / Re-auth Needed
+                                                </Badge>
+                                            )}
+                                        </div>
+                                        <p className="text-xs text-muted-foreground mt-0.5">
+                                            Manage your Google Drive connection for bill PDFs, card images, and zero-generation spreadsheets.
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Current Connected Details */}
+                                {driveConfig?.connection?.connected && (
+                                    <div className="flex flex-wrap items-center gap-3 bg-muted/40 border border-border/80 rounded-2xl px-4 py-2 text-xs">
+                                        <div>
+                                            <span className="text-muted-foreground font-semibold">Account: </span>
+                                            <span className="font-black text-foreground">{driveConfig.connection.user_email || driveConfig.connection.user_display_name}</span>
+                                        </div>
+                                        <div className="w-px h-3.5 bg-border" />
+                                        <div>
+                                            <span className="text-muted-foreground font-semibold">Usage: </span>
+                                            <span className="font-black text-foreground">{driveConfig.connection.storage_usage_mb} MB / {driveConfig.connection.storage_limit_mb} MB</span>
+                                        </div>
+                                        <div className="w-px h-3.5 bg-border" />
+                                        <div>
+                                            <span className="text-muted-foreground font-semibold">Mode: </span>
+                                            <Badge variant="secondary" className="text-[10px] font-extrabold uppercase tracking-wider ml-1 py-0 px-1.5">
+                                                {driveConfig.auth_mode || "oauth"}
+                                            </Badge>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Two Authentication Actions: 1-Click Browser OAuth vs Manual Token Input */}
+                            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                                {/* Left: Quick 1-Click Connect Button & Redirect URI for Hosting */}
+                                <div className="lg:col-span-5 bg-blue-50/50 dark:bg-blue-950/20 border border-blue-500/20 rounded-2xl p-5 flex flex-col justify-between gap-4">
+                                    <div className="space-y-2">
+                                        <div className="flex items-center gap-2">
+                                            <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                                            <h4 className="text-sm font-black text-foreground">Option A: 1-Click Google OAuth</h4>
+                                        </div>
+                                        <p className="text-xs text-muted-foreground leading-relaxed">
+                                            Click to log in with your Google account in your browser and automatically authorize Google Drive access with your user storage quota.
+                                        </p>
+                                    </div>
+
+                                    <div className="space-y-3 pt-2">
+                                        <div className="flex flex-wrap gap-2">
+                                            <a
+                                                href={`${API_BASE_URL}/drive/auth/login`}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="inline-flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-md h-10 px-5 transition-all flex-1"
+                                            >
+                                                <ExternalLink className="w-4 h-4" />
+                                                Sign In With Google
+                                            </a>
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={handleTestDrive}
+                                                disabled={isTestingDrive}
+                                                className="rounded-xl border-border text-xs font-bold gap-1.5 h-10 px-3.5 bg-card"
+                                            >
+                                                <UploadCloud className={`w-3.5 h-3.5 text-blue-500 ${isTestingDrive ? "animate-spin" : ""}`} />
+                                                Test
+                                            </Button>
+                                        </div>
+
+                                        {/* Hosting Callback URI Helper */}
+                                        <div className="bg-card border border-border/80 rounded-xl p-3 text-[11px] space-y-1.5 shadow-xs">
+                                            <div className="flex items-center justify-between text-muted-foreground font-bold">
+                                                <span>OAuth Redirect URI (For Hosted Domain/IP):</span>
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="h-6 px-2 text-[10px] font-black text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 gap-1"
+                                                    onClick={() => handleCopyRedirectUri(driveConfig?.redirect_uri || `${window.location.origin}/api/drive/oauth/callback`)}
+                                                >
+                                                    {hasCopiedUri ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                                                    {hasCopiedUri ? "Copied" : "Copy URI"}
+                                                </Button>
+                                            </div>
+                                            <code className="block bg-muted/80 text-foreground font-mono text-[10.5px] p-1.5 rounded-lg border border-border/60 overflow-x-auto whitespace-nowrap">
+                                                {driveConfig?.redirect_uri || `${window.location.origin}/api/drive/oauth/callback`}
+                                            </code>
+                                            <p className="text-[10px] text-muted-foreground italic">
+                                                Add this exact URI in Google Cloud Console &rarr; Credentials &rarr; Authorized redirect URIs.
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Right: Manual Token / Account Input Form (For Hosted Environments) */}
+                                <div className="lg:col-span-7 bg-muted/20 border border-border/80 rounded-2xl p-5 space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <Lock className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                                            <h4 className="text-sm font-black text-foreground">Option B: Manual Auth Token / Credentials</h4>
+                                        </div>
+                                        <Badge variant="outline" className="text-[10px] font-extrabold uppercase border-emerald-500/30 text-emerald-700 bg-emerald-50 dark:bg-emerald-950/30">
+                                            Hosting Friendly
+                                        </Badge>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground">
+                                        Directly paste a Refresh Token or Authorization Code to configure cloud access on remote servers without browser redirects.
+                                    </p>
+
+                                    <form onSubmit={handleSaveDriveConfig} className="space-y-4 pt-1">
+                                        {/* Auth Mode & Root Folder */}
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                            <div className="space-y-1.5">
+                                                <Label className="text-xs font-bold text-foreground">Authentication Mode</Label>
+                                                <select
+                                                    value={inputAuthMode}
+                                                    onChange={(e) => setInputAuthMode(e.target.value)}
+                                                    className="w-full h-10 px-3 text-xs rounded-xl bg-background border border-border text-foreground font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                >
+                                                    <option value="oauth">OAuth 2.0 (User Account - 15GB+ Quota)</option>
+                                                    <option value="service_account">Service Account (Shared Drive only)</option>
+                                                </select>
+                                            </div>
+                                            <div className="space-y-1.5">
+                                                <Label className="text-xs font-bold text-foreground">Drive Root Folder ID</Label>
+                                                <Input
+                                                    type="text"
+                                                    placeholder="e.g. 1JVDN8rf6QRYMtGke03S_sW6glNSY5kGO"
+                                                    value={inputFolderId}
+                                                    onChange={(e) => setInputFolderId(e.target.value)}
+                                                    className="h-10 text-xs rounded-xl bg-background font-mono"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        {/* Refresh Token / Authorization Code Input */}
+                                        <div className="space-y-1.5">
+                                            <div className="flex items-center justify-between">
+                                                <Label className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                                                    <Key className="w-3.5 h-3.5 text-amber-500" />
+                                                    Refresh Token or Auth Code
+                                                </Label>
+                                                {driveConfig?.refresh_token_masked && (
+                                                    <span className="text-[11px] font-mono text-muted-foreground">
+                                                        Current: <strong className="text-foreground">{driveConfig.refresh_token_masked}</strong>
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className="relative">
+                                                <Input
+                                                    type={showRefreshToken ? "text" : "password"}
+                                                    placeholder="Paste Refresh Token (1//...) or Authorization Code (4/...)"
+                                                    value={inputRefreshToken}
+                                                    onChange={(e) => setInputRefreshToken(e.target.value)}
+                                                    className="h-10 text-xs rounded-xl pr-10 bg-background font-mono"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowRefreshToken(!showRefreshToken)}
+                                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                                                >
+                                                    {showRefreshToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                                </button>
+                                            </div>
+                                            <p className="text-[10.5px] text-muted-foreground">
+                                                Accepts permanent refresh tokens or temporary authorization codes generated from Google OAuth Playground or <code>backend/get_new_token.py</code>.
+                                            </p>
+                                        </div>
+
+                                        {/* Toggle Advanced OAuth Keys */}
+                                        <div>
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowAdvancedDriveConfig(!showAdvancedDriveConfig)}
+                                                className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 py-1"
+                                            >
+                                                {showAdvancedDriveConfig ? "- Hide Advanced Credentials" : "+ Edit Advanced OAuth Keys (Client ID / Secret)"}
+                                            </button>
+                                        </div>
+
+                                        {showAdvancedDriveConfig && (
+                                            <div className="space-y-3 p-3.5 rounded-xl bg-background/80 border border-border/80 animate-in fade-in-50 duration-200">
+                                                <div className="space-y-1.5">
+                                                    <Label className="text-xs font-bold text-foreground">Google Client ID</Label>
+                                                    <Input
+                                                        type="text"
+                                                        placeholder="e.g. 57647831301-...apps.googleusercontent.com"
+                                                        value={inputClientId}
+                                                        onChange={(e) => setInputClientId(e.target.value)}
+                                                        className="h-9 text-xs rounded-lg font-mono"
+                                                    />
+                                                </div>
+                                                <div className="space-y-1.5">
+                                                    <Label className="text-xs font-bold text-foreground">Google Client Secret</Label>
+                                                    <Input
+                                                        type="password"
+                                                        placeholder={driveConfig?.has_client_secret ? "•••••••••••• (Leave blank to keep current secret)" : "Enter Client Secret"}
+                                                        value={inputClientSecret}
+                                                        onChange={(e) => setInputClientSecret(e.target.value)}
+                                                        className="h-9 text-xs rounded-lg font-mono"
+                                                    />
+                                                </div>
+                                                {inputAuthMode === "service_account" && (
+                                                    <div className="space-y-1.5">
+                                                        <Label className="text-xs font-bold text-foreground">Service Account JSON (Optional)</Label>
+                                                        <textarea
+                                                            rows={3}
+                                                            placeholder="Paste service account JSON key content here..."
+                                                            value={inputServiceAccountJson}
+                                                            onChange={(e) => setInputServiceAccountJson(e.target.value)}
+                                                            className="w-full text-xs rounded-lg p-2 bg-background border border-border font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                        />
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {/* Save Button */}
+                                        <div className="flex items-center justify-end gap-3 pt-1">
+                                            <Button
+                                                type="submit"
+                                                disabled={isSavingDriveConfig}
+                                                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-md h-10 px-6 gap-2"
+                                            >
+                                                {isSavingDriveConfig ? (
+                                                    <>
+                                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                                        Saving & Verifying...
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Check className="w-4 h-4 stroke-[3]" />
+                                                        Save & Verify Connection
+                                                    </>
+                                                )}
+                                            </Button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+
                         {/* Top Action & Overview Bar */}
                         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-card border border-border/80 rounded-3xl p-6 shadow-sm">
                             <div className="flex items-center gap-3.5">
@@ -981,6 +1347,15 @@ export default function Settings() {
                                     <UploadCloud className={`w-3.5 h-3.5 text-blue-500 ${isTestingDrive ? "animate-spin" : ""}`} />
                                     Test Drive Connection
                                 </Button>
+                                <a
+                                    href={`${API_BASE_URL}/drive/auth/login`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-md h-10 px-4 transition-colors"
+                                >
+                                    <Cloud className="w-4 h-4" />
+                                    Connect Drive Account
+                                </a>
                                 <Button
                                     type="button"
                                     variant="outline"
@@ -1195,6 +1570,16 @@ export default function Settings() {
                                 </div>
                             </div>
                             <div className="flex items-center gap-2.5 w-full sm:w-auto">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => window.open(`${API_BASE_URL}/drive/auth/login`, '_blank')}
+                                    className="rounded-xl border-emerald-500/40 text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 text-xs font-bold gap-1.5 h-10 px-3.5"
+                                >
+                                    <UploadCloud className="w-3.5 h-3.5 text-emerald-600" />
+                                    Authorize Google Drive
+                                </Button>
                                 <Button
                                     type="button"
                                     variant="outline"

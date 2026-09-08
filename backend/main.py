@@ -1,4 +1,5 @@
 import os
+import re
 from dotenv import load_dotenv
 # Load environment variables first
 load_dotenv(override=True)
@@ -7,7 +8,7 @@ load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'), ov
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
@@ -145,10 +146,21 @@ def run_migrations():
             except Exception:
                 pass
                 
-        # 3. Add bill_status to bill_generation_details
+        # 3. Add bill_status and billing_date to bill_generation_details
         try:
             cursor.execute("ALTER TABLE bill_generation_details ADD COLUMN bill_status VARCHAR(50) DEFAULT 'Normal'")
             logger.info("Migration: Added column bill_status to bill_generation_details.")
+        except Exception:
+            pass
+        try:
+            cursor.execute("ALTER TABLE bill_generation_details ADD COLUMN billing_date DATE NULL")
+            logger.info("Migration: Added column billing_date to bill_generation_details.")
+        except Exception:
+            pass
+        try:
+            cursor.execute("UPDATE bill_generation_details SET billing_date = month_year WHERE billing_date IS NULL AND month_year IS NOT NULL")
+            conn.commit()
+            logger.info("Migration: Synchronized billing_date from month_year (देयक दिनांक).")
         except Exception:
             pass
             
@@ -1297,20 +1309,26 @@ def extract_bill_with_ai(content: bytes, filename: str) -> dict:
         prompt = """You are an expert AI Utility Bill Parser for MSEDCL / Indian Electricity bills.
 Analyze the attached electricity bill image/PDF and extract the following fields into JSON:
 {
-  "consumer_number": "12-digit MSEDCL consumer number",
+  "consumer_number": "12-digit MSEDCL consumer number (e.g. 401104277491)",
   "consumer_name": "Full Customer Name",
-  "sanctioned_load_kw": 4.0,
-  "reading_date": "DD/MM/YYYY",
-  "billing_amount": 1950.0,
-  "billing_units": 177.0,
-  "generated_electricity_kwh": 430.0,
-  "exported_to_grid_kwh": 224.0,
-  "imported_from_grid_kwh": 212.0,
-  "daytime_self_consumption_kwh": 206.0,
-  "total_consumption_kwh": 418.0,
-  "previous_banked_units": 120,
-  "current_banked_units": 180
+  "sanctioned_load_kw": 3.0,
+  "billing_date": "DD/MM/YYYY - CRITICAL: Must be the देयक दिनांक (Deyak Dinank / Bill Date) found in the right-hand box next to 'देयक दिनांक :' (e.g. 06-09-2026). Do NOT take reading date or agreement date.",
+  "reading_date": "DD/MM/YYYY - Must be the चालू रिडिंग दिनांक (Current Reading Date, e.g. 28-08-2026). Do NOT take agreement or supply date.",
+  "bill_month": "Month Year from 'BILL OF SUPPLY FOR THE MONTH OF - ...' (e.g. सप्टेंबर-2026 -> 'September 2026')",
+  "billing_amount": 0.0,
+  "billing_units": 0.0,
+  "generated_electricity_kwh": 333.0,
+  "exported_to_grid_kwh": 171.0,
+  "imported_from_grid_kwh": 237.0,
+  "daytime_self_consumption_kwh": 162.0,
+  "total_consumption_kwh": 399.0,
+  "previous_banked_units": 659,
+  "current_banked_units": 593
 }
+Important:
+- 'billing_date' is 'देयक दिनांक' (Bill Date), NOT reading date.
+- 'current_banked_units' is the units in the 'Bank Solar Units' / 'सौर बँक युनिट' column (e.g. 593).
+- 'previous_banked_units' is the units in the 'Prev Bank Units' / 'मागील बँक युनिट' column (e.g. 659).
 Return ONLY valid raw JSON without markdown formatting."""
 
         payload = {
@@ -1444,6 +1462,8 @@ async def analyze_bill_ocr(file: UploadFile = File(...)):
         consumer_name = "MSEDCL Consumer"
         capacity = "3.0"
         reading_date = datetime.now().strftime("%d-%m-%Y")
+        billing_date = None
+        bill_month = None
         billing_amount = 0.0
         billing_units = 0.0
         generated_units = 0.0
@@ -1461,6 +1481,8 @@ async def analyze_bill_ocr(file: UploadFile = File(...)):
             if ai_data.get("consumer_name"): consumer_name = str(ai_data.get("consumer_name")).strip()
             if ai_data.get("sanctioned_load_kw"): capacity = str(ai_data.get("sanctioned_load_kw"))
             if ai_data.get("reading_date"): reading_date = str(ai_data.get("reading_date"))
+            if ai_data.get("billing_date"): billing_date = str(ai_data.get("billing_date")).strip()
+            if ai_data.get("bill_month"): bill_month = str(ai_data.get("bill_month")).strip()
             if ai_data.get("billing_amount") is not None: billing_amount = float(ai_data.get("billing_amount"))
             if ai_data.get("billing_units") is not None: billing_units = float(ai_data.get("billing_units"))
             if ai_data.get("generated_electricity_kwh") is not None: generated_units = float(ai_data.get("generated_electricity_kwh"))
@@ -1507,6 +1529,16 @@ async def analyze_bill_ocr(file: UploadFile = File(...)):
 
                         if bill_row:
                             if bill_row.get("reading_date"): reading_date = str(bill_row["reading_date"])
+                            if bill_row.get("billing_date"):
+                                billing_date = str(bill_row["billing_date"])
+                            elif bill_row.get("month_year"):
+                                billing_date = str(bill_row["month_year"])
+                            if bill_row.get("month_year") and not bill_month:
+                                try:
+                                    m_dt = bill_row["month_year"]
+                                    if hasattr(m_dt, "strftime"):
+                                        bill_month = m_dt.strftime("%B %Y")
+                                except: pass
                             if bill_row.get("billing_amount") is not None: billing_amount = float(bill_row["billing_amount"])
                             if bill_row.get("generation_units") is not None and float(bill_row["generation_units"]) > 0:
                                 generated_units = float(bill_row["generation_units"])
@@ -1532,9 +1564,25 @@ async def analyze_bill_ocr(file: UploadFile = File(...)):
                 if load_match:
                     capacity = str(float(load_match.group(1)))
 
-            date_match = re.search(r'([0-3][0-9][-/][0-1][0-9][-/][2][0][2-3][0-9])', extracted_text)
-            if date_match:
-                reading_date = date_match.group(1)
+            # Reading Date: prioritize चालू रिडिंग दिनांक
+            rd_m = re.search(r'(?:चालू\s*[रर][ीि]ड[ीि]?ं?ंग|Reading\s*Date|वाचन\s*दिनांक)[\s:\-]+([0-3]?[0-9][-/][0-1]?[0-9][-/][2][0][2-3][0-9])', extracted_text, re.IGNORECASE)
+            if rd_m:
+                reading_date = rd_m.group(1)
+            elif not reading_date or reading_date == datetime.now().strftime("%d-%m-%Y"):
+                date_match = re.search(r'([0-3][0-9][-/][0-1][0-9][-/][2][0][2-3][0-9])', extracted_text)
+                if date_match:
+                    reading_date = date_match.group(1)
+
+            # Billing Date: strictly देयक दिनांक (Deyak Dinank)
+            if not billing_date:
+                bd_m = re.search(r'(?:देयक\s*दिनांक|Bill\s*Date|Date\s*of\s*Bill|देयक\s*तारीख|Deyak\s*Dinank)[\s:\-]+([0-3]?[0-9][-/][0-1]?[0-9][-/][2][0][2-3][0-9])', extracted_text, re.IGNORECASE)
+                if bd_m:
+                    billing_date = bd_m.group(1)
+
+            if not bill_month:
+                bm_m = re.search(r'(?:FOR\s+THE\s+MONTH\s+OF|Bill\s*Month|बिल\s*महिना)\s*:?\s*([A-Za-z]+|[\u0900-\u097F]+)[-\s,]*(\d{4})', extracted_text, re.IGNORECASE)
+                if bm_m:
+                    bill_month = f"{bm_m.group(1).upper()} {bm_m.group(2)}"
 
             if billing_amount <= 0:
                 amt_match = re.search(r'(?:Total\s*Bill|Amount\s*Payable|Net\s*Bill|Current\s*Monthly\s*Bill|देयक\s*रक्कम|निव्वळ\s*देयक\s*रक्कम|Deyak)[\s\S]{0,40}?₹?\s*(?:Rs\.?)?\s*([\d,]+\.?\d{0,2})', extracted_text, re.IGNORECASE)
@@ -1624,6 +1672,87 @@ async def analyze_bill_ocr(file: UploadFile = File(...)):
         except Exception as w_err:
             logger.warning(f"Could not fetch Open-Meteo weather data: {w_err}")
 
+        # Ensure billing_date & bill_month exist
+        if not billing_date and bill_month:
+            try:
+                bm_dt = datetime.strptime(bill_month, "%B %Y")
+                billing_date = bm_dt.strftime("01/%m/%Y")
+            except: pass
+
+        if not billing_date:
+            billing_date = reading_date
+
+        if not bill_month:
+            for d_str in (billing_date, reading_date):
+                if d_str:
+                    for fmt in ("%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d", "%d-%m-%y", "%d/%m/%y"):
+                        try:
+                            dt_val = datetime.strptime(d_str.strip(), fmt)
+                            bill_month = dt_val.strftime("%B %Y")
+                            break
+                        except: pass
+                if bill_month: break
+        if not bill_month:
+            bill_month = datetime.now().strftime("%B %Y")
+
+        # Upload uploaded bill file to Google Drive under Bill_Generation1/<consumer_number>/
+        pdf_drive_file_id = None
+        pdf_drive_view_url = None
+        image_drive_file_id = None
+        image_drive_view_url = None
+        drive_status = "Not attempted"
+        try:
+            from gdrive_utils import get_drive_service, get_or_create_date_folder, upload_file_to_drive
+            import tempfile
+            drive_folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
+            if drive_folder_id and consumer_number:
+                service = get_drive_service()
+                if service:
+                    bill_gen_root_id = get_or_create_date_folder(service, "Bill_Generation1", drive_folder_id)
+                    if bill_gen_root_id:
+                        consumer_folder_id = get_or_create_date_folder(service, consumer_number, bill_gen_root_id)
+                        if consumer_folder_id:
+                            m_tag = "Bill"
+                            if bill_month:
+                                m_tag = bill_month.replace(" ", "_")
+                            elif billing_date:
+                                for fmt in ("%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d", "%d-%m-%y", "%d/%m/%y"):
+                                    try:
+                                        m_tag = datetime.strptime(billing_date, fmt).strftime("%b_%Y")
+                                        break
+                                    except: pass
+
+                            is_pdf = filename.endswith(".pdf")
+                            ext = ".pdf" if is_pdf else ".jpg"
+                            upload_filename = f"{consumer_number}_{m_tag}{ext}"
+                            category = "bill_pdf" if is_pdf else "bill_image"
+
+                            with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp_file:
+                                tmp_file.write(content)
+                                tmp_path = tmp_file.name
+
+                            try:
+                                up_res = upload_file_to_drive(
+                                    service, tmp_path, upload_filename, consumer_folder_id,
+                                    consumer_number=consumer_number,
+                                    month_year=billing_date or reading_date,
+                                    category=category
+                                )
+                                if up_res and up_res[0]:
+                                    drive_status = f"Saved to Drive: {upload_filename}"
+                                    if is_pdf:
+                                        pdf_drive_file_id = up_res[1]
+                                        pdf_drive_view_url = up_res[2]
+                                    else:
+                                        image_drive_file_id = up_res[1]
+                                        image_drive_view_url = up_res[2]
+                                    logger.info(f"✓ Uploaded {upload_filename} to Drive: {up_res[2]}")
+                            finally:
+                                if os.path.exists(tmp_path):
+                                    os.remove(tmp_path)
+        except Exception as gd_err:
+            logger.warning(f"Drive upload for uploaded bill failed: {gd_err}")
+
         return {
             "status": "success",
             "extracted_data": {
@@ -1631,6 +1760,8 @@ async def analyze_bill_ocr(file: UploadFile = File(...)):
                 "consumer_name": consumer_name,
                 "capacity": capacity,
                 "reading_date": reading_date,
+                "billing_date": billing_date,
+                "bill_month": bill_month,
                 "generated_electricity": f"{int(generated_units)} kWh",
                 "exported_to_grid": f"{int(exported_units)} kWh",
                 "imported_from_grid": f"{int(imported_units)} kWh",
@@ -1642,7 +1773,12 @@ async def analyze_bill_ocr(file: UploadFile = File(...)):
                 "current_banked_unit": f"{curr_banked} Units",
                 "system_health": "GOOD" if generated_units > 200 else "NORMAL",
                 "annual_savings": annual_savings,
-                "lifetime_savings": lifetime_savings_str
+                "lifetime_savings": lifetime_savings_str,
+                "pdf_drive_file_id": pdf_drive_file_id,
+                "pdf_drive_view_url": pdf_drive_view_url,
+                "image_drive_file_id": image_drive_file_id,
+                "image_drive_view_url": image_drive_view_url,
+                "drive_status": drive_status
             },
             "weather_ai_analysis": weather_summary
         }
@@ -1948,6 +2084,7 @@ class SaveImageRequest(BaseModel):
     consumerNumber: str
     dateStr: str
     imageBase64: str
+    pdfBase64: Optional[str] = None
 
 class SearchRequest(BaseModel):
     consumerNumbers: List[str]
@@ -3371,16 +3508,24 @@ async def save_bill_images(request: SaveImageRequest, user=Depends(get_current_u
                 conn.close()
                 
         # 2. Cleaner Month_Year formulation (e.g. March_2026)
-        month_year_filename = "Unknown_Month.jpeg"
-        if b_date:
-            try:
-                if isinstance(b_date, str):
-                    dt = datetime.strptime(b_date, "%Y-%m-%d")
-                else: 
-                    dt = b_date
-                month_year_filename = f"{dt.strftime('%b')}_{dt.strftime('%Y')}.jpeg"
-            except:
-                pass
+        target_date = b_date
+        if not target_date and request.dateStr:
+            for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%d-%m-%y", "%d/%m/%y", "%Y-%m", "%b_%Y", "%B_%Y"):
+                try:
+                    target_date = datetime.strptime(request.dateStr.strip(), fmt).strftime("%Y-%m-%d")
+                    break
+                except: pass
+        if not target_date:
+            target_date = datetime.now().strftime("%Y-%m-%d")
+
+        try:
+            if isinstance(target_date, str):
+                dt = datetime.strptime(target_date, "%Y-%m-%d")
+            else:
+                dt = target_date
+            month_year_filename = f"{dt.strftime('%b')}_{dt.strftime('%Y')}.jpeg"
+        except Exception:
+            month_year_filename = f"{datetime.now().strftime('%b_%Y')}.jpeg"
                 
         # 3. Base64 processing
         import base64
@@ -3393,8 +3538,10 @@ async def save_bill_images(request: SaveImageRequest, user=Depends(get_current_u
         drive_status = "Not attempted"
         g_file_id = None
         g_view_url = None
+        pdf_file_id = None
+        pdf_view_url = None
         try:
-            from gdrive_utils import get_drive_service, get_or_create_date_folder, upload_base64_image_to_drive # type: ignore
+            from gdrive_utils import get_drive_service, get_or_create_date_folder, upload_base64_image_to_drive, upload_file_to_drive # type: ignore
             
             drive_folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
             if drive_folder_id:
@@ -3406,7 +3553,10 @@ async def save_bill_images(request: SaveImageRequest, user=Depends(get_current_u
                         
                         if consumer_folder_id:
                             success, g_file_id, g_view_url, gdrive_msg = upload_base64_image_to_drive(
-                                service, base64_data, month_year_filename, consumer_folder_id
+                                service, base64_data, month_year_filename, consumer_folder_id,
+                                consumer_number=request.consumerNumber,
+                                month_year=target_date,
+                                category='bill_image'
                             )
                             if success:
                                 drive_status = f"Saved to Drive: {request.consumerNumber}/{month_year_filename}"
@@ -3417,9 +3567,20 @@ async def save_bill_images(request: SaveImageRequest, user=Depends(get_current_u
                                         if conn_db:
                                             cur = conn_db.cursor()
                                             cur.execute(
-                                                "UPDATE bill_generation_details SET image_drive_file_id = %s, image_drive_view_url = %s, image_url = %s, image_file_name = %s WHERE consumer_number = %s ORDER BY month_year DESC LIMIT 1",
-                                                (g_file_id, g_view_url, g_view_url, month_year_filename, request.consumerNumber)
+                                                "SELECT id FROM bill_generation_details WHERE consumer_number = %s ORDER BY month_year DESC LIMIT 1",
+                                                (request.consumerNumber,)
                                             )
+                                            ex_row = cur.fetchone()
+                                            if ex_row:
+                                                cur.execute(
+                                                    "UPDATE bill_generation_details SET image_drive_file_id = %s, image_drive_view_url = %s, image_url = %s, image_file_name = %s WHERE id = %s",
+                                                    (g_file_id, g_view_url, g_view_url, month_year_filename, ex_row[0])
+                                                )
+                                            else:
+                                                cur.execute(
+                                                    "INSERT INTO bill_generation_details (consumer_number, month_year, reading_date, image_drive_file_id, image_drive_view_url, image_file_name, image_url) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                                                    (request.consumerNumber, target_date, target_date, g_file_id, g_view_url, month_year_filename, g_view_url)
+                                                )
                                             conn_db.commit()
                                             cur.close()
                                             conn_db.close()
@@ -3428,6 +3589,35 @@ async def save_bill_images(request: SaveImageRequest, user=Depends(get_current_u
                                         logger.warning(f"Could not persist Drive image URL to SQL: {db_err}")
                             else:
                                 drive_status = f"Drive upload failed: {gdrive_msg}"
+
+                            # Optional PDF upload if provided
+                            if request.pdfBase64:
+                                try:
+                                    pdf_b64 = request.pdfBase64
+                                    if "," in pdf_b64:
+                                        pdf_b64 = pdf_b64.split(",")[1]
+                                    pdf_bytes = base64.b64decode(pdf_b64)
+                                    pdf_name = f"{dt.strftime('%b')}_{dt.strftime('%Y')}.pdf"
+                                    import tempfile
+                                    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_pdf:
+                                        tmp_pdf.write(pdf_bytes)
+                                        tmp_pdf_path = tmp_pdf.name
+                                    try:
+                                        p_res = upload_file_to_drive(
+                                            service, tmp_pdf_path, pdf_name, consumer_folder_id,
+                                            consumer_number=request.consumerNumber,
+                                            month_year=target_date,
+                                            category='bill_pdf'
+                                        )
+                                        if p_res and p_res[0]:
+                                            pdf_file_id = p_res[1]
+                                            pdf_view_url = p_res[2]
+                                            logger.info(f"✓ Uploaded bill PDF {pdf_name} to Drive: {pdf_view_url}")
+                                    finally:
+                                        if os.path.exists(tmp_pdf_path):
+                                            os.remove(tmp_pdf_path)
+                                except Exception as pdf_err:
+                                    logger.warning(f"PDF upload note in save_bill_images: {pdf_err}")
                         else:
                             drive_status = "Drive upload failed: Consumer folder missing"
                     else:
@@ -3444,7 +3634,9 @@ async def save_bill_images(request: SaveImageRequest, user=Depends(get_current_u
             "status": "success", 
             "message": drive_status,
             "drive_file_id": g_file_id,
-            "drive_view_url": g_view_url
+            "drive_view_url": g_view_url,
+            "pdf_drive_file_id": pdf_file_id,
+            "pdf_drive_view_url": pdf_view_url
         }
     except Exception as e:
         logger.error(f"Failed to save image: {e}")
@@ -3464,6 +3656,147 @@ async def save_bill_data(request: Request, user=Depends(get_current_user)):
     except Exception as e:
         logger.error(f"Failed to save bill data: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/drive/auth/login")
+async def drive_auth_login(request: Request):
+    """Initiates Google OAuth 2.0 flow for Google Drive access."""
+    import json
+    from urllib.parse import urlencode
+    
+    cred_path = os.path.join(os.path.dirname(__file__), "credentials.json")
+    if not os.path.exists(cred_path):
+        raise HTTPException(status_code=400, detail="credentials.json not found")
+        
+    with open(cred_path, "r") as f:
+        config = json.load(f)
+    web_config = config.get("web", {})
+    client_id = web_config.get("client_id") or os.environ.get("GOOGLE_DRIVE_CLIENT_ID")
+    
+    # Determine redirect URI
+    base_url = str(request.base_url).rstrip("/")
+    if "72.60.203.172" in base_url:
+        redirect_uri = "http://72.60.203.172/api/drive/oauth/callback"
+    else:
+        redirect_uri = "http://localhost:5000/api/drive/oauth/callback"
+        
+    params = {
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": "https://www.googleapis.com/auth/drive",
+        "access_type": "offline",
+        "prompt": "consent select_account",
+    }
+    auth_url = f"https://accounts.google.com/o/oauth2/auth?{urlencode(params)}"
+    return RedirectResponse(url=auth_url)
+
+@app.get("/api/drive/oauth/callback")
+async def drive_oauth_callback(code: Optional[str] = None, error: Optional[str] = None):
+    """Handles Google OAuth callback, exchanges code for refresh token, and saves it."""
+    if error:
+        return HTMLResponse(f"<h3>Google OAuth Error: {error}</h3>", status_code=400)
+    if not code:
+        return HTMLResponse("<h3>Error: No authorization code provided.</h3>", status_code=400)
+        
+    import json
+    import requests
+    from gdrive_utils import upsert_env_value, ENV_PATH
+    
+    cred_path = os.path.join(os.path.dirname(__file__), "credentials.json")
+    with open(cred_path, "r") as f:
+        config = json.load(f)
+    web_config = config.get("web", {})
+    client_id = web_config.get("client_id") or os.environ.get("GOOGLE_DRIVE_CLIENT_ID")
+    client_secret = web_config.get("client_secret") or os.environ.get("GOOGLE_DRIVE_CLIENT_SECRET")
+    
+    token_url = "https://oauth2.googleapis.com/token"
+    data = {
+        "code": code,
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "grant_type": "authorization_code",
+    }
+    # Attempt exchange with localhost:5000
+    res = requests.post(token_url, data={**data, "redirect_uri": "http://localhost:5000/api/drive/oauth/callback"})
+    if res.status_code != 200:
+        res = requests.post(token_url, data={**data, "redirect_uri": "http://72.60.203.172/api/drive/oauth/callback"})
+        
+    if res.status_code != 200:
+        return HTMLResponse(f"<h3>Failed to exchange authorization code: {res.text}</h3>", status_code=400)
+        
+    token_resp = res.json()
+    refresh_token = token_resp.get("refresh_token")
+    access_token = token_resp.get("access_token")
+    
+    if refresh_token:
+        os.environ["GOOGLE_DRIVE_REFRESH_TOKEN"] = refresh_token
+        os.environ["GOOGLE_DRIVE_AUTH_MODE"] = "oauth"
+        upsert_env_value(ENV_PATH, "GOOGLE_DRIVE_REFRESH_TOKEN", refresh_token)
+        upsert_env_value(ENV_PATH, "GOOGLE_DRIVE_AUTH_MODE", "oauth")
+        
+    if access_token:
+        os.environ["GOOGLE_DRIVE_ACCESS_TOKEN"] = access_token
+        upsert_env_value(ENV_PATH, "GOOGLE_DRIVE_ACCESS_TOKEN", access_token)
+        
+    # Save token.json
+    try:
+        secrets_dir = os.path.join(os.path.dirname(__file__), "secrets")
+        os.makedirs(secrets_dir, exist_ok=True)
+        token_path = os.path.join(secrets_dir, "token.json")
+        with open(token_path, "w", encoding="utf-8") as f:
+            json.dump({
+                "token": access_token,
+                "refresh_token": refresh_token,
+                "token_uri": token_url,
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "scopes": ["https://www.googleapis.com/auth/drive"]
+            }, f, indent=2)
+    except Exception as te:
+        logger.warning(f"Could not write token.json: {te}")
+        
+    html_content = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Google Drive Connected - Arin Energy</title>
+        <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #f8fafc; color: #0f172a; }
+            .card { background: white; padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); text-align: center; max-width: 480px; border: 1px solid #e2e8f0; }
+            h1 { color: #16a34a; font-size: 24px; margin-bottom: 12px; }
+            p { color: #475569; font-size: 15px; line-height: 1.6; margin-bottom: 24px; }
+            .btn { background: #16a34a; color: white; border: none; padding: 12px 28px; border-radius: 12px; font-weight: 700; cursor: pointer; text-decoration: none; display: inline-block; font-size: 14px; }
+        </style>
+    </head>
+    <body>
+        <div class="card">
+            <h1>✅ Google Drive Connected!</h1>
+            <p>Your Google Drive account has been successfully authorized for Arin Energy Billing Automation. Bill PDFs and images will now automatically upload to your Google Drive folder.</p>
+            <button class="btn" onclick="window.close(); if (window.opener) window.opener.location.reload();">Close Window</button>
+        </div>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
+
+@app.get("/api/drive/auth/status")
+async def drive_auth_status():
+    """Checks current Google Drive authentication status."""
+    from gdrive_utils import get_drive_service
+    service = get_drive_service()
+    if not service:
+        return {"connected": False, "mode": "none", "error": "Drive service could not be initialized"}
+    try:
+        root_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID")
+        res = service.files().get(fileId=root_id, fields="id, name", supportsAllDrives=True).execute()
+        return {
+            "connected": True,
+            "mode": os.environ.get("GOOGLE_DRIVE_AUTH_MODE", "oauth"),
+            "folder_name": res.get("name"),
+            "folder_id": root_id
+        }
+    except Exception as e:
+        return {"connected": False, "mode": os.environ.get("GOOGLE_DRIVE_AUTH_MODE", "oauth"), "error": str(e)}
 
 @app.get("/api/drive/files")
 async def get_drive_files_metadata(
@@ -3629,6 +3962,191 @@ async def test_google_drive_connection(user=Depends(get_current_user)):
             "message": f"Google Drive API error: {str(e)}"
         }
 
+class DriveConfigRequest(BaseModel):
+    auth_mode: Optional[str] = None
+    refresh_token: Optional[str] = None
+    auth_code: Optional[str] = None
+    client_id: Optional[str] = None
+    client_secret: Optional[str] = None
+    folder_id: Optional[str] = None
+    service_account_json: Optional[str] = None
+
+@app.get("/api/admin/drive/config")
+async def get_drive_configuration(request: Request, user=Depends(get_current_user)):
+    """Returns the current Google Drive configuration, masked credentials, and connection status."""
+    import json
+    
+    current_auth_mode = os.environ.get("GOOGLE_DRIVE_AUTH_MODE", "oauth")
+    client_id = os.environ.get("GOOGLE_DRIVE_CLIENT_ID", "")
+    client_secret = os.environ.get("GOOGLE_DRIVE_CLIENT_SECRET", "")
+    refresh_token = os.environ.get("GOOGLE_DRIVE_REFRESH_TOKEN", "")
+    folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "")
+    
+    # Check token.json fallback
+    token_path = os.path.join(os.path.dirname(__file__), "secrets", "token.json")
+    if os.path.exists(token_path):
+        try:
+            with open(token_path, "r", encoding="utf-8") as f:
+                tj = json.load(f)
+                client_id = client_id or tj.get("client_id", "")
+                client_secret = client_secret or tj.get("client_secret", "")
+                refresh_token = refresh_token or tj.get("refresh_token", "")
+        except Exception:
+            pass
+
+    # Determine dynamic redirect URI for hosting
+    base_url = str(request.base_url).rstrip("/")
+    redirect_uri = f"{base_url}/api/drive/oauth/callback"
+    
+    # Masked token
+    masked_rt = f"{refresh_token[:6]}...{refresh_token[-4:]}" if len(refresh_token) > 12 else ("Configured" if refresh_token else "")
+    masked_cs = "••••••••••••" if client_secret else ""
+    
+    test_result = await test_google_drive_connection(user)
+    
+    return {
+        "status": "success",
+        "auth_mode": current_auth_mode,
+        "client_id": client_id,
+        "client_secret_masked": masked_cs,
+        "has_client_secret": bool(client_secret),
+        "refresh_token_masked": masked_rt,
+        "has_refresh_token": bool(refresh_token),
+        "folder_id": folder_id,
+        "redirect_uri": redirect_uri,
+        "connection": test_result
+    }
+
+@app.post("/api/admin/drive/config")
+async def update_drive_configuration(config: DriveConfigRequest, request: Request, user=Depends(get_current_user)):
+    """Updates Google Drive credentials, refresh tokens, and authentication settings directly from UI."""
+    from gdrive_utils import upsert_env_value, ENV_PATH
+    import requests
+    import json
+    
+    applied_changes = []
+    
+    client_id = (config.client_id or os.environ.get("GOOGLE_DRIVE_CLIENT_ID", "")).strip()
+    client_secret = (config.client_secret or os.environ.get("GOOGLE_DRIVE_CLIENT_SECRET", "")).strip()
+    
+    # 1. Check if auth_code was provided or if refresh_token is an authorization code starting with 4/
+    token_to_save = config.refresh_token.strip() if config.refresh_token else None
+    auth_code = config.auth_code.strip() if config.auth_code else None
+    
+    if token_to_save and token_to_save.startswith("4/") and not auth_code:
+        auth_code = token_to_save
+        token_to_save = None
+        
+    if auth_code:
+        base_url = str(request.base_url).rstrip("/")
+        redirect_uri = f"{base_url}/api/drive/oauth/callback"
+        token_url = "https://oauth2.googleapis.com/token"
+        res = requests.post(token_url, data={
+            "code": auth_code,
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "redirect_uri": redirect_uri,
+            "grant_type": "authorization_code"
+        })
+        if res.status_code != 200:
+            for fallback_uri in ["http://localhost:5000/api/drive/oauth/callback", "http://72.60.203.172/api/drive/oauth/callback", "http://localhost:8080/"]:
+                res = requests.post(token_url, data={
+                    "code": auth_code,
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "redirect_uri": fallback_uri,
+                    "grant_type": "authorization_code"
+                })
+                if res.status_code == 200:
+                    break
+                    
+        if res.status_code == 200:
+            token_resp = res.json()
+            token_to_save = token_resp.get("refresh_token")
+            access_token = token_resp.get("access_token")
+            if access_token:
+                os.environ["GOOGLE_DRIVE_ACCESS_TOKEN"] = access_token
+                upsert_env_value(ENV_PATH, "GOOGLE_DRIVE_ACCESS_TOKEN", access_token)
+            applied_changes.append("Exchanged authorization code for fresh refresh token")
+        else:
+            raise HTTPException(status_code=400, detail=f"Failed to exchange authorization code: {res.text}")
+
+    # 2. Save Refresh Token
+    if token_to_save:
+        os.environ["GOOGLE_DRIVE_REFRESH_TOKEN"] = token_to_save
+        upsert_env_value(ENV_PATH, "GOOGLE_DRIVE_REFRESH_TOKEN", token_to_save)
+        applied_changes.append("Updated GOOGLE_DRIVE_REFRESH_TOKEN")
+        
+        try:
+            secrets_dir = os.path.join(os.path.dirname(__file__), "secrets")
+            os.makedirs(secrets_dir, exist_ok=True)
+            token_path = os.path.join(secrets_dir, "token.json")
+            data = {}
+            if os.path.exists(token_path):
+                try:
+                    with open(token_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                except Exception: pass
+            data["refresh_token"] = token_to_save
+            if client_id: data["client_id"] = client_id
+            if client_secret: data["client_secret"] = client_secret
+            with open(token_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except Exception as te:
+            logger.warning(f"Could not update secrets/token.json: {te}")
+
+    # 3. Save Client ID
+    if config.client_id and config.client_id.strip():
+        cid = config.client_id.strip()
+        os.environ["GOOGLE_DRIVE_CLIENT_ID"] = cid
+        upsert_env_value(ENV_PATH, "GOOGLE_DRIVE_CLIENT_ID", cid)
+        applied_changes.append("Updated GOOGLE_DRIVE_CLIENT_ID")
+
+    # 4. Save Client Secret
+    if config.client_secret and config.client_secret.strip():
+        cs = config.client_secret.strip()
+        os.environ["GOOGLE_DRIVE_CLIENT_SECRET"] = cs
+        upsert_env_value(ENV_PATH, "GOOGLE_DRIVE_CLIENT_SECRET", cs)
+        applied_changes.append("Updated GOOGLE_DRIVE_CLIENT_SECRET")
+
+    # 5. Save Folder ID
+    if config.folder_id and config.folder_id.strip():
+        fid = config.folder_id.strip()
+        os.environ["GOOGLE_DRIVE_FOLDER_ID"] = fid
+        upsert_env_value(ENV_PATH, "GOOGLE_DRIVE_FOLDER_ID", fid)
+        applied_changes.append("Updated GOOGLE_DRIVE_FOLDER_ID")
+
+    # 6. Save Auth Mode
+    if config.auth_mode:
+        mode = config.auth_mode.strip().lower()
+        if mode in ("oauth", "service_account"):
+            os.environ["GOOGLE_DRIVE_AUTH_MODE"] = mode
+            upsert_env_value(ENV_PATH, "GOOGLE_DRIVE_AUTH_MODE", mode)
+            applied_changes.append(f"Set GOOGLE_DRIVE_AUTH_MODE to '{mode}'")
+
+    # 7. Save Service Account JSON if provided
+    if config.service_account_json and config.service_account_json.strip():
+        try:
+            parsed_sa = json.loads(config.service_account_json.strip())
+            secrets_dir = os.path.join(os.path.dirname(__file__), "secrets")
+            os.makedirs(secrets_dir, exist_ok=True)
+            sa_path = os.path.join(secrets_dir, "service_account.json")
+            with open(sa_path, "w", encoding="utf-8") as f:
+                json.dump(parsed_sa, f, indent=2)
+            applied_changes.append("Updated service_account.json")
+        except Exception as je:
+            raise HTTPException(status_code=400, detail=f"Invalid Service Account JSON: {je}")
+
+    # Immediately re-test with new credentials
+    test_result = await test_google_drive_connection(user)
+    
+    return {
+        "status": "success",
+        "message": "Google Drive configuration updated successfully." if not applied_changes else "; ".join(applied_changes),
+        "changes": applied_changes,
+        "connection": test_result
+    }
+
 @app.post("/api/admin/db/backup/settings")
 async def update_backup_settings(settings: BackupSettingsRequest, user=Depends(get_current_user)):
     """Updates auto-backup schedule, frequency, and retention policies."""
@@ -3688,15 +4206,42 @@ def get_billing_analysis(consumerNumber: str, month: str, user=Depends(get_curre
     bills = get_all_bills()
     
     # Try to find the record
+    month_map = {
+        'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4, 'MAY': 5, 'JUN': 6,
+        'JUL': 7, 'AUG': 8, 'SEP': 9, 'OCT': 10, 'NOV': 11, 'DEC': 12
+    }
+    req_m_num = None
+    req_year = None
+    m_clean = month.strip().upper()
+    for m_prefix, m_num in month_map.items():
+        if m_prefix in m_clean:
+            req_m_num = m_num
+            break
+    y_match = re.search(r'\b(20\d\d)\b', m_clean)
+    if y_match:
+        req_year = int(y_match.group(1))
+
     target_bill = None
     for b in bills:
         if str(b.get("consumer_number")) == str(consumerNumber):
-            # check if month string (e.g. "FEB-2026") is in month_year (iso format 2026-02-01)
-            b_date = b.get("month_year") or ""
-            if isinstance(b_date, str) and month[:3].upper() in b_date.upper():
+            b_date = str(b.get("month_year") or "")
+            if req_m_num and req_year and len(b_date) >= 7:
+                try:
+                    b_y = int(b_date[:4])
+                    b_m = int(b_date[5:7])
+                    if b_y == req_year and b_m == req_m_num:
+                        target_bill = b
+                        break
+                except Exception:
+                    pass
+            elif req_year and str(req_year) in b_date:
                 target_bill = b
                 break
-            elif isinstance(b_date, str) and month[-4:] in b_date:
+
+    # Fallback to consumer's latest bill if exact month not matched
+    if not target_bill:
+        for b in bills:
+            if str(b.get("consumer_number")) == str(consumerNumber):
                 target_bill = b
                 break
     
@@ -3721,6 +4266,7 @@ def get_billing_analysis(consumerNumber: str, month: str, user=Depends(get_curre
             "prev_banked": 0, "curr_banked": 0,
             "system_health": "POOR", "bill_status": "No Data",
             "reading_date": "N/A", 
+            "billing_date": "N/A",
             "capacity": cust_profile.get("solar_capacity_kw") or 0, 
             "commission_date": str(cust_profile.get("commission_date")) if cust_profile.get("commission_date") else "N/A",
             "customer_name": cust_profile.get("customer_name") or "N/A",
@@ -3746,6 +4292,7 @@ def get_billing_analysis(consumerNumber: str, month: str, user=Depends(get_curre
         "system_health": "Analyzed",
         "bill_status": target_bill.get("bill_status") or "Normal",
         "reading_date": target_bill.get("reading_date"),
+        "billing_date": target_bill.get("billing_date") or target_bill.get("month_year"),
         "capacity": target_bill.get("solar_capacity_kw") or target_bill.get("capacity", 0),
         "commission_date": target_bill.get("commission_date"),
         "is_blacklisted": target_bill.get("is_blacklisted") or 0,
