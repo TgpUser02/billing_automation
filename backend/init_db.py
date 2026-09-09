@@ -172,6 +172,8 @@ def init_database():
                 image_drive_file_id VARCHAR(255) NULL,
                 image_drive_view_url TEXT NULL,
                 image_file_name VARCHAR(255) NULL,
+                meter_readings_json TEXT NULL,
+                past_year_history_json TEXT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 UNIQUE KEY unique_consumer_month (consumer_number, month_year),
@@ -188,6 +190,8 @@ def init_database():
             "ALTER TABLE bill_generation_details ADD COLUMN image_drive_file_id VARCHAR(255) NULL",
             "ALTER TABLE bill_generation_details ADD COLUMN image_drive_view_url TEXT NULL",
             "ALTER TABLE bill_generation_details ADD COLUMN image_file_name VARCHAR(255) NULL",
+            "ALTER TABLE bill_generation_details ADD COLUMN meter_readings_json TEXT NULL",
+            "ALTER TABLE bill_generation_details ADD COLUMN past_year_history_json TEXT NULL",
         ]
         for ab in alter_bill_queries:
             try:

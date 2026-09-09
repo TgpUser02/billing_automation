@@ -639,6 +639,24 @@ export const api = {
         window.URL.revokeObjectURL(url);
         return { status: "success" };
     },
+    exportConsumerBillsExcel: async () => {
+        const response = await authFetch(`${API_BASE_URL}/consumer-connect/export-bills-excel`);
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({ detail: "Failed to download Excel export" }));
+            throw new Error(err.detail || err.message || "Failed to download Excel export");
+        }
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        const nowStr = new Date().toISOString().slice(0, 10);
+        link.download = `consumer_bill_generation_details_${nowStr}.xlsx`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+        return { status: "success" };
+    },
     getLookups: async (category?: string) => {
         const url = category ? `${API_BASE_URL}/lookups?category=${encodeURIComponent(category)}` : `${API_BASE_URL}/lookups`;
         const response = await authFetch(url);

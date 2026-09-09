@@ -3,7 +3,7 @@ import { GenerationControls } from '@/components/GenerationControls';
 import { BillPreview } from '@/components/BillPreview';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Zap, Users, Eye, DownloadCloud, ArrowRight, CheckCircle2, Monitor } from 'lucide-react';
+import { Zap, Users, Eye, DownloadCloud, ArrowRight, CheckCircle2, Monitor, Activity, Calendar } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { format } from 'date-fns';
@@ -392,6 +392,8 @@ export default function ArinBillGenerator() {
                     panelWarranty: '',
                     systemWarranty: '',
                     inverterWarranty: '',
+                    meterReadings: targetData.meter_readings,
+                    pastYearHistory: targetData.past_year_history,
                 };
 
                 const calculated = calculateBillData(rawInputs as any, consumer as any);
@@ -743,6 +745,124 @@ export default function ArinBillGenerator() {
                                                 selectedDate={selectedDate}
                                             />
                                         </div>
+
+                                        {/* MSEDCL Detailed Meter Readings & 12-Month History Card */}
+                                        {(billData?.meterReadings || (billData?.pastYearHistory && billData.pastYearHistory.length > 0)) && (
+                                            <div 
+                                                className="mt-6 bg-white rounded-2xl shadow-sm border border-slate-200 p-6 animate-in slide-in-from-bottom-4 transition-all"
+                                                style={{ width: `${1200 * zoomScale}px`, maxWidth: '100%', zIndex: 10 }}
+                                            >
+                                                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 border-b border-slate-100 pb-4 mb-5">
+                                                    <div>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                                            <h3 className="text-sm font-black uppercase text-slate-800 tracking-wider">
+                                                                MSEDCL Official Meter Readings & Consumption Details
+                                                            </h3>
+                                                        </div>
+                                                        <p className="text-xs text-slate-500 mt-0.5">
+                                                            Extracted directly from MSEDCL Bill • Consumer No: <strong className="font-mono text-slate-700">{billData.consumerNumber}</strong> • Reading Date: <strong>{billData.readingDate}</strong> • Billing Date: <strong>{billData.billingDate}</strong>
+                                                        </p>
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-bold">
+                                                            Bank Solar Units: {billData.currentBankedUnit}
+                                                        </span>
+                                                        <span className="px-3 py-1 bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-bold">
+                                                            Prev Bank Units: {billData.previousBankedUnit}
+                                                        </span>
+                                                    </div>
+                                                </div>
+
+                                                {/* 1. Meter Readings Table */}
+                                                {billData.meterReadings && (
+                                                    <div className="mb-6">
+                                                        <h4 className="text-xs font-black uppercase tracking-wider text-slate-600 mb-2.5 flex items-center gap-2">
+                                                            <Activity className="w-3.5 h-3.5 text-arin-teal" />
+                                                            Current & Previous Month Meter Readings
+                                                        </h4>
+                                                        <div className="overflow-x-auto rounded-xl border border-slate-200">
+                                                            <table className="w-full text-xs text-left">
+                                                                <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 uppercase text-[10px] tracking-wider">
+                                                                    <tr>
+                                                                        <th className="px-4 py-3">Reading Parameter</th>
+                                                                        <th className="px-4 py-3 text-right">चालू रिडिंग (Current)</th>
+                                                                        <th className="px-4 py-3 text-right">मागील रिडिंग (Previous)</th>
+                                                                        <th className="px-4 py-3 text-center">MF</th>
+                                                                        <th className="px-4 py-3 text-right">आकारणी युनिट (Consumption)</th>
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody className="divide-y divide-slate-100 font-medium">
+                                                                    <tr className="hover:bg-slate-50/70 transition-colors">
+                                                                        <td className="px-4 py-2.5 font-bold text-slate-800 flex items-center gap-2">
+                                                                            <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                                                                            Net Import (आयात)
+                                                                        </td>
+                                                                        <td className="px-4 py-2.5 text-right font-mono font-bold text-slate-700">{billData.meterReadings.import.current}</td>
+                                                                        <td className="px-4 py-2.5 text-right font-mono text-slate-500">{billData.meterReadings.import.previous}</td>
+                                                                        <td className="px-4 py-2.5 text-center font-mono text-slate-500">{billData.meterReadings.import.mf}</td>
+                                                                        <td className="px-4 py-2.5 text-right font-mono font-bold text-blue-600">{billData.meterReadings.import.consumption} kWh</td>
+                                                                    </tr>
+                                                                    <tr className="hover:bg-slate-50/70 transition-colors">
+                                                                        <td className="px-4 py-2.5 font-bold text-slate-800 flex items-center gap-2">
+                                                                            <span className="w-2 h-2 rounded-full bg-orange-500"></span>
+                                                                            Net Export (निर्यात)
+                                                                        </td>
+                                                                        <td className="px-4 py-2.5 text-right font-mono font-bold text-slate-700">{billData.meterReadings.export.current}</td>
+                                                                        <td className="px-4 py-2.5 text-right font-mono text-slate-500">{billData.meterReadings.export.previous}</td>
+                                                                        <td className="px-4 py-2.5 text-center font-mono text-slate-500">{billData.meterReadings.export.mf}</td>
+                                                                        <td className="px-4 py-2.5 text-right font-mono font-bold text-orange-600">{billData.meterReadings.export.consumption} kWh</td>
+                                                                    </tr>
+                                                                    <tr className="hover:bg-emerald-50/40 bg-emerald-50/20 transition-colors">
+                                                                        <td className="px-4 py-2.5 font-bold text-emerald-950 flex items-center gap-2">
+                                                                            <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                                                                            Solar Generation (सौर ऊर्जा निर्मिती)
+                                                                        </td>
+                                                                        <td className="px-4 py-2.5 text-right font-mono font-bold text-slate-800">{billData.meterReadings.generation.current}</td>
+                                                                        <td className="px-4 py-2.5 text-right font-mono text-slate-500">{billData.meterReadings.generation.previous}</td>
+                                                                        <td className="px-4 py-2.5 text-center font-mono text-slate-500">{billData.meterReadings.generation.mf}</td>
+                                                                        <td className="px-4 py-2.5 text-right font-mono font-black text-emerald-700">{billData.meterReadings.generation.consumption} kWh</td>
+                                                                    </tr>
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {/* 2. 12-Month Energy History Table */}
+                                                {billData.pastYearHistory && billData.pastYearHistory.length > 0 && (
+                                                    <div>
+                                                        <h4 className="text-xs font-black uppercase tracking-wider text-slate-600 mb-2.5 flex items-center gap-2">
+                                                            <Calendar className="w-3.5 h-3.5 text-arin-orange" />
+                                                            Past 12-Month Generation & Consumption History
+                                                        </h4>
+                                                        <div className="overflow-x-auto rounded-xl border border-slate-200">
+                                                            <table className="w-full text-xs text-left">
+                                                                <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 uppercase text-[10px] tracking-wider">
+                                                                    <tr>
+                                                                        <th className="px-4 py-2.5">Month</th>
+                                                                        <th className="px-4 py-2.5 text-right">Import Units (IMP)</th>
+                                                                        <th className="px-4 py-2.5 text-right">Export Units (EXP)</th>
+                                                                        <th className="px-4 py-2.5 text-right">Generation Units (GEN)</th>
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody className="divide-y divide-slate-100 font-mono">
+                                                                    {billData.pastYearHistory.map((h: any, i: number) => (
+                                                                        <tr key={i} className="hover:bg-slate-50/70 transition-colors">
+                                                                            <td className="px-4 py-2 font-sans font-bold text-slate-800">{h.month}</td>
+                                                                            <td className="px-4 py-2 text-right text-blue-600 font-bold">{h.import_units}</td>
+                                                                            <td className="px-4 py-2 text-right text-orange-600 font-bold">{h.export_units}</td>
+                                                                            <td className="px-4 py-2 text-right text-emerald-600 font-black">{h.generation_units}</td>
+                                                                        </tr>
+                                                                    ))}
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+
                                         {/* Selected Consumers List */}
                                         {selectedForDownload.length > 0 && uiPhase === "PREVIEW" && (
                                             <div 

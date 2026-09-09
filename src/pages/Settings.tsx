@@ -1123,7 +1123,7 @@ export default function Settings() {
                                     <div className="space-y-3 pt-2">
                                         <div className="flex flex-wrap gap-2">
                                             <a
-                                                href={`${API_BASE_URL}/drive/auth/login`}
+                                                href={`${API_BASE_URL}/drive/auth/login?origin=${encodeURIComponent(window.location.origin)}`}
                                                 target="_blank"
                                                 rel="noopener noreferrer"
                                                 className="inline-flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-md h-10 px-5 transition-all flex-1"
@@ -1348,7 +1348,7 @@ export default function Settings() {
                                     Test Drive Connection
                                 </Button>
                                 <a
-                                    href={`${API_BASE_URL}/drive/auth/login`}
+                                    href={`${API_BASE_URL}/drive/auth/login?origin=${encodeURIComponent(window.location.origin)}`}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-md h-10 px-4 transition-colors"
@@ -1574,7 +1574,7 @@ export default function Settings() {
                                     type="button"
                                     variant="outline"
                                     size="sm"
-                                    onClick={() => window.open(`${API_BASE_URL}/drive/auth/login`, '_blank')}
+                                    onClick={() => window.open(`${API_BASE_URL}/drive/auth/login?origin=${encodeURIComponent(window.location.origin)}`, '_blank')}
                                     className="rounded-xl border-emerald-500/40 text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 text-xs font-bold gap-1.5 h-10 px-3.5"
                                 >
                                     <UploadCloud className="w-3.5 h-3.5 text-emerald-600" />

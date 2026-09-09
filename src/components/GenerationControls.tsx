@@ -104,6 +104,7 @@ export function GenerationControls({
     consumerName: '',
     consumerNumber: '',
     readingDate: format(selectedDate, 'dd/MM/yy'),
+    billingDate: format(selectedDate, 'dd/MM/yy'),
     generatedElectricity: 0,
     exportedToGrid: 0,
     importedFromGrid: 0,
@@ -471,6 +472,8 @@ export function GenerationControls({
         inverter_warranty_expiry_date: data.inverter_warranty_expiry_date || (consumer as any).inverter_warranty_expiry_date,
         system_warranty_expiry_date: data.system_warranty_expiry_date || (consumer as any).system_warranty_expiry_date,
         general_warranty_expiry_date: data.general_warranty_expiry_date || (consumer as any).general_warranty_expiry_date,
+        meterReadings: data.meter_readings,
+        pastYearHistory: data.past_year_history,
       };
 
       const calculated = calculateBillData(rawInputs, consumer as any);
@@ -849,6 +852,10 @@ export function GenerationControls({
                     <Input value={inputs.readingDate} onChange={(e) => handleInputChange('readingDate', e.target.value)} className="font-bold h-9 text-xs" />
                   </div>
                   <div className="space-y-1">
+                    <Label className="text-[9px] font-black uppercase text-slate-500">Billing Date</Label>
+                    <Input value={inputs.billingDate || ""} onChange={(e) => handleInputChange('billingDate', e.target.value)} className="font-bold h-9 text-xs" />
+                  </div>
+                  <div className="col-span-2 space-y-1">
                     <Label className="text-[9px] font-black uppercase text-slate-500">Commission Date</Label>
                     <Input value={inputs.commissioningDate} onChange={(e) => handleInputChange('commissioningDate', e.target.value)} className="font-bold h-9 text-xs" />
                   </div>

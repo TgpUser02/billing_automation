@@ -41,12 +41,24 @@ export interface BillInputs {
   inverter_name: string;
   systemHealth: 'Normal' | 'POOR' | 'GOOD';
   billStatus: string;
+  billingUnits?: number;
   healthThreshold?: number;
   panel_warranty_expiry_date?: string;
   inverter_warranty_expiry_date?: string;
   system_warranty_expiry_date?: string;
   general_warranty_expiry_date?: string;
   arin_id?: string;
+  meterReadings?: {
+    import: { current: number; previous: number; mf: number; consumption: number };
+    export: { current: number; previous: number; mf: number; consumption: number };
+    generation: { current: number; previous: number; mf: number; consumption: number };
+  };
+  pastYearHistory?: Array<{
+    month: string;
+    import_units: number;
+    export_units: number;
+    generation_units: number;
+  }>;
 }
 
 export interface CalculatedBillData {
@@ -77,6 +89,17 @@ export interface CalculatedBillData {
   arin_id?: string;
   lifetimeSavings?: string;
   annualSavings?: string;
+  meterReadings?: {
+    import: { current: number; previous: number; mf: number; consumption: number };
+    export: { current: number; previous: number; mf: number; consumption: number };
+    generation: { current: number; previous: number; mf: number; consumption: number };
+  };
+  pastYearHistory?: Array<{
+    month: string;
+    import_units: number;
+    export_units: number;
+    generation_units: number;
+  }>;
 }
 
 export function calculateBillData(
@@ -99,15 +122,44 @@ export function calculateBillData(
   // 2) total consumption
   const totalConsumption = daytimeSelfConsumption + imp;
 
-  // 3) billing units
-  const billingUnits = totalConsumption - gen;
+  // 3) solar banking & net billing units derivation (MSEDCL Net Metering Rules)
+  const netExport = exp - imp;
+  let currentBankedUnit = 0;
+  let billingUnits = 0;
 
-  // 4) current banked units
-  let currentBankedUnit = Math.max(0, prevBanked + (exp - imp));
+  if (netExport >= 0) {
+    // Surplus solar energy added to banked units; no energy charges billed
+    currentBankedUnit = prevBanked + netExport;
+    billingUnits = 0;
+  } else {
+    // Deficit: Grid energy consumed exceeds solar energy exported
+    const deficit = Math.abs(netExport);
+    if (prevBanked >= deficit) {
+      // Deficit fully covered by accumulated bank; no energy charges billed
+      currentBankedUnit = prevBanked - deficit;
+      billingUnits = 0;
+    } else {
+      // Deficit exceeds bank; banked units exhausted to 0 and remainder is billed
+      currentBankedUnit = 0;
+      billingUnits = deficit - prevBanked;
+    }
+  }
+
+  // Preserve explicit current banked units from database/OCR if it matches banking logic
+  // and doesn't suffer from the legacy bug where it was left equal to prevBanked despite an active deficit
   if (inputs.currentBankedUnit !== undefined && inputs.currentBankedUnit !== null && !isNaN(Number(inputs.currentBankedUnit))) {
     const passedVal = Number(inputs.currentBankedUnit);
-    if (passedVal > 0 || (prevBanked === 0 && exp === 0 && imp === 0)) {
+    const isFrozenBug = (passedVal === prevBanked && exp !== imp && passedVal !== currentBankedUnit);
+    if (!isFrozenBug) {
       currentBankedUnit = passedVal;
+    }
+  }
+
+  // If explicit billed units provided from bill/OCR and it accurately reflects net energy after bank offset
+  if (inputs.billingUnits !== undefined && inputs.billingUnits !== null && !isNaN(Number(inputs.billingUnits))) {
+    const passedBilled = Number(inputs.billingUnits);
+    if (passedBilled === billingUnits || (passedBilled === 0 && billingUnits === 0)) {
+      billingUnits = passedBilled;
     }
   }
 
@@ -216,6 +268,8 @@ export function calculateBillData(
     arin_id: inputs.arin_id || consumer.arin_id || "",
     lifetimeSavings: lifetimeSavingsFormatted,
     annualSavings: `₹${annualSavingsNum.toLocaleString()}`,
+    meterReadings: inputs.meterReadings,
+    pastYearHistory: inputs.pastYearHistory,
   };
 }
 

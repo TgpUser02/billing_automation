@@ -6,8 +6,7 @@ import { Label } from "@/components/ui/label";
 import { 
   Upload, FileText, CloudSun, Zap, CheckCircle2, Cpu, Loader2, 
   ArrowUpRight, ArrowDownLeft, ShieldCheck, Sun, TrendingUp, 
-  IndianRupee, Leaf, Trees, Clock, Sparkles, PieChart, Layers,
-  Download, Image as ImageIcon, FileCheck
+  Download, Image as ImageIcon, FileCheck, Activity, Calendar
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -306,13 +305,38 @@ export default function QuickBillAnalysis() {
     ? String(solarResult.extracted_data.lifetime_savings)
     : `${(dynAnnualSavingsVal * 25 / 100000).toFixed(1)} Lakhs`;
 
-  // Dynamic Banking Calculation safeguard
+  // Dynamic Banking & Net Billing Units Calculation (MSEDCL Rules)
   const rawPrevBanked = parseFloat(String(solarResult?.extracted_data.previous_banked_unit || "0").replace(/[^0-9.]/g, '')) || 0;
   const rawExpUnits = parseFloat(String(solarResult?.extracted_data.exported_to_grid || "0").replace(/[^0-9.]/g, '')) || 0;
   const rawImpUnits = parseFloat(String(solarResult?.extracted_data.imported_from_grid || "0").replace(/[^0-9.]/g, '')) || 0;
-  let calculatedBanked = parseFloat(String(solarResult?.extracted_data.current_banked_unit || "0").replace(/[^0-9.]/g, '')) || 0;
-  if (calculatedBanked === 0 || (calculatedBanked === rawPrevBanked && rawExpUnits !== rawImpUnits)) {
-    calculatedBanked = Math.max(0, Math.round(rawPrevBanked + (rawExpUnits - rawImpUnits)));
+  
+  const netExportUnits = rawExpUnits - rawImpUnits;
+  let calculatedBanked = 0;
+  let dynamicBilledUnits = 0;
+
+  if (netExportUnits >= 0) {
+    calculatedBanked = Math.round(rawPrevBanked + netExportUnits);
+    dynamicBilledUnits = 0;
+  } else {
+    const deficitUnits = Math.abs(netExportUnits);
+    if (rawPrevBanked >= deficitUnits) {
+      calculatedBanked = Math.round(rawPrevBanked - deficitUnits);
+      dynamicBilledUnits = 0;
+    } else {
+      calculatedBanked = 0;
+      dynamicBilledUnits = Math.round(deficitUnits - rawPrevBanked);
+    }
+  }
+
+  // Check if OCR / database provided an explicit current banked units value that is valid
+  const rawPassedBanked = solarResult?.extracted_data.current_banked_unit !== undefined
+    ? parseFloat(String(solarResult.extracted_data.current_banked_unit).replace(/[^0-9.]/g, ''))
+    : NaN;
+  if (!isNaN(rawPassedBanked)) {
+    const isFrozenLegacyBug = (rawPassedBanked === rawPrevBanked && rawExpUnits !== rawImpUnits && rawPassedBanked !== calculatedBanked);
+    if (!isFrozenLegacyBug) {
+      calculatedBanked = rawPassedBanked;
+    }
   }
 
   // Map Solar OCR Result into BillPreview Props
@@ -324,20 +348,22 @@ export default function QuickBillAnalysis() {
     billingDate: solarResult.extracted_data.billing_date || solarResult.extracted_data.bill_date || solarResult.extracted_data.month_year || solarResult.extracted_data.reading_date || format(new Date(), "dd/MM/yyyy"),
     billMonth: solarResult.extracted_data.bill_month || "",
     billingAmount: String(solarResult.extracted_data.billing_amount ?? 0),
-    billingUnits: String(solarResult.extracted_data.billing_units ?? "0").replace(/\s*kWh/gi, ''),
+    billingUnits: String(dynamicBilledUnits),
     generatedElectricity: String(solarResult.extracted_data.generated_electricity || `${Math.round(parsedCap * 120)} kWh`),
     exportedToGrid: String(solarResult.extracted_data.exported_to_grid || `${Math.round(parsedCap * 65)} kWh`),
     importedFromGrid: String(solarResult.extracted_data.imported_from_grid || `${Math.round(parsedCap * 55)} kWh`),
     daytimeSelfConsumption: String(solarResult.extracted_data.daytime_self_consumption || `${Math.round(parsedCap * 55)} kWh`),
     totalConsumption: String(solarResult.extracted_data.total_consumption || `${Math.round(parsedCap * 110)} kWh`),
-    previousBankedUnit: String(solarResult.extracted_data.previous_banked_unit || "0 Units").replace(/\s*Units/gi, ''),
+    previousBankedUnit: String(rawPrevBanked),
     currentBankedUnit: String(calculatedBanked),
     systemHealth: solarResult.extracted_data.system_health || "GOOD",
     weatherCondition: solarResult.weather_ai_analysis?.weather_condition,
     performanceScore: solarResult.weather_ai_analysis?.performance_score,
     recommendedCapacity: String(parsedCap),
     annualSavings: `₹${dynAnnualSavingsVal.toLocaleString()}`,
-    lifetimeSavings: dynLifetimeSavingsVal
+    lifetimeSavings: dynLifetimeSavingsVal,
+    meterReadings: solarResult.extracted_data.meter_readings,
+    pastYearHistory: solarResult.extracted_data.past_year_history,
   } : null;
 
   return (
@@ -850,12 +876,128 @@ export default function QuickBillAnalysis() {
 
                 {/* VISUAL ARIN ENERGY BRANDED REPORT CARD (REF FOR EXPORT) */}
                 {mappedBillData && (
-                  <div className="overflow-x-auto pb-4 flex justify-center bg-slate-200/50 p-6 rounded-3xl border border-slate-300/50">
-                    <BillPreview
-                      ref={reportRef}
-                      billData={mappedBillData}
-                      selectedDate={new Date()}
-                    />
+                  <div className="space-y-6">
+                    <div className="overflow-x-auto pb-4 flex justify-center bg-slate-200/50 p-6 rounded-3xl border border-slate-300/50">
+                      <BillPreview
+                        ref={reportRef}
+                        billData={mappedBillData}
+                        selectedDate={new Date()}
+                      />
+                    </div>
+
+                    {/* MSEDCL Detailed Meter Readings & 12-Month History Card */}
+                    {(solarResult?.extracted_data?.meter_readings || (solarResult?.extracted_data?.past_year_history && solarResult.extracted_data.past_year_history.length > 0)) && (
+                      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 animate-in slide-in-from-bottom-4 transition-all">
+                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 border-b border-slate-100 pb-4 mb-5">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                              <h3 className="text-sm font-black uppercase text-slate-800 tracking-wider">
+                                MSEDCL Official Meter Readings & Historical Breakdown
+                              </h3>
+                            </div>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              Extracted directly from MSEDCL Bill • Consumer No: <strong className="font-mono text-slate-700">{solarResult.extracted_data.consumer_number}</strong> • Reading Date: <strong>{solarResult.extracted_data.reading_date}</strong> • Billing Date: <strong>{solarResult.extracted_data.billing_date}</strong>
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-bold">
+                              Bank Solar Units: {solarResult.extracted_data.current_banked_unit || calculatedBanked}
+                            </span>
+                            <span className="px-3 py-1 bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-bold">
+                              Prev Bank Units: {solarResult.extracted_data.previous_banked_unit || rawPrevBanked}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* 1. Meter Readings Table */}
+                        {solarResult.extracted_data.meter_readings && (
+                          <div className="mb-6">
+                            <h4 className="text-xs font-black uppercase tracking-wider text-slate-600 mb-2.5 flex items-center gap-2">
+                              <Activity className="w-3.5 h-3.5 text-emerald-600" />
+                              Current & Previous Month Meter Readings
+                            </h4>
+                            <div className="overflow-x-auto rounded-xl border border-slate-200">
+                              <table className="w-full text-xs text-left">
+                                <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 uppercase text-[10px] tracking-wider">
+                                  <tr>
+                                    <th className="px-4 py-3">Reading Parameter</th>
+                                    <th className="px-4 py-3 text-right">चालू रिडिंग (Current)</th>
+                                    <th className="px-4 py-3 text-right">मागील रिडिंग (Previous)</th>
+                                    <th className="px-4 py-3 text-center">MF</th>
+                                    <th className="px-4 py-3 text-right">आकारणी युनिट (Consumption)</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 font-medium">
+                                  <tr className="hover:bg-slate-50/70 transition-colors">
+                                    <td className="px-4 py-2.5 font-bold text-slate-800 flex items-center gap-2">
+                                      <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                                      Net Import (आयात)
+                                    </td>
+                                    <td className="px-4 py-2.5 text-right font-mono font-bold text-slate-700">{solarResult.extracted_data.meter_readings.import.current}</td>
+                                    <td className="px-4 py-2.5 text-right font-mono text-slate-500">{solarResult.extracted_data.meter_readings.import.previous}</td>
+                                    <td className="px-4 py-2.5 text-center font-mono text-slate-500">{solarResult.extracted_data.meter_readings.import.mf}</td>
+                                    <td className="px-4 py-2.5 text-right font-mono font-bold text-blue-600">{solarResult.extracted_data.meter_readings.import.consumption} kWh</td>
+                                  </tr>
+                                  <tr className="hover:bg-slate-50/70 transition-colors">
+                                    <td className="px-4 py-2.5 font-bold text-slate-800 flex items-center gap-2">
+                                      <span className="w-2 h-2 rounded-full bg-orange-500"></span>
+                                      Net Export (निर्यात)
+                                    </td>
+                                    <td className="px-4 py-2.5 text-right font-mono font-bold text-slate-700">{solarResult.extracted_data.meter_readings.export.current}</td>
+                                    <td className="px-4 py-2.5 text-right font-mono text-slate-500">{solarResult.extracted_data.meter_readings.export.previous}</td>
+                                    <td className="px-4 py-2.5 text-center font-mono text-slate-500">{solarResult.extracted_data.meter_readings.export.mf}</td>
+                                    <td className="px-4 py-2.5 text-right font-mono font-bold text-orange-600">{solarResult.extracted_data.meter_readings.export.consumption} kWh</td>
+                                  </tr>
+                                  <tr className="hover:bg-emerald-50/40 bg-emerald-50/20 transition-colors">
+                                    <td className="px-4 py-2.5 font-bold text-emerald-950 flex items-center gap-2">
+                                      <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                                      Solar Generation (सौर ऊर्जा निर्मिती)
+                                    </td>
+                                    <td className="px-4 py-2.5 text-right font-mono font-bold text-slate-800">{solarResult.extracted_data.meter_readings.generation.current}</td>
+                                    <td className="px-4 py-2.5 text-right font-mono text-slate-500">{solarResult.extracted_data.meter_readings.generation.previous}</td>
+                                    <td className="px-4 py-2.5 text-center font-mono text-slate-500">{solarResult.extracted_data.meter_readings.generation.mf}</td>
+                                    <td className="px-4 py-2.5 text-right font-mono font-black text-emerald-700">{solarResult.extracted_data.meter_readings.generation.consumption} kWh</td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* 2. 12-Month Energy History Table */}
+                        {solarResult.extracted_data.past_year_history && solarResult.extracted_data.past_year_history.length > 0 && (
+                          <div>
+                            <h4 className="text-xs font-black uppercase tracking-wider text-slate-600 mb-2.5 flex items-center gap-2">
+                              <Calendar className="w-3.5 h-3.5 text-amber-600" />
+                              Past 12-Month Generation & Consumption History
+                            </h4>
+                            <div className="overflow-x-auto rounded-xl border border-slate-200">
+                              <table className="w-full text-xs text-left">
+                                <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 uppercase text-[10px] tracking-wider">
+                                  <tr>
+                                    <th className="px-4 py-2.5">Month</th>
+                                    <th className="px-4 py-2.5 text-right">Import Units (IMP)</th>
+                                    <th className="px-4 py-2.5 text-right">Export Units (EXP)</th>
+                                    <th className="px-4 py-2.5 text-right">Generation Units (GEN)</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 font-mono">
+                                  {solarResult.extracted_data.past_year_history.map((h: any, i: number) => (
+                                    <tr key={i} className="hover:bg-slate-50/70 transition-colors">
+                                      <td className="px-4 py-2 font-sans font-bold text-slate-800">{h.month}</td>
+                                      <td className="px-4 py-2 text-right text-blue-600 font-bold">{h.import_units}</td>
+                                      <td className="px-4 py-2 text-right text-orange-600 font-bold">{h.export_units}</td>
+                                      <td className="px-4 py-2 text-right text-emerald-600 font-black">{h.generation_units}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

@@ -437,19 +437,44 @@ export const BillPreview = forwardRef<HTMLDivElement, BillPreviewProps>(
             </div>
 
             <div style={{ marginTop: 'auto', borderTop: '2px solid #f1f5f9', paddingTop: '12px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '10px 14px', borderRadius: '12px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#64748b', fontWeight: '600', fontSize: '12px' }}>
-                  <div style={{ width: '26px', height: '26px', borderRadius: '50%', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}><Zap size={14} color="#fbbf24" /></div>
-                  Previous Banked
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '8px 12px', borderRadius: '12px', minHeight: '52px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ width: '26px', height: '26px', borderRadius: '50%', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', flexShrink: 0 }}>
+                    <Zap size={14} color="#fbbf24" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', lineHeight: '1.2' }}>
+                    <span style={{ fontSize: '11px', fontWeight: '700', color: '#64748b' }}>Previous</span>
+                    <span style={{ fontSize: '11px', fontWeight: '700', color: '#64748b' }}>Banked</span>
+                  </div>
                 </div>
-                <span style={{ fontWeight: '900', fontSize: '15px', color: '#1e293b' }}>{billData.previousBankedUnit} Units</span>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', lineHeight: '1.1' }}>
+                  <span style={{ fontWeight: '900', fontSize: '18px', color: '#0f172a' }}>
+                    {String(billData.previousBankedUnit ?? '0').replace(/[^\d.]/g, '') || '0'}
+                  </span>
+                  <span style={{ fontWeight: '700', fontSize: '10px', color: '#64748b' }}>
+                    Units
+                  </span>
+                </div>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '10px 14px', borderRadius: '12px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#64748b', fontWeight: '600', fontSize: '12px' }}>
-                  <div style={{ width: '26px', height: '26px', borderRadius: '50%', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}><Zap size={14} color="#22c55e" /></div>
-                  Current Banked
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '8px 12px', borderRadius: '12px', minHeight: '52px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ width: '26px', height: '26px', borderRadius: '50%', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', flexShrink: 0 }}>
+                    <Zap size={14} color="#22c55e" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', lineHeight: '1.2' }}>
+                    <span style={{ fontSize: '11px', fontWeight: '700', color: '#64748b' }}>Current</span>
+                    <span style={{ fontSize: '11px', fontWeight: '700', color: '#64748b' }}>Banked</span>
+                  </div>
                 </div>
-                <span style={{ fontWeight: '900', fontSize: '15px', color: '#1e293b' }}>{billData.currentBankedUnit} Units</span>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', lineHeight: '1.1' }}>
+                  <span style={{ fontWeight: '900', fontSize: '18px', color: '#0f172a' }}>
+                    {String(billData.currentBankedUnit ?? '0').replace(/[^\d.]/g, '') || '0'}
+                  </span>
+                  <span style={{ fontWeight: '700', fontSize: '10px', color: '#64748b' }}>
+                    Units
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -463,7 +488,7 @@ export const BillPreview = forwardRef<HTMLDivElement, BillPreviewProps>(
                 <div style={{ width: '30px', height: '30px', borderRadius: '8px', background: '#fbbf24', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><IndianRupee size={16} color="#fff" /></div>
                 Amount
               </div>
-              <div style={{ ...styles.rowValue, color: '#1e293b' }}>₹{billData.billingAmount}</div>
+              <div style={{ ...styles.rowValue, color: '#1e293b' }}>₹{billData.billingAmount || 0}</div>
             </div>
 
             <div style={styles.row}>
@@ -477,10 +502,10 @@ export const BillPreview = forwardRef<HTMLDivElement, BillPreviewProps>(
             <div style={{ padding: '10px 12px', background: '#f8fafc', borderRadius: '12px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={styles.rowLabel}><Wind size={18} color="#fbbf24" /> Billing Units</div>
-                <span style={{ fontWeight: '800', fontSize: '15px' }}>{billData.billingUnits} kWh</span>
+                <span style={{ fontWeight: '800', fontSize: '15px' }}>{String(billData.billingUnits ?? '0').replace(/[^\d.]/g, '') || '0'} kWh</span>
               </div>
               <div style={{ fontSize: '10px', color: '#94a3b8', textAlign: 'right', marginTop: '3px' }}>
-                = Total Consumption - Generated
+                = Net Billed Consumption
               </div>
             </div>
 

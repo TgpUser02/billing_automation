@@ -107,6 +107,7 @@ const ConsumerConnect = () => {
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [isDragActive, setIsDragActive] = useState(false);
     const [isImporting, setIsImporting] = useState(false);
+    const [isExportingExcel, setIsExportingExcel] = useState(false);
     const [importResult, setImportResult] = useState<any>(null);
     const [importError, setImportError] = useState<string | null>(null);
 
@@ -450,6 +451,30 @@ const ConsumerConnect = () => {
             title: "Export Successful",
             description: `${dataToExport.length} records exported to CSV`,
         });
+    };
+
+    const handleExportExcel = async () => {
+        try {
+            setIsExportingExcel(true);
+            toast({
+                title: "Generating Excel Export",
+                description: "Preparing month-wise bill generation details for all consumers...",
+            });
+            await api.exportConsumerBillsExcel();
+            toast({
+                title: "Export Complete",
+                description: "Bill generation details successfully downloaded (.xlsx)",
+            });
+        } catch (err: any) {
+            console.error("Failed to export bills excel:", err);
+            toast({
+                title: "Export Failed",
+                description: err.message || "Failed to download bill generation Excel file",
+                variant: "destructive",
+            });
+        } finally {
+            setIsExportingExcel(false);
+        }
     };
 
     const handleRowClick = (consumer: any) => {
@@ -898,6 +923,8 @@ const ConsumerConnect = () => {
                         <ActionButtons
                             onFilter={handleFilter}
                             onExport={handleExport}
+                            onExportExcel={handleExportExcel}
+                            isExportingExcel={isExportingExcel}
                             onImport={() => setIsImportOpen(true)}
                             onAdd={handleAddCustomer}
                             showAdd={viewMode === 'profiles'}

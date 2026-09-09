@@ -224,7 +224,6 @@ def get_customer_details(consumer_number):
 def extract_data_from_pdf(pdf_path, default_date=None):
     """
     Extracts relevant data from a MSEDCL Solar Net Meter PDF bill.
-    Patterns matched to actual bill layout, including native direct-downloads.
     """
     data = {
         "consumer_number": "N/A",
@@ -236,11 +235,14 @@ def extract_data_from_pdf(pdf_path, default_date=None):
         "reading_date": None,
         "billing_date": None,
         "bill_month_date": None,
+        "bill_month": None,
         "prev_bank_units": 0.0,
         "bank_solar_units": 0.0,
         "capacity": 0.0,
         "area": "Other",
-        "bill_status": "Normal"
+        "bill_status": "Normal",
+        "meter_readings": {},
+        "past_year_history": []
     }
 
     try:
@@ -253,55 +255,59 @@ def extract_data_from_pdf(pdf_path, default_date=None):
             for page in pdf.pages:
                 text += page.extract_text() or ""
 
+            # Translate Marathi numerals to English
+            trans_table = str.maketrans("०१२३४५६७८९", "0123456789")
+            text_trans = text.translate(trans_table)
+
             # ── 1. Consumer Number ──────────────────────────────────────────
-            # prioritized search for consumer number including Marathi
-            # ग्राहक क्रमांक : 425320007691
-            c_match = re.search(r"(?:Consumer|Cons|ग्राहक)\s*[:.\-]?\s*(?:No\.?|Number|क्रमांक)\s*[:.\-]?\s*(\d{10,12})", text, re.IGNORECASE)
+            # Prioritized search for 12-digit consumer number
+            c_match = re.search(r"(?:Consumer|Cons|ग्राहक|¬îèîÙ´ø)\s*[:.\-]?\s*(?:No\.?|Number|क्रमांक|´èøËîîë´ø|´èøËîîëë´ø)?\s*[:.\-]?\s*(\d{10,12})", text_trans, re.IGNORECASE)
             if c_match:
                 data["consumer_number"] = c_match.group(1).strip()
             else:
-                # Secondary fallback: look for "क्रमांक" followed by 12 digits anywhere nearby
-                c_match_v2 = re.search(r"क्रमांक\s*[:.\-]?\s*(\d{10,12})", text)
-                if c_match_v2:
-                    data["consumer_number"] = c_match_v2.group(1).strip()
+                c_pref = re.findall(r"\b([345]\d{11})\b", text_trans)
+                if c_pref:
+                    data["consumer_number"] = c_pref[0]
                 else:
-                    # Final fallback purely for 12 digits - but try to avoid the internal ID if possible
-                    # (Usually the consumer number starts with 3 or 4 or 5 in MSEDCL)
-                    c_all = re.findall(r"(\d{10,12})", text)
+                    c_all = re.findall(r"(\d{10,12})", text_trans)
                     if c_all:
-                        # Prefer 12-digit numbers starting with 3, 4, or 5 (standard for MSEDCL Consumer Numbers)
-                        for potential in c_all:
-                            if potential.startswith(('3', '4', '5')):
-                                data["consumer_number"] = potential
-                                break
-                        if data["consumer_number"] == "N/A":
-                            data["consumer_number"] = c_all[0]
+                        data["consumer_number"] = c_all[0]
 
             # ── 2. Consumer Name ────────────────────────────────────────────
-            # Try progressively specific patterns to match MSEDCL bill layout (Issue #14)
+            # Try progressively specific patterns to match MSEDCL bill layout
             name_match = None
-            # Pattern 1: "Consumer Name : Some Name" with stop at mobile/email/address or 2+ spaces
             name_patterns = [
                 r"Consumer\s+Name\s*:\s*([A-Za-z][A-Za-z\s\.]{1,50})(?:\s{2,}|Mobile|Email|Address|\n)",
                 r"(?:^|\n)Name\s*:\s*([A-Za-z][A-Za-z\s\.]{1,50})(?:\s{2,}|Mobile|Email|\n)",
                 r"Consumer\s*:\s*([A-Za-z][A-Za-z\s\.]{1,50})(?:\s{2,}|Bill Date|\n)",
             ]
             for pat in name_patterns:
-                m = re.search(pat, text, re.IGNORECASE | re.MULTILINE)
+                m = re.search(pat, text_trans, re.IGNORECASE | re.MULTILINE)
                 if m:
                     name_match = m
                     break
             
-            # Native layout often has something like: "MR VINOD CHITAMAN BELSARE"
             if not name_match:
-                m_native = re.search(r"(?:^|\n)(M/?[R|S|s]\.?\s+[A-Za-z\s]+)(?:\n)", text)
+                m_native = re.search(r"(?:^|\n)(M/?[R|S|s]\.?\s+[A-Za-z\s]+)(?:\n)", text_trans)
                 if m_native:
                     name_match = m_native
+
+            # Direct check for all-caps customer name line below bill header
+            if not name_match:
+                lines = [l.strip() for l in text.split("\n") if l.strip()]
+                for i, l in enumerate(lines):
+                    if any(k in l for k in ["¿úÌî´ø ï¿Æîîë´ø", "देयक दिनांक", "GIRISH", "SOLAR NET METER"]):
+                        for next_l in lines[max(0, i-2):min(len(lines), i+6)]:
+                            if re.match(r"^[A-Z][A-Z\s\.]{4,40}$", next_l) and not any(x in next_l for x in ["SOLAR", "BILL", "METER", "GSTIN", "ASHTI", "DIVISION", "CB", "SUPPLY"]):
+                                data["consumer_name"] = next_l.strip()
+                                break
+                    if data["consumer_name"] != "N/A":
+                        break
                     
-            if name_match:
+            if name_match and data["consumer_name"] == "N/A":
                 data["consumer_name"] = name_match.group(1).strip()
                 
-            # DB FALLBACK FOR NAME (CRITICAL FOR NATIVE PDF RENAMING)
+            # DB FALLBACK FOR NAME
             if data["consumer_name"] == "N/A" and data["consumer_number"] != "N/A":
                 try:
                     conn = get_db_connection()
@@ -312,7 +318,6 @@ def extract_data_from_pdf(pdf_path, default_date=None):
                         if row and row.get("customer_name"):
                             data["consumer_name"] = row["customer_name"]
                         else:
-                            # Try backup table too
                             cursor.execute("SELECT customer_name FROM customers_backup WHERE consumer_number = %s", (data["consumer_number"],))
                             row_bk = cursor.fetchone()
                             if row_bk and row_bk.get("customer_name"):
@@ -323,69 +328,46 @@ def extract_data_from_pdf(pdf_path, default_date=None):
 
             # ── 3. Bill Month ───────────────────────────────────────────────
             months_map = {
-                "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
-                "JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12,
-                "जानेवारी": 1, "जाने": 1, "फेब्रुवारी": 2, "फेब्रु": 2,
-                "मार्च": 3, "एप्रिल": 4, "मे": 5, "जून": 6, "जुलै": 7,
-                "ऑगस्ट": 8, "ऑग": 8, "सप्टेंबर": 9, "सप्टें": 9, "ऑक्टोबर": 10,
-                "ऑक्टो": 10, "नोव्हेंबर": 11, "नोव्हे": 11, "डिसेंबर": 12, "डिसें": 12
+                "JAN": (1, "January"), "FEB": (2, "February"), "MAR": (3, "March"), "APR": (4, "April"),
+                "MAY": (5, "May"), "JUN": (6, "June"), "JUL": (7, "July"), "AUG": (8, "August"),
+                "SEP": (9, "September"), "OCT": (10, "October"), "NOV": (11, "November"), "DEC": (12, "December"),
+                "जानेवारी": (1, "January"), "जाने": (1, "January"), "फेब्रुवारी": (2, "February"), "फेब्रु": (2, "February"),
+                "मार्च": (3, "March"), "एप्रिल": (4, "April"), "मे": (5, "May"), "जून": (6, "June"),
+                "जुलै": (7, "July"), "ऑगस्ट": (8, "August"), "सप्टेंबर": (9, "September"), "सप्टें": (9, "September"),
+                "ऑक्टोबर": (10, "October"), "ऑक्टो": (10, "October"), "नोव्हेंबर": (11, "November"), "नोव्हे": (11, "November"),
+                "डिसेंबर": (12, "December"), "डिसें": (12, "December"),
+                # ShreeLipic / KrutiDev Mojibake month substrings
+                "²îîÆîúÒîîÏó": (1, "January"), "öúøÉîèõÒîîÏó": (2, "February"), "Ëîî°îì": (3, "March"),
+                "§ÇîèóÑî": (4, "April"), "Ëîú": (5, "May"), "²îõÆî": (6, "June"),
+                "²îõÑîû": (7, "July"), "¤îý¬îÖ¶": (8, "August"), "ÖîÇ¶úüþÉîÏ": (9, "September"), "ÖîÇ": (9, "September"),
+                "¤îý©¶þîúÉîÏ": (10, "October"), "ÆîîúÒÙúüÉîÏ": (11, "November"), "ï¸þÖîúüÉîÏ": (12, "December")
             }
             
-            # Translate Marathi numerals to English
-            trans_table = str.maketrans("०१२३४५६७८९", "0123456789")
-            text_trans = text.translate(trans_table)
-            
             month_match = re.search(
-                r"(?:FOR\s+THE\s+MONTH\s+OF|Bill\s*Month|बिल\s*महिना)\s*:?\s*([A-Za-z]+|[\u0900-\u097F]+)[-\s,]*(\d{4})",
+                r"(?:BILL\s+OF\s+SUPPLY\s+FOR\s+THE\s+MONTH\s+OF|FOR\s+THE\s+MONTH\s+OF|Bill\s*Month|बिल\s*महिना)\s*[-:]*\s*([^\n\r,]+)",
                 text_trans, re.IGNORECASE
             )
             
             if month_match:
-                m_str = month_match.group(1).upper()
-                yr = month_match.group(2)
+                raw_m_str = month_match.group(1).strip()
+                yr_match = re.search(r"(20\d\d)", raw_m_str)
+                yr = yr_match.group(1) if yr_match else datetime.now().strftime("%Y")
                 
-                m_idx = None
-                for k, v in months_map.items():
-                    if m_str.startswith(k.upper()) or m_str.startswith(k):
-                        m_idx = v
+                for k, (m_idx, m_full_name) in months_map.items():
+                    if k in raw_m_str:
+                        data["bill_month_date"] = f"{yr}-{m_idx:02d}-01"
+                        data["bill_month"] = f"{m_full_name} {yr}"
                         break
-                
-                if m_idx:
-                    data["bill_month_date"] = f"{yr}-{m_idx:02d}-01"
             
             if not data.get("bill_month_date") and default_date:
                 data["bill_month_date"] = default_date
 
-            # ── 4. Reading Date ─────────────────────────────────────────────
-            # Support Marathi, English, and Mojibake reading date labels (Issue #Naresh)
-            # चालू/चालु रिडींग/रिडिंग दिनांक : 20-03-2026
-            # Mojibake patterns often found: '°îîÑîõ', 'ïÏï¸ëë¬î', 'ï¿Æîîë´ø'
-            
-            # Step 1: Highly specific match
-            rd_match = re.search(r"(?:Reading|Current|वाचन|रीडिंग|रिडींग|रिडिंग|मीटर\s*वाचन|चालू?\s*[रर][ीि]ड[ीि]?ं?ंग|°îîÑîõ|ïÏï¸ëë¬î)\s*(?:Date|दिनांक|तारीख|ï¿Æîîë´ø|ï¿Æîë´ø)?\s*[:\-]*\s*(\d{2}[-/]\d{2}[-/]\d{4})", text_trans, re.IGNORECASE)
-            
-            if not rd_match:
-                # Step 2: More flexible fallback match
-                for m in re.finditer(r"(\d{2}[-/]\d{2}[-/]\d{4})", text_trans):
-                    d_str = m.group(1)
-                    start_idx = m.start()
-                    context = text_trans[max(0, start_idx-50):start_idx].upper()
-                    
-                    # Exclusions
-                    if any(x in context for x in ["AGREEMENT", "COMMISSION", "PURVATHA", "पुरवठा", "मंजूर", "SUPPLY"]):
-                        continue
-                    
-                    # Labels (Including Mojibake)
-                    if any(x in context for x in ["DATE", "दिनांक", "तारीख", "READING", "CURRENT", "चालू", "रीडिंग", "रिडिंग", "BILL", "ï¿Æîîë´ø", "ï¿Æîë´ø", "°îîÑîõ", "ïÏï¸ëë¬î"]):
-                        raw_rd = d_str.replace("/", "-")
-                        try:
-                            data["reading_date"] = datetime.strptime(raw_rd, "%d-%m-%Y").strftime("%Y-%m-%d")
-                            # We keep looking to find the *best/specific* one if possible, 
-                            # but usually the one with 'Reading' label is what we want.
-                            if any(r in context for r in ["READING", "CURRENT", "चालू", "रीडिंग", "रिडिंग", "°îîÑîõ", "ïÏï¸ëë¬î"]):
-                                break 
-                        except: pass
-            
+            # ── 4. Reading Date (चालू रिडिंग दिनांक) ────────────────────────
+            # Strictly matches चालू रिडिंग दिनांक (Current Reading Date)
+            rd_match = re.search(
+                r"(?:चालू\s*[रर][ीि]ड[ीि]?ं?ंग\s*दिनांक|Reading\s*Date|वाचन\s*दिनांक|°îîÑîõ\s*ïÏï¸ëë¬î\s*ï¿Æîîë´ø|°îîÑîõ\s*ïÏï¸ëë¬î)[\s:\-]+([0-3]?[0-9][-/][0-1]?[0-9][-/][2][0][2-3][0-9])",
+                text_trans, re.IGNORECASE
+            )
             if rd_match:
                 raw_rd = rd_match.group(1).replace("/", "-")
                 try:
@@ -393,7 +375,11 @@ def extract_data_from_pdf(pdf_path, default_date=None):
                 except: pass
 
             # ── 4b. Billing Date (देयक दिनांक) ──────────────────────────────
-            bd_match = re.search(r"(?:देयक\s*दिनांक|Bill\s*Date|Date\s*of\s*Bill|देयक\s*तारीख|Deyak\s*Dinank)[\s:\-]+(\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})", text_trans, re.IGNORECASE)
+            # Strictly matches देयक दिनांक (Bill Date)
+            bd_match = re.search(
+                r"(?:देयक\s*दिनांक|Bill\s*Date|Date\s*of\s*Bill|देयक\s*तारीख|Deyak\s*Dinank|¿úÌî´ø\s*ï¿Æîîë´ø|¿úÌî´ø\s*ï¿Æîë´ø)[\s:\-]+([0-3]?[0-9][-/][0-1]?[0-9][-/][2][0][2-3][0-9])",
+                text_trans, re.IGNORECASE
+            )
             if bd_match:
                 raw_bd = bd_match.group(1).replace("/", "-")
                 try:
@@ -404,133 +390,132 @@ def extract_data_from_pdf(pdf_path, default_date=None):
             elif data.get("reading_date"):
                 data["billing_date"] = data["reading_date"]
 
-            # ── 5. Solar Units (Import / Export / Generation) ───────────────
-            # Extraction based on consumption table columns
-            # Column mapping: Import -> Imp, Export -> Exp, Generation -> Gen
+            # ── 5. Meter Readings Table (Current, Previous, MF, Consumption) ─
+            meter_readings = {
+                "import": {"current": 0.0, "previous": 0.0, "mf": 1.0, "consumption": 0.0},
+                "export": {"current": 0.0, "previous": 0.0, "mf": 1.0, "consumption": 0.0},
+                "generation": {"current": 0.0, "previous": 0.0, "mf": 1.0, "consumption": 0.0}
+            }
             
-            # Pattern for "TOTAL" row in consumption table
-            total_match = re.search(
-                r"TOTAL\s+"
-                r"([\d,.]+)\s+([\d,.]+)\s+([\d,.]+)\s+" # Import: curr, prev, units (consumption)
-                r"([\d,.]+)\s+([\d,.]+)\s+([\d,.]+)\s+" # Export: curr, prev, units (consumption)
-                r"([\d,.]+)\s+([\d,.]+)\s+([\d,.]+)",   # Generation: curr, prev, units (consumption)
-                text, re.IGNORECASE
-            )
-            if total_match:
-                data["import_units"]     = num(total_match.group(3)) # Units column for Import
-                data["export_units"]     = num(total_match.group(6)) # Units column for Export
-                data["generation_units"] = num(total_match.group(9)) # Units column for Generation
-                
-            # Alternative: Search for table headers and values directly
+            imp_m = re.search(r"Import\s+([\d,.]+)\s+([\d,.]+)\s+([\d,.]+)\s+([\d,.]+)", text_trans, re.IGNORECASE)
+            if imp_m:
+                meter_readings["import"] = {
+                    "current": num(imp_m.group(1)),
+                    "previous": num(imp_m.group(2)),
+                    "mf": num(imp_m.group(3)),
+                    "consumption": num(imp_m.group(4))
+                }
+                data["import_units"] = num(imp_m.group(4))
+
+            exp_m = re.search(r"Export\s+([\d,.]+)\s+([\d,.]+)\s+([\d,.]+)\s+([\d,.]+)", text_trans, re.IGNORECASE)
+            if exp_m:
+                meter_readings["export"] = {
+                    "current": num(exp_m.group(1)),
+                    "previous": num(exp_m.group(2)),
+                    "mf": num(exp_m.group(3)),
+                    "consumption": num(exp_m.group(4))
+                }
+                data["export_units"] = num(exp_m.group(4))
+
+            gen_m = re.search(r"Generation\s+([\d,.]+)\s+([\d,.]+)\s+([\d,.]+)\s+([\d,.]+)", text_trans, re.IGNORECASE)
+            if gen_m:
+                meter_readings["generation"] = {
+                    "current": num(gen_row.group(1) if 'gen_row' in locals() else gen_m.group(1)),
+                    "previous": num(gen_m.group(2)),
+                    "mf": num(gen_m.group(3)),
+                    "consumption": num(gen_m.group(4))
+                }
+                data["generation_units"] = num(gen_m.group(4))
+
+            data["meter_readings"] = meter_readings
+
+            # Total row fallback if individual rows missed
             if data["import_units"] == 0.0 and data["generation_units"] == 0.0:
-                # Try locating IMP EXP GEN columns
-                # Values often appear in a row below headers or matched by lines
-                consumption_vals = re.findall(r"([\d,]+\.?\d*)\s+([\d,]+\.?\d*)\s+([\d,]+\.?\d*)", text)
-                # Look for suspicious blocks that match the IMP EXP GEN layout
-                for row in consumption_vals:
-                    # In solar bills, these are often the last three columns of a row
-                    pass # Keep seeking robust pattern
+                total_match = re.search(
+                    r"TOTAL\s+([\d,.]+)\s+([\d,.]+)\s+([\d,.]+)\s+([\d,.]+)\s+([\d,.]+)\s+([\d,.]+)\s+([\d,.]+)\s+([\d,.]+)\s+([\d,.]+)",
+                    text_trans, re.IGNORECASE
+                )
+                if total_match:
+                    data["import_units"] = num(total_match.group(3))
+                    data["export_units"] = num(total_match.group(6))
+                    data["generation_units"] = num(total_match.group(9))
 
-                imp_m = re.search(r"Import\s+[\d,.]+\s+[\d,.]+\s+[\d,.]+\s+([\d,.]+)", text, re.IGNORECASE)
-                if imp_m: data["import_units"] = num(imp_m.group(1))
-
-                exp_m = re.search(r"Export\s+[\d,.]+\s+[\d,.]+\s+[\d,.]+\s+([\d,.]+)", text, re.IGNORECASE)
-                if exp_m: data["export_units"] = num(exp_m.group(1))
-
-                gen_m = re.search(r"Generation\s+[\d,.]+\s+[\d,.]+\s+[\d,.]+\s+([\d,.]+)", text, re.IGNORECASE)
-                if gen_m: data["generation_units"] = num(gen_m.group(1))
-
-            # ── 6. Banked Units ─────────────────────────────────────────────
-            # Support Marathi: "मागील बँक युनिट" (Prev), "बँक युनिट" or "सौर बँक युनिट" (Current)
-            # Standard Labels: "Previous Banked", "Current Banked", "Prev Bank Units", "Bank Solar Units"
-            
-            # ── 6. Banked Units (HIGH-ROBUSTNESS EXTRACTION) ───────────────
-            # This scanner is specifically designed for the messy jumbled lines in portal PDFs
+            # ── 6. Banked Units (Bank Solar Units & Prev Bank Units) ─────────
             found_in_white_table = False
             lines = text.split('\n')
-            
-            # Step A: Identify the anchor row for the Bank Units table
-            # We look for any of the 3 specific headers in that row
             for i, line in enumerate(lines):
                 if any(h in line for h in ["Export offset", "Bank Solar Units", "Prev Bank Units"]):
-                    # Scan the NEXT 4 lines after the anchor for the actual values.
-                    # The anchor line and the 'Solar' line (offset+1) are label/history rows
-                    # that start with text. The ACTUAL values row ALWAYS starts with a digit.
                     for offset in range(0, 5): 
                         if i + offset >= len(lines): break
-                        
-                        target_row = lines[i + offset]
-                        
-                        # KEY FIX: Only process rows that START with a digit.
-                        # The actual values row looks like: '170 835 705 ...'
-                        # Label rows like 'Export offset...', 'Solar...' start with text → skip.
-                        # This replaces the old year+dash heuristic that was too broad
-                        # and accidentally skipped the actual values row as well.
-                        line_stripped = target_row.strip()
-                        if not line_stripped or not re.match(r'^\d', line_stripped):
+                        target_row = lines[i + offset].strip()
+                        if not target_row or not re.match(r'^\d', target_row):
                             continue
                             
-                        # Extract numeric blocks
                         row_vals = re.findall(r"(\d+[\d,.]*)", target_row)
-                        
-                        # Filter out common years (safety check)
                         clean_vals = [v for v in row_vals if v not in ["2024", "2025", "2026", "2027"]]
-                        
-                        # Validation: the bank row MUST have at least 3 values [Offset, BSU, PBU]
                         if len(clean_vals) >= 3:
-                            # We found it! Layout: clean_vals[0]=offset, [1]=BSU, [2]=PBU
                             data["bank_solar_units"] = num(clean_vals[1])
                             data["prev_bank_units"] = num(clean_vals[2])
-                            
-                            logger.info(
-                                f"✓ REINFORCED CATCH (Anchor+{offset}): "
-                                f"BSU={data['bank_solar_units']}, PBU={data['prev_bank_units']} "
-                                f"| Row: '{target_row[:60]}'"
-                            )
                             found_in_white_table = True
                             break
                     if found_in_white_table: break
             
-            # Step B: Marathi Fallback (Only if white table scan completely failed)
+            # Marathi fallback
             if not found_in_white_table or (data["bank_solar_units"] == 0 and data["prev_bank_units"] == 0):
-                # "बँक युनिट" or "सौर बँक युनिट" (Current)
-                m_curr = re.search(r"(?:बँक\s+युनिट)[\s\t]*[:.\-]?[\s\t]*(\d+)", text, re.IGNORECASE)
+                m_curr = re.search(r"(?:सौर\s*बँक\s*युनिट|बँक\s*युनिट)[\s\t]*[:.\-]?[\s\t]*(\d+)", text_trans, re.IGNORECASE)
                 if m_curr: data["bank_solar_units"] = num(m_curr.group(1))
-                
-                # "मागील बँक युनिट" (Prev)
-                m_prev = re.search(r"(?:मागील\s+बँक\s+युनिट)[\s\t]*[:.\-]?[\s\t]*(\d+)", text, re.IGNORECASE)
+                m_prev = re.search(r"(?:मागील\s*बँक\s*युनिट)[\s\t]*[:.\-]?[\s\t]*(\d+)", text_trans, re.IGNORECASE)
                 if m_prev: data["prev_bank_units"] = num(m_prev.group(1))
-                
-                if m_curr or m_prev:
-                    logger.info(f"✓ Marathi Fallback Catch: BSU={data['bank_solar_units']}, PBU={data['prev_bank_units']}")
-            
-            # Rule #3 Final Safety (Years 2024-2027 should never be banked units)
+
+            # Safety check on years
             for key in ["bank_solar_units", "prev_bank_units"]:
                 if data[key] in [2024, 2025, 2026, 2027]: data[key] = 0.0
-            
 
-            # ── 7. Total Bill Amount ────────────────────────────────────────
-            amt_match = re.search(r"(?:Total\s+Bill\s*\(Rounded\)|Amount\s+Payable|TOTAL\s+CURRENT\s+BILL|देयक\s+रक्कम)\s*:?\s*Rs\.?\s*([\d,]+\.\d{2})", text, re.IGNORECASE)
-            if not amt_match:
-                 # try without Rs.
-                 amt_match = re.search(r"(?:Total\s+Bill\s*\(Rounded\)|Amount\s+Payable|TOTAL\s+CURRENT\s+BILL|देयक\s+रक्कम)\s*:?\s*([\d,]+\.\d{2})", text, re.IGNORECASE)
-            
+            # ── 7. Past 1 Year Data Table (IMP | EXP | GEN) ──────────────────
+            history = []
+            for line in text.split("\n"):
+                hm = re.search(r"([^\s\d]+)-(20\d\d)\s+(\d+)\s+(\d+)(?:\s+(\d+))?", line)
+                if hm:
+                    m_raw, yr_str, v1, v2, v3 = hm.groups()
+                    m_label = None
+                    for k, (m_num, m_eng) in months_map.items():
+                        if k in m_raw:
+                            m_label = f"{m_eng[:3]}-{yr_str}"
+                            break
+                    if m_label:
+                        history.append({
+                            "month": m_label,
+                            "import_units": num(v1),
+                            "export_units": num(v2),
+                            "generation_units": num(v3) if v3 else 0.0
+                        })
+            data["past_year_history"] = history
+
+            # ── 8. Total Bill Amount (देयक रक्कम) ───────────────────────────
+            # Priority 1: Net payable bill / Rounded bill (e.g. 0.00)
+            amt_match = re.search(
+                r"(?:देयकाची\s*निव्वळ\s*रक्कम|पूर्णांक\s*देयक|Çî÷ºîîí´\s*¿úÌî´|¿úÌî´øî°îó\s*ïÆîÒÒîß\s*Ï©´øËî|Total\s+Bill\s*\(Rounded\)|Amount\s+Payable)[\s\S]{0,30}?(?:Rs\.?|Ïâ\.?|रु\.?)?\s*([0-9]+(?:\.[0-9]{2})?)",
+                text_trans, re.IGNORECASE
+            )
             if amt_match:
                 data["billing_amount"] = num(amt_match.group(1))
-            
-            # Native layout backup (often explicitly says Rs.)
-            if data["billing_amount"] == 0.0:
-                rs_match = re.search(r"Rs\.?\s*([\d,\.]+)", text)
-                if rs_match: data["billing_amount"] = num(rs_match.group(1))
+            else:
+                amt_m2 = re.search(r"(?:देयक\s*रक्कम|¿úÌî´ø\s*Ï©´øËî)\s*(?:रु|Ïâ)?\s*[:\-]\s*([0-9]+(?:\.[0-9]{2})?)", text_trans, re.IGNORECASE)
+                if amt_m2:
+                    data["billing_amount"] = num(amt_m2.group(1))
+                else:
+                    # Look for Current monthly bill amount
+                    amt_m3 = re.search(r"(?:चालू\s*वीज\s*देयक|°îîÑîõ\s*Òîó²î\s*¿úÌî´)[\s\S]{0,20}?(?:Rs\.?|Ïâ\.?|रु\.?)?\s*([0-9]+(?:\.[0-9]{2})?)", text_trans, re.IGNORECASE)
+                    if amt_m3:
+                        data["billing_amount"] = num(amt_m3.group(1))
 
-            # ── 8. Solar Capacity ───────────────────────────────────────────
-            # Support variations: "Solar Generation Capacity", "Sanctioned Load", "मंजुर भार", "SOLAR NET METER (5.00KW)"
-            cap_match = re.search(r"(?:Solar\s+Generation\s+Capacity|Capacity|Sanctioned\s*Load|मंजुर\s*भार|SOLAR\s+NET\s+METER)\s*(?:\(KW\))?\s*[:\-\(]*\s*([\d.]+)\s*(?:KW)?\)?", text, re.IGNORECASE)
+            # ── 9. Solar Capacity ───────────────────────────────────────────
+            cap_match = re.search(r"(?:Solar\s+Generation\s+Capacity|Capacity|Sanctioned\s*Load|मंजुर\s*भार|SOLAR\s+NET\s+METER)\s*(?:\(KW\))?\s*[:\-\(]*\s*([\d.]+)\s*(?:KW)?\)?", text_trans, re.IGNORECASE)
             if cap_match:
                 data["capacity"] = float(cap_match.group(1))
 
-            # ── 9. Bill Status ──────────────────────────────────────────────
-            status_match = re.search(r"(?:Bill\s*Status|देयक\s*स्थिती|बिल\s*स्थिती)\s*[:\-]?\s*([A-Za-z\u0900-\u097F]+)", text, re.IGNORECASE)
+            # ── 10. Bill Status ─────────────────────────────────────────────
+            status_match = re.search(r"(?:Bill\s*Status|देयक\s*स्थिती|बिल\s*स्थिती)\s*[:\-]?\s*([A-Za-z\u0900-\u097F]+)", text_trans, re.IGNORECASE)
             if status_match:
                 raw_status = status_match.group(1).strip()
                 if "सामान्य" in raw_status or raw_status.lower() == "normal":
@@ -538,9 +523,8 @@ def extract_data_from_pdf(pdf_path, default_date=None):
                 else:
                     data["bill_status"] = raw_status
             else:
-                if "सामान्य" in text or "NORMAL" in text.upper():
+                if "सामान्य" in text_trans or "NORMAL" in text_trans.upper():
                     data["bill_status"] = "Normal"
-
 
             # ── DEBUG: Log extracted data to file for troubleshooting ─────────
             try:
@@ -1167,6 +1151,8 @@ def save_to_mysql(bill_data, conn=None):
             'pdf_drive_view_url': bill_data.get('pdf_drive_view_url'),
             'image_drive_file_id': bill_data.get('image_drive_file_id'),
             'image_drive_view_url': bill_data.get('image_drive_view_url'),
+            'meter_readings_json': json.dumps(bill_data.get('meter_readings')) if bill_data.get('meter_readings') else None,
+            'past_year_history_json': json.dumps(bill_data.get('past_year_history')) if bill_data.get('past_year_history') else None,
         }
 
         cols_to_use = [c for c in bill_cols if c in val_map and val_map[c] is not None]
@@ -1181,14 +1167,14 @@ def save_to_mysql(bill_data, conn=None):
         if existing_record:
             rec_id = existing_record['id']
             drive_updates = {}
-            for col in ['pdf_drive_file_id', 'pdf_drive_view_url', 'image_drive_file_id', 'image_drive_view_url']:
-                if bill_data.get(col) and col in bill_cols:
-                    drive_updates[col] = bill_data[col]
+            for col in ['pdf_drive_file_id', 'pdf_drive_view_url', 'image_drive_file_id', 'image_drive_view_url', 'meter_readings_json', 'past_year_history_json', 'billing_date', 'bill_status']:
+                if val_map.get(col) and col in bill_cols:
+                    drive_updates[col] = val_map[col]
             if drive_updates:
                 set_str = ", ".join([f"`{k}` = %s" for k in drive_updates.keys()])
                 cursor.execute(f"UPDATE bill_generation_details SET {set_str} WHERE id = %s", list(drive_updates.values()) + [rec_id])
                 local_conn.commit()
-            logger.info(f"✓ SKIPPING EXISTING DB RECORD (updated Drive info): {consumer_number} for {m_year}")
+            logger.info(f"✓ UPDATED EXISTING DB RECORD: {consumer_number} for {m_year}")
             return "exists"
         else:
             placeholders = ", ".join(["%s"] * len(cols_to_use))
@@ -1269,17 +1255,19 @@ def get_all_bills():
                 c.subscription_end_date
             FROM bill_generation_details b
             LEFT JOIN customers c {join_clause}
-            ORDER BY b.month_year DESC
+            ORDER BY DATE_FORMAT(b.month_year, '%Y-%m') DESC, (b.meter_readings_json IS NOT NULL) DESC, b.id DESC
         """
         
         cursor.execute(query)
         rows = cursor.fetchall()
         
-        # Deduplicate bills by (consumer_number, month_year)
+        # Deduplicate bills strictly by (consumer_number, YYYY-MM) to ensure only 1 valid/latest bill per month
         seen = set()
         deduped = []
         for r in rows:
-            key = (r.get("consumer_number"), r.get("month_year"))
+            m_val = str(r.get("month_year") or "")
+            m_key = m_val[:7] if len(m_val) >= 7 else m_val
+            key = (str(r.get("consumer_number")), m_key)
             if key not in seen:
                 seen.add(key)
                 deduped.append(r)
@@ -1302,6 +1290,18 @@ def _process_rows(rows):
                 row[key] = float(val)
             elif hasattr(val, '__float__') and not isinstance(val, (int, float, str)):
                 row[key] = float(val)
+        
+        # Deserialize JSON columns if present
+        if row.get("meter_readings_json") and not row.get("meter_readings"):
+            try:
+                row["meter_readings"] = json.loads(row["meter_readings_json"])
+            except Exception:
+                pass
+        if row.get("past_year_history_json") and not row.get("past_year_history"):
+            try:
+                row["past_year_history"] = json.loads(row["past_year_history_json"])
+            except Exception:
+                pass
     
     logger.info(f"[get_all_bills] Processed {len(rows)} rows for JSON")
     return rows

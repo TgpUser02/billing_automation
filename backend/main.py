@@ -158,6 +158,16 @@ def run_migrations():
         except Exception:
             pass
         try:
+            cursor.execute("ALTER TABLE bill_generation_details ADD COLUMN meter_readings_json TEXT NULL")
+            logger.info("Migration: Added column meter_readings_json to bill_generation_details.")
+        except Exception:
+            pass
+        try:
+            cursor.execute("ALTER TABLE bill_generation_details ADD COLUMN past_year_history_json TEXT NULL")
+            logger.info("Migration: Added column past_year_history_json to bill_generation_details.")
+        except Exception:
+            pass
+        try:
             cursor.execute("UPDATE bill_generation_details SET billing_date = month_year WHERE billing_date IS NULL AND month_year IS NOT NULL")
             conn.commit()
             logger.info("Migration: Synchronized billing_date from month_year (देयक दिनांक).")
@@ -1313,22 +1323,32 @@ Analyze the attached electricity bill image/PDF and extract the following fields
   "consumer_name": "Full Customer Name",
   "sanctioned_load_kw": 3.0,
   "billing_date": "DD/MM/YYYY - CRITICAL: Must be the देयक दिनांक (Deyak Dinank / Bill Date) found in the right-hand box next to 'देयक दिनांक :' (e.g. 06-09-2026). Do NOT take reading date or agreement date.",
-  "reading_date": "DD/MM/YYYY - Must be the चालू रिडिंग दिनांक (Current Reading Date, e.g. 28-08-2026). Do NOT take agreement or supply date.",
+  "reading_date": "DD/MM/YYYY - Must be the चालू रिडिंग दिनांक (Current Reading Date, e.g. 02-09-2026). Do NOT take agreement or supply date.",
   "bill_month": "Month Year from 'BILL OF SUPPLY FOR THE MONTH OF - ...' (e.g. सप्टेंबर-2026 -> 'September 2026')",
   "billing_amount": 0.0,
   "billing_units": 0.0,
-  "generated_electricity_kwh": 333.0,
-  "exported_to_grid_kwh": 171.0,
-  "imported_from_grid_kwh": 237.0,
-  "daytime_self_consumption_kwh": 162.0,
-  "total_consumption_kwh": 399.0,
-  "previous_banked_units": 659,
-  "current_banked_units": 593
+  "generated_electricity_kwh": 405.0,
+  "exported_to_grid_kwh": 155.0,
+  "imported_from_grid_kwh": 188.0,
+  "daytime_self_consumption_kwh": 250.0,
+  "total_consumption_kwh": 438.0,
+  "previous_banked_units": 85,
+  "current_banked_units": 52,
+  "meter_readings": {
+    "import": {"current": 3362, "previous": 3174, "mf": 1.0, "consumption": 188},
+    "export": {"current": 4377, "previous": 4222, "mf": 1.0, "consumption": 155},
+    "generation": {"current": 6405, "previous": 6000, "mf": 1.0, "consumption": 405}
+  },
+  "past_year_history": [
+    {"month": "Aug-2026", "import_units": 153, "export_units": 198, "generation_units": 440}
+  ]
 }
 Important:
 - 'billing_date' is 'देयक दिनांक' (Bill Date), NOT reading date.
-- 'current_banked_units' is the units in the 'Bank Solar Units' / 'सौर बँक युनिट' column (e.g. 593).
-- 'previous_banked_units' is the units in the 'Prev Bank Units' / 'मागील बँक युनिट' column (e.g. 659).
+- 'current_banked_units' is the units in the 'Bank Solar Units' / 'सौर बँक युनिट' column (e.g. 52).
+- 'previous_banked_units' is the units in the 'Prev Bank Units' / 'मागील बँक युनिट' column (e.g. 85).
+- 'meter_readings' contains the Current Reading (चालू रिडिंग), Previous Reading (मागील रिडिंग), MF, and Consumption for Import, Export, and Generation.
+- 'past_year_history' contains the list of previous 12 months with their IMP, EXP, and GEN units from the table on page 1.
 Return ONLY valid raw JSON without markdown formatting."""
 
         payload = {
@@ -1474,24 +1494,61 @@ async def analyze_bill_ocr(file: UploadFile = File(...)):
         prev_banked = "0"
         curr_banked = "0"
 
-        # 1. Attempt AI Multimodal Vision Extraction (Gemini API)
-        ai_data = extract_bill_with_ai(content, filename)
-        if ai_data:
-            if ai_data.get("consumer_number"): consumer_number = str(ai_data.get("consumer_number")).strip()
-            if ai_data.get("consumer_name"): consumer_name = str(ai_data.get("consumer_name")).strip()
-            if ai_data.get("sanctioned_load_kw"): capacity = str(ai_data.get("sanctioned_load_kw"))
-            if ai_data.get("reading_date"): reading_date = str(ai_data.get("reading_date"))
-            if ai_data.get("billing_date"): billing_date = str(ai_data.get("billing_date")).strip()
-            if ai_data.get("bill_month"): bill_month = str(ai_data.get("bill_month")).strip()
-            if ai_data.get("billing_amount") is not None: billing_amount = float(ai_data.get("billing_amount"))
-            if ai_data.get("billing_units") is not None: billing_units = float(ai_data.get("billing_units"))
-            if ai_data.get("generated_electricity_kwh") is not None: generated_units = float(ai_data.get("generated_electricity_kwh"))
-            if ai_data.get("exported_to_grid_kwh") is not None: exported_units = float(ai_data.get("exported_to_grid_kwh"))
-            if ai_data.get("imported_from_grid_kwh") is not None: imported_units = float(ai_data.get("imported_from_grid_kwh"))
-            if ai_data.get("daytime_self_consumption_kwh") is not None: self_consumption = float(ai_data.get("daytime_self_consumption_kwh"))
-            if ai_data.get("total_consumption_kwh") is not None: total_consumption = float(ai_data.get("total_consumption_kwh"))
-            if ai_data.get("previous_banked_units") is not None: prev_banked = str(ai_data.get("previous_banked_units"))
-            if ai_data.get("current_banked_units") is not None: curr_banked = str(ai_data.get("current_banked_units"))
+        meter_readings = None
+        past_year_history = None
+
+        # 0. Direct high-precision PDF extraction (with Marathi font glyph mapping)
+        if filename.endswith(".pdf"):
+            try:
+                import tempfile
+                from processing import extract_data_from_pdf
+                with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_f:
+                    tmp_f.write(content)
+                    tmp_pdf_path = tmp_f.name
+                try:
+                    pdf_data = extract_data_from_pdf(tmp_pdf_path)
+                    if pdf_data:
+                        if pdf_data.get("consumer_number"): consumer_number = str(pdf_data["consumer_number"]).strip()
+                        if pdf_data.get("consumer_name"): consumer_name = str(pdf_data["consumer_name"]).strip()
+                        if pdf_data.get("capacity"): capacity = str(pdf_data["capacity"])
+                        if pdf_data.get("reading_date"): reading_date = str(pdf_data["reading_date"])
+                        if pdf_data.get("billing_date"): billing_date = str(pdf_data["billing_date"])
+                        if pdf_data.get("bill_month"): bill_month = str(pdf_data["bill_month"])
+                        if pdf_data.get("billing_amount") is not None: billing_amount = float(pdf_data["billing_amount"])
+                        if pdf_data.get("generation_units") is not None: generated_units = float(pdf_data["generation_units"])
+                        if pdf_data.get("export_units") is not None: exported_units = float(pdf_data["export_units"])
+                        if pdf_data.get("import_units") is not None: imported_units = float(pdf_data["import_units"])
+                        if pdf_data.get("prev_bank_units") is not None: prev_banked = str(pdf_data["prev_bank_units"])
+                        if pdf_data.get("bank_solar_units") is not None: curr_banked = str(pdf_data["bank_solar_units"])
+                        if pdf_data.get("meter_readings"): meter_readings = pdf_data["meter_readings"]
+                        if pdf_data.get("past_year_history"): past_year_history = pdf_data["past_year_history"]
+                finally:
+                    if os.path.exists(tmp_pdf_path):
+                        os.remove(tmp_pdf_path)
+            except Exception as pdf_ex:
+                logger.debug(f"Direct extract_data_from_pdf in analyze_bill_ocr failed: {pdf_ex}")
+
+        # 1. Attempt AI Multimodal Vision Extraction (Gemini API) if not already extracted
+        if not consumer_number or generated_units <= 0:
+            ai_data = extract_bill_with_ai(content, filename)
+            if ai_data:
+                if ai_data.get("consumer_number"): consumer_number = str(ai_data.get("consumer_number")).strip()
+                if ai_data.get("consumer_name"): consumer_name = str(ai_data.get("consumer_name")).strip()
+                if ai_data.get("sanctioned_load_kw"): capacity = str(ai_data.get("sanctioned_load_kw"))
+                if ai_data.get("reading_date"): reading_date = str(ai_data.get("reading_date"))
+                if ai_data.get("billing_date"): billing_date = str(ai_data.get("billing_date")).strip()
+                if ai_data.get("bill_month"): bill_month = str(ai_data.get("bill_month")).strip()
+                if ai_data.get("billing_amount") is not None: billing_amount = float(ai_data.get("billing_amount"))
+                if ai_data.get("billing_units") is not None: billing_units = float(ai_data.get("billing_units"))
+                if ai_data.get("generated_electricity_kwh") is not None: generated_units = float(ai_data.get("generated_electricity_kwh"))
+                if ai_data.get("exported_to_grid_kwh") is not None: exported_units = float(ai_data.get("exported_to_grid_kwh"))
+                if ai_data.get("imported_from_grid_kwh") is not None: imported_units = float(ai_data.get("imported_from_grid_kwh"))
+                if ai_data.get("daytime_self_consumption_kwh") is not None: self_consumption = float(ai_data.get("daytime_self_consumption_kwh"))
+                if ai_data.get("total_consumption_kwh") is not None: total_consumption = float(ai_data.get("total_consumption_kwh"))
+                if ai_data.get("previous_banked_units") is not None: prev_banked = str(ai_data.get("previous_banked_units"))
+                if ai_data.get("current_banked_units") is not None: curr_banked = str(ai_data.get("current_banked_units"))
+                if ai_data.get("meter_readings"): meter_readings = ai_data.get("meter_readings")
+                if ai_data.get("past_year_history"): past_year_history = ai_data.get("past_year_history")
 
         # 2. Local OCR / Text extraction
         if not consumer_number or billing_units <= 0:
@@ -1609,6 +1666,13 @@ async def analyze_bill_ocr(file: UploadFile = File(...)):
                 if imp_match:
                     imported_units = float(imp_match.group(1))
 
+            # Banked units regex extraction from OCR text if still default "0"
+            if prev_banked == "0" and curr_banked == "0":
+                bsu_m = re.search(r'(?:Bank\s*Solar\s*Units|सौर\s*बँक\s*युनिट)[\s:\-]+([0-9]+(?:\.[0-9]+)?)', extracted_text, re.IGNORECASE)
+                pbu_m = re.search(r'(?:Prev\s*Bank\s*Units|मागील\s*बँक\s*युनिट)[\s:\-]+([0-9]+(?:\.[0-9]+)?)', extracted_text, re.IGNORECASE)
+                if bsu_m: curr_banked = str(bsu_m.group(1))
+                if pbu_m: prev_banked = str(pbu_m.group(1))
+
         # 3. Dynamic Balance & Proportional Derivation (Zero static defaults)
         cap_val = max(1.0, float(capacity or 3.0))
         if generated_units <= 0:
@@ -1621,8 +1685,29 @@ async def analyze_bill_ocr(file: UploadFile = File(...)):
             self_consumption = round(max(0.0, generated_units - exported_units), 0)
         if total_consumption <= 0:
             total_consumption = round(self_consumption + imported_units, 0)
-        if billing_units <= 0:
-            billing_units = round(max(0.0, total_consumption - generated_units), 0)
+
+        # MSEDCL Banking and Net Billed Units derivation
+        p_val = float(prev_banked or 0.0)
+        net_export_val = exported_units - imported_units
+        if net_export_val >= 0:
+            calc_curr_banked = p_val + net_export_val
+            calc_net_billed = 0.0
+        else:
+            deficit_val = abs(net_export_val)
+            if p_val >= deficit_val:
+                calc_curr_banked = p_val - deficit_val
+                calc_net_billed = 0.0
+            else:
+                calc_curr_banked = 0.0
+                calc_net_billed = deficit_val - p_val
+
+        # If current banked is missing or has the legacy frozen bug:
+        if (curr_banked == "0" and p_val > 0) or (curr_banked == str(int(p_val)) and net_export_val != 0):
+            curr_banked = str(int(calc_curr_banked))
+
+        # Billed units reflects the actual net billed units after banked solar offset
+        if billing_units <= 0 or billing_units == round(max(0.0, total_consumption - generated_units), 0):
+            billing_units = calc_net_billed
 
         # Dynamic Annual & Lifetime ROI Savings
         annual_savings = round(generated_units * 12.0 * 8.5, 0)
@@ -1753,6 +1838,34 @@ async def analyze_bill_ocr(file: UploadFile = File(...)):
         except Exception as gd_err:
             logger.warning(f"Drive upload for uploaded bill failed: {gd_err}")
 
+        # Auto-save/update to MySQL database
+        if consumer_number and (generated_units > 0 or exported_units > 0 or imported_units > 0):
+            try:
+                from processing import save_to_mysql
+                db_bill_record = {
+                    "consumer_number": consumer_number,
+                    "customer_name": consumer_name,
+                    "bill_month_date": billing_date or reading_date,
+                    "reading_date": reading_date,
+                    "billing_date": billing_date,
+                    "import_units": imported_units,
+                    "export_units": exported_units,
+                    "generation_units": generated_units,
+                    "billing_amount": billing_amount,
+                    "prev_bank_units": float(prev_banked) if prev_banked else 0.0,
+                    "bank_solar_units": float(curr_banked) if curr_banked else 0.0,
+                    "bill_status": "Normal",
+                    "pdf_drive_file_id": pdf_drive_file_id,
+                    "pdf_drive_view_url": pdf_drive_view_url,
+                    "image_drive_file_id": image_drive_file_id,
+                    "image_drive_view_url": image_drive_view_url,
+                    "meter_readings": meter_readings,
+                    "past_year_history": past_year_history,
+                }
+                save_to_mysql(db_bill_record)
+            except Exception as auto_save_err:
+                logger.warning(f"Auto-save analyzed bill to MySQL error: {auto_save_err}")
+
         return {
             "status": "success",
             "extracted_data": {
@@ -1778,7 +1891,9 @@ async def analyze_bill_ocr(file: UploadFile = File(...)):
                 "pdf_drive_view_url": pdf_drive_view_url,
                 "image_drive_file_id": image_drive_file_id,
                 "image_drive_view_url": image_drive_view_url,
-                "drive_status": drive_status
+                "drive_status": drive_status,
+                "meter_readings": meter_readings,
+                "past_year_history": past_year_history
             },
             "weather_ai_analysis": weather_summary
         }
@@ -3658,9 +3773,10 @@ async def save_bill_data(request: Request, user=Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/drive/auth/login")
-async def drive_auth_login(request: Request):
-    """Initiates Google OAuth 2.0 flow for Google Drive access."""
+async def drive_auth_login(request: Request, origin: Optional[str] = None):
+    """Initiates Google OAuth 2.0 flow for Google Drive access with dynamic VPS origin detection."""
     import json
+    import base64
     from urllib.parse import urlencode
     
     cred_path = os.path.join(os.path.dirname(__file__), "credentials.json")
@@ -3672,12 +3788,32 @@ async def drive_auth_login(request: Request):
     web_config = config.get("web", {})
     client_id = web_config.get("client_id") or os.environ.get("GOOGLE_DRIVE_CLIENT_ID")
     
-    # Determine redirect URI
-    base_url = str(request.base_url).rstrip("/")
-    if "72.60.203.172" in base_url:
-        redirect_uri = "http://72.60.203.172/api/drive/oauth/callback"
+    # 1. Determine effective client origin
+    effective_origin = None
+    if origin and origin.startswith("http"):
+        effective_origin = origin.rstrip("/")
     else:
+        xf_proto = request.headers.get("x-forwarded-proto") or request.url.scheme or "http"
+        xf_host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+        if xf_host:
+            effective_origin = f"{xf_proto}://{xf_host}".rstrip("/")
+        else:
+            effective_origin = str(request.base_url).rstrip("/")
+            
+    # 2. Match against registered redirect URIs
+    if "72.60.203.172" in effective_origin:
+        redirect_uri = "http://72.60.203.172/api/drive/oauth/callback"
+    elif "localhost" in effective_origin or "127.0.0.1" in effective_origin:
         redirect_uri = "http://localhost:5000/api/drive/oauth/callback"
+    else:
+        redirect_uri = f"{effective_origin}/api/drive/oauth/callback"
+        
+    # 3. Store origin & redirect_uri in base64 state parameter
+    state_payload = {
+        "origin": effective_origin,
+        "redirect_uri": redirect_uri
+    }
+    state_str = base64.urlsafe_b64encode(json.dumps(state_payload).encode()).decode()
         
     params = {
         "client_id": client_id,
@@ -3686,12 +3822,18 @@ async def drive_auth_login(request: Request):
         "scope": "https://www.googleapis.com/auth/drive",
         "access_type": "offline",
         "prompt": "consent select_account",
+        "state": state_str,
     }
     auth_url = f"https://accounts.google.com/o/oauth2/auth?{urlencode(params)}"
     return RedirectResponse(url=auth_url)
 
 @app.get("/api/drive/oauth/callback")
-async def drive_oauth_callback(code: Optional[str] = None, error: Optional[str] = None):
+async def drive_oauth_callback(
+    request: Request,
+    code: Optional[str] = None,
+    error: Optional[str] = None,
+    state: Optional[str] = None
+):
     """Handles Google OAuth callback, exchanges code for refresh token, and saves it."""
     if error:
         return HTMLResponse(f"<h3>Google OAuth Error: {error}</h3>", status_code=400)
@@ -3699,6 +3841,7 @@ async def drive_oauth_callback(code: Optional[str] = None, error: Optional[str] 
         return HTMLResponse("<h3>Error: No authorization code provided.</h3>", status_code=400)
         
     import json
+    import base64
     import requests
     from gdrive_utils import upsert_env_value, ENV_PATH
     
@@ -3709,6 +3852,24 @@ async def drive_oauth_callback(code: Optional[str] = None, error: Optional[str] 
     client_id = web_config.get("client_id") or os.environ.get("GOOGLE_DRIVE_CLIENT_ID")
     client_secret = web_config.get("client_secret") or os.environ.get("GOOGLE_DRIVE_CLIENT_SECRET")
     
+    # 1. Unpack state
+    target_redirect_uri = None
+    target_origin = None
+    if state:
+        try:
+            state_data = json.loads(base64.urlsafe_b64decode(state.encode()).decode())
+            target_redirect_uri = state_data.get("redirect_uri")
+            target_origin = state_data.get("origin")
+        except Exception as se:
+            logger.warning(f"Could not parse OAuth state: {se}")
+
+    # Fallback origin from headers
+    xf_proto = request.headers.get("x-forwarded-proto") or request.url.scheme or "http"
+    xf_host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+    header_origin = f"{xf_proto}://{xf_host}".rstrip("/") if xf_host else str(request.base_url).rstrip("/")
+    if not target_origin:
+        target_origin = header_origin
+        
     token_url = "https://oauth2.googleapis.com/token"
     data = {
         "code": code,
@@ -3716,13 +3877,43 @@ async def drive_oauth_callback(code: Optional[str] = None, error: Optional[str] 
         "client_secret": client_secret,
         "grant_type": "authorization_code",
     }
-    # Attempt exchange with localhost:5000
-    res = requests.post(token_url, data={**data, "redirect_uri": "http://localhost:5000/api/drive/oauth/callback"})
-    if res.status_code != 200:
-        res = requests.post(token_url, data={**data, "redirect_uri": "http://72.60.203.172/api/drive/oauth/callback"})
+
+    # Candidate redirect URIs in order of priority:
+    candidate_uris = []
+    if target_redirect_uri:
+        candidate_uris.append(target_redirect_uri)
+    candidate_uris.extend([
+        f"{target_origin}/api/drive/oauth/callback",
+        f"{header_origin}/api/drive/oauth/callback",
+        "http://72.60.203.172/api/drive/oauth/callback",
+        "http://localhost:5000/api/drive/oauth/callback",
+        "http://72.60.203.172:8080/api/drive/oauth/callback",
+        "http://localhost:8080/",
+        "http://72.60.203.172:8080/"
+    ])
+    
+    # Deduplicate while preserving order
+    deduped_uris = []
+    for u in candidate_uris:
+        if u and u not in deduped_uris:
+            deduped_uris.append(u)
+
+    res = None
+    last_error_text = ""
+    for r_uri in deduped_uris:
+        try:
+            res = requests.post(token_url, data={**data, "redirect_uri": r_uri}, timeout=10)
+            if res.status_code == 200:
+                logger.info(f"✓ Google OAuth token exchange succeeded with redirect_uri: {r_uri}")
+                break
+            else:
+                last_error_text = res.text
+        except Exception as post_err:
+            last_error_text = str(post_err)
+            continue
         
-    if res.status_code != 200:
-        return HTMLResponse(f"<h3>Failed to exchange authorization code: {res.text}</h3>", status_code=400)
+    if not res or res.status_code != 200:
+        return HTMLResponse(f"<h3>Failed to exchange authorization code: {last_error_text}</h3>", status_code=400)
         
     token_resp = res.json()
     refresh_token = token_resp.get("refresh_token")
@@ -3755,25 +3946,33 @@ async def drive_oauth_callback(code: Optional[str] = None, error: Optional[str] 
     except Exception as te:
         logger.warning(f"Could not write token.json: {te}")
         
-    html_content = """
+    return_url = f"{target_origin}/settings?tab=drive&status=success" if target_origin else "/settings"
+    html_content = f"""
     <!DOCTYPE html>
     <html>
     <head>
         <title>Google Drive Connected - Arin Energy</title>
         <style>
-            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #f8fafc; color: #0f172a; }
-            .card { background: white; padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); text-align: center; max-width: 480px; border: 1px solid #e2e8f0; }
-            h1 { color: #16a34a; font-size: 24px; margin-bottom: 12px; }
-            p { color: #475569; font-size: 15px; line-height: 1.6; margin-bottom: 24px; }
-            .btn { background: #16a34a; color: white; border: none; padding: 12px 28px; border-radius: 12px; font-weight: 700; cursor: pointer; text-decoration: none; display: inline-block; font-size: 14px; }
+            body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #0f172a; color: #f8fafc; }}
+            .card {{ background: #1e293b; padding: 40px; border-radius: 24px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); text-align: center; max-width: 480px; border: 1px solid rgba(255,255,255,0.1); }}
+            h1 {{ color: #22c55e; font-size: 24px; margin-bottom: 12px; }}
+            p {{ color: #94a3b8; font-size: 14px; line-height: 1.6; margin-bottom: 24px; }}
+            .btn {{ background: linear-gradient(135deg, #16a34a 0%, #15803d 100%); color: white; border: none; padding: 14px 32px; border-radius: 12px; font-weight: 700; cursor: pointer; text-decoration: none; display: inline-block; font-size: 14px; box-shadow: 0 4px 14px rgba(22,163,74,0.4); }}
+            .btn:hover {{ opacity: 0.9; }}
         </style>
     </head>
     <body>
         <div class="card">
             <h1>✅ Google Drive Connected!</h1>
             <p>Your Google Drive account has been successfully authorized for Arin Energy Billing Automation. Bill PDFs and images will now automatically upload to your Google Drive folder.</p>
-            <button class="btn" onclick="window.close(); if (window.opener) window.opener.location.reload();">Close Window</button>
+            <a href="{return_url}" class="btn" onclick="if (window.opener) {{ try {{ window.opener.location.reload(); }} catch(e) {{}} window.close(); }}">Return to Application</a>
         </div>
+        <script>
+            if (window.opener) {{
+                try {{ window.opener.location.reload(); }} catch(e) {{}}
+                setTimeout(function() {{ window.close(); }}, 2500);
+            }}
+        </script>
     </body>
     </html>
     """
@@ -3995,8 +4194,15 @@ async def get_drive_configuration(request: Request, user=Depends(get_current_use
             pass
 
     # Determine dynamic redirect URI for hosting
-    base_url = str(request.base_url).rstrip("/")
-    redirect_uri = f"{base_url}/api/drive/oauth/callback"
+    xf_proto = request.headers.get("x-forwarded-proto") or request.url.scheme or "http"
+    xf_host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+    base_url = f"{xf_proto}://{xf_host}".rstrip("/") if xf_host else str(request.base_url).rstrip("/")
+    if "72.60.203.172" in base_url:
+        redirect_uri = "http://72.60.203.172/api/drive/oauth/callback"
+    elif "localhost" in base_url or "127.0.0.1" in base_url:
+        redirect_uri = "http://localhost:5000/api/drive/oauth/callback"
+    else:
+        redirect_uri = f"{base_url}/api/drive/oauth/callback"
     
     # Masked token
     masked_rt = f"{refresh_token[:6]}...{refresh_token[-4:]}" if len(refresh_token) > 12 else ("Configured" if refresh_token else "")
@@ -4038,8 +4244,15 @@ async def update_drive_configuration(config: DriveConfigRequest, request: Reques
         token_to_save = None
         
     if auth_code:
-        base_url = str(request.base_url).rstrip("/")
-        redirect_uri = f"{base_url}/api/drive/oauth/callback"
+        xf_proto = request.headers.get("x-forwarded-proto") or request.url.scheme or "http"
+        xf_host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+        base_url = f"{xf_proto}://{xf_host}".rstrip("/") if xf_host else str(request.base_url).rstrip("/")
+        if "72.60.203.172" in base_url:
+            redirect_uri = "http://72.60.203.172/api/drive/oauth/callback"
+        elif "localhost" in base_url or "127.0.0.1" in base_url:
+            redirect_uri = "http://localhost:5000/api/drive/oauth/callback"
+        else:
+            redirect_uri = f"{base_url}/api/drive/oauth/callback"
         token_url = "https://oauth2.googleapis.com/token"
         res = requests.post(token_url, data={
             "code": auth_code,
@@ -4297,6 +4510,8 @@ def get_billing_analysis(consumerNumber: str, month: str, user=Depends(get_curre
         "commission_date": target_bill.get("commission_date"),
         "is_blacklisted": target_bill.get("is_blacklisted") or 0,
         "blacklisted_reason": target_bill.get("blacklisted_reason") or "",
+        "meter_readings": target_bill.get("meter_readings"),
+        "past_year_history": target_bill.get("past_year_history"),
         "full_record": target_bill # Fallback for any other missing fields
     }
 
@@ -4338,6 +4553,254 @@ def deduplicate_customers_endpoint(user=Depends(get_current_user)):
     except Exception as e:
         logger.error(f"Failed to deduplicate customers: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/consumer-connect/export-bills-excel")
+def export_consumer_connect_bills_excel(user=Depends(get_current_user)):
+    """
+    Exports month-wise bill generation details joined with consumer equipment specifications
+    for all consumers in Consumer Connect into a professionally formatted Excel (.xlsx) file.
+    
+    Columns (in exact order):
+    1. Consumer Number
+    2. Consumer Name
+    3. Commissioning Date
+    4. Inverter Brand
+    5. Inverter Type
+    6. Inverter Capacity
+    7. Panel Brand
+    8. Panel Type
+    9. Panel Technology
+    10. Panel Capacity
+    11. No. of Panels
+    12. System Capacity
+    13. Current Banked Units
+    14. Previous Banked Units
+    15. Import
+    16. Export
+    17. Monthly Generation
+    18. Total Generation
+    19. Reading Date
+    20. Billing Date
+    """
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    import io
+    from collections import defaultdict
+    from datetime import date, datetime
+    from processing import get_db_connection
+
+    conn = get_db_connection()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Database connection failed")
+
+    try:
+        cur = conn.cursor(dictionary=True)
+        # Check available columns in customers table
+        cur.execute("DESCRIBE customers")
+        existing_cust_cols = {r["Field"] for r in cur.fetchall()}
+
+        # 1. Fetch all customers from Consumer Connect
+        cur.execute("""
+            SELECT * FROM customers ORDER BY customer_name ASC
+        """)
+        customers = cur.fetchall()
+
+        # 2. Fetch all bill generation records
+        cur.execute("""
+            SELECT 
+                id, consumer_number, month_year, reading_date, billing_date,
+                import_units, export_units, generation_units, prev_bank_units,
+                bank_solar_units, billing_amount
+            FROM bill_generation_details
+            ORDER BY consumer_number, month_year ASC, id ASC
+        """)
+        bills = cur.fetchall()
+
+        # Group bills by consumer_number, then deduplicate by YYYY-MM
+        bills_by_consumer = defaultdict(dict)
+        for b in bills:
+            c_num = str(b.get("consumer_number") or "").strip()
+            if not c_num:
+                continue
+            m_val = b.get("month_year")
+            if not m_val:
+                continue
+            if isinstance(m_val, (date, datetime)):
+                month_key = m_val.strftime("%Y-%m")
+            else:
+                month_key = str(m_val)[:7]
+
+            existing = bills_by_consumer[c_num].get(month_key)
+            if not existing:
+                bills_by_consumer[c_num][month_key] = b
+            else:
+                # Deduplicate: Keep latest or highest generation record
+                b_gen = float(b.get("generation_units") or 0.0)
+                ex_gen = float(existing.get("generation_units") or 0.0)
+                if b_gen > ex_gen or b["id"] > existing["id"]:
+                    bills_by_consumer[c_num][month_key] = b
+
+        def fmt_date(d_val):
+            if not d_val:
+                return ""
+            if isinstance(d_val, (date, datetime)):
+                return d_val.strftime("%d/%m/%Y")
+            s = str(d_val).strip()
+            if not s or s in ("N/A", "None", "null"):
+                return ""
+            if "-" in s and len(s.split("-")[0]) == 4:
+                parts = s.split("T")[0].split("-")
+                if len(parts) == 3:
+                    return f"{parts[2]}/{parts[1]}/{parts[0]}"
+            return s
+
+        def num_val(v):
+            if v is None:
+                return ""
+            try:
+                f = float(v)
+                return int(f) if f.is_integer() else round(f, 2)
+            except (ValueError, TypeError):
+                return ""
+
+        headers = [
+            "Consumer Number",
+            "Consumer Name",
+            "Commissioning Date",
+            "Inverter Brand",
+            "Inverter Type",
+            "Inverter Capacity",
+            "Panel Brand",
+            "Panel Type",
+            "Panel Technology",
+            "Panel Capacity",
+            "No. of Panels",
+            "System Capacity",
+            "Current Banked Units",
+            "Previous Banked Units",
+            "Import",
+            "Export",
+            "Monthly Generation",
+            "Total Generation",
+            "Reading Date",
+            "Billing Date"
+        ]
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Bill Generation Details"
+        ws.views.sheetView[0].showGridLines = True
+
+        header_fill = PatternFill(start_color="0F766E", end_color="0F766E", fill_type="solid")
+        header_font = Font(name="Arial", size=11, bold=True, color="FFFFFF")
+        header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        thin_border = Border(
+            left=Side(style='thin', color='CBD5E1'),
+            right=Side(style='thin', color='CBD5E1'),
+            top=Side(style='thin', color='CBD5E1'),
+            bottom=Side(style='thin', color='CBD5E1')
+        )
+
+        ws.append(headers)
+        ws.row_dimensions[1].height = 28
+        for col_idx in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=col_idx)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = header_align
+            cell.border = thin_border
+
+        row_num = 2
+        for cust in customers:
+            c_num = str(cust.get("consumer_number") or "").strip()
+            c_name = cust.get("customer_name") or ""
+            comm_date = fmt_date(cust.get("commission_date"))
+            inv_brand = cust.get("inverter_name_other") or cust.get("inverter_name") or ""
+            inv_type = cust.get("inverter_type") or ""
+            inv_cap = num_val(cust.get("inverter_capacity"))
+            panel_brand = cust.get("panel_name_other") or cust.get("panel_name") or ""
+            panel_type = cust.get("panel_type") or ""
+            panel_tech = cust.get("panel_technology") or ""
+            panel_cap = num_val(cust.get("panel_capacity_kw") or cust.get("solar_wattpick"))
+            panel_count = num_val(cust.get("solar_panel_count"))
+            sys_cap = num_val(cust.get("solar_capacity_kw"))
+
+            cust_bills = bills_by_consumer.get(c_num, {})
+            if not cust_bills:
+                # Consumer with NO bill generation data: output 1 row with blank billing fields
+                row_data = [
+                    c_num, c_name, comm_date,
+                    inv_brand, inv_type, inv_cap,
+                    panel_brand, panel_type, panel_tech,
+                    panel_cap, panel_count, sys_cap,
+                    "", "", "", "", "", "", "", ""
+                ]
+                ws.append(row_data)
+                for col_idx in range(1, len(headers) + 1):
+                    c = ws.cell(row=row_num, column=col_idx)
+                    c.font = Font(name="Arial", size=10)
+                    c.border = thin_border
+                    c.alignment = Alignment(vertical="center", horizontal="left" if col_idx <= 12 else "right")
+                row_num += 1
+            else:
+                # Consumer WITH bills: maintain month-wise records chronologically
+                sorted_months = sorted(cust_bills.keys())
+                cumulative_gen = 0.0
+                for m_key in sorted_months:
+                    b = cust_bills[m_key]
+                    m_gen = float(b.get("generation_units") or 0.0)
+                    cumulative_gen += m_gen
+
+                    curr_bank = num_val(b.get("bank_solar_units"))
+                    prev_bank = num_val(b.get("prev_bank_units"))
+                    imp_val = num_val(b.get("import_units"))
+                    exp_val = num_val(b.get("export_units"))
+                    mon_gen_val = num_val(m_gen)
+                    tot_gen_val = num_val(round(cumulative_gen, 2))
+                    rd_date = fmt_date(b.get("reading_date"))
+                    bill_date = fmt_date(b.get("billing_date") or b.get("month_year"))
+
+                    row_data = [
+                        c_num, c_name, comm_date,
+                        inv_brand, inv_type, inv_cap,
+                        panel_brand, panel_type, panel_tech,
+                        panel_cap, panel_count, sys_cap,
+                        curr_bank, prev_bank, imp_val, exp_val,
+                        mon_gen_val, tot_gen_val, rd_date, bill_date
+                    ]
+                    ws.append(row_data)
+                    for col_idx in range(1, len(headers) + 1):
+                        c = ws.cell(row=row_num, column=col_idx)
+                        c.font = Font(name="Arial", size=10)
+                        c.border = thin_border
+                        c.alignment = Alignment(vertical="center", horizontal="left" if (col_idx in (1, 2, 3, 4, 5, 7, 8, 9, 19, 20)) else "right")
+                    row_num += 1
+
+        for col_idx, header in enumerate(headers, 1):
+            col_letter = get_column_letter(col_idx)
+            max_len = len(header)
+            for row in range(1, min(row_num, 100)):
+                val = ws.cell(row=row, column=col_idx).value
+                if val is not None:
+                    max_len = max(max_len, len(str(val)))
+            ws.column_dimensions[col_letter].width = max(max_len + 4, 14)
+
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        filename = f"consumer_bill_generation_details_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+        return StreamingResponse(
+            output,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        )
+    except Exception as e:
+        logger.error(f"Error exporting consumer bills excel: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate excel export: {str(e)}")
+    finally:
+        conn.close()
 
 @app.get("/")
 def read_root():
