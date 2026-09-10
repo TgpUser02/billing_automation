@@ -6,7 +6,8 @@ import { Label } from "@/components/ui/label";
 import { 
   Upload, FileText, CloudSun, Zap, CheckCircle2, Cpu, Loader2, 
   ArrowUpRight, ArrowDownLeft, ShieldCheck, Sun, TrendingUp, 
-  Download, Image as ImageIcon, FileCheck, Activity, Calendar
+  Download, Image as ImageIcon, FileCheck, Activity, Calendar,
+  Sparkles, Clock, Leaf, Trees
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";

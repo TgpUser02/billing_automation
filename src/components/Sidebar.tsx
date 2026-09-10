@@ -1,13 +1,32 @@
-import { FileText, Sun, Home, DownloadCloud, Database, Settings, Trash2, Key, ChevronLeft, FolderDown, Users, Cpu } from 'lucide-react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { cn } from '@/lib/utils';
-import { useState, useEffect } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { toast } from '@/hooks/use-toast';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { clearToken, api } from '@/lib/api';
-import { confirmAction } from '@/lib/swal';
+import {
+  FileText,
+  Sun,
+  Home,
+  DownloadCloud,
+  Database,
+  Settings,
+  Trash2,
+  Key,
+  ChevronLeft,
+  FolderDown,
+  Users,
+  Cpu,
+  FolderArchive,
+} from "lucide-react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { cn } from "@/lib/utils";
+import { useState, useEffect } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { toast } from "@/hooks/use-toast";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { clearToken, api } from "@/lib/api";
+import { confirmAction } from "@/lib/swal";
 
 interface SidebarProps {
   isCollapsed?: boolean;
@@ -48,28 +67,46 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
 
   const handleLogout = () => {
     clearToken();
-    toast({ title: "Logged Out", description: "Session cleared successfully." });
+    toast({
+      title: "Logged Out",
+      description: "Session cleared successfully.",
+    });
     navigate("/login", { replace: true });
   };
 
   const handlePasswordChange = async () => {
     if (!currentPassword || !ownNewPassword || !confirmPassword) {
-      toast({ title: "Error", description: "All fields are required", variant: "destructive" });
+      toast({
+        title: "Error",
+        description: "All fields are required",
+        variant: "destructive",
+      });
       return;
     }
     if (ownNewPassword !== confirmPassword) {
-      toast({ title: "Error", description: "New passwords do not match", variant: "destructive" });
+      toast({
+        title: "Error",
+        description: "New passwords do not match",
+        variant: "destructive",
+      });
       return;
     }
     if (ownNewPassword.length < 6) {
-      toast({ title: "Error", description: "Password must be at least 6 characters", variant: "destructive" });
+      toast({
+        title: "Error",
+        description: "Password must be at least 6 characters",
+        variant: "destructive",
+      });
       return;
     }
 
     setIsChanging(true);
     try {
       await api.changePassword(currentPassword, ownNewPassword);
-      toast({ title: "Success", description: "Password changed successfully." });
+      toast({
+        title: "Success",
+        description: "Password changed successfully.",
+      });
       setShowChangePassword(false);
       setCurrentPassword("");
       setOwnNewPassword("");
@@ -78,7 +115,7 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
       toast({
         title: "Change Failed",
         description: error.message || "Failed to update password",
-        variant: "destructive"
+        variant: "destructive",
       });
     } finally {
       setIsChanging(false);
@@ -87,17 +124,32 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
 
   const handleAddUser = async () => {
     if (!newUsername.trim() || !newPassword.trim()) {
-      toast({ title: "Error", description: "Username and password cannot be empty", variant: "destructive" });
+      toast({
+        title: "Error",
+        description: "Username and password cannot be empty",
+        variant: "destructive",
+      });
       return;
     }
     try {
-      await api.savePortalCredential(newUsername.trim(), newPassword.trim(), "Custom Portal User");
+      await api.savePortalCredential(
+        newUsername.trim(),
+        newPassword.trim(),
+        "Custom Portal User",
+      );
       setNewUsername("");
       setNewPassword("");
-      toast({ title: "Success", description: `Saved portal credential for ${newUsername.trim()}` });
+      toast({
+        title: "Success",
+        description: `Saved portal credential for ${newUsername.trim()}`,
+      });
       await fetchCredentials();
     } catch (err: any) {
-      toast({ title: "Error", description: err.message || "Failed to save portal credential", variant: "destructive" });
+      toast({
+        title: "Error",
+        description: err.message || "Failed to save portal credential",
+        variant: "destructive",
+      });
     }
   };
 
@@ -108,50 +160,71 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
       icon: "warning",
       confirmButtonText: "Yes, Delete",
       cancelButtonText: "Cancel",
-
     });
     if (!confirmDelete) return;
     try {
       await api.deletePortalCredential(usernameToRemove);
-      toast({ title: "Success", description: `Deleted portal credential for ${usernameToRemove}` });
+      toast({
+        title: "Success",
+        description: `Deleted portal credential for ${usernameToRemove}`,
+      });
       await fetchCredentials();
     } catch (err: any) {
-      toast({ title: "Error", description: err.message || "Failed to delete portal credential", variant: "destructive" });
+      toast({
+        title: "Error",
+        description: err.message || "Failed to delete portal credential",
+        variant: "destructive",
+      });
     }
   };
 
   const userRole = sessionStorage.getItem("arin_user_role") || "operator";
 
   const navItems = [
-    { icon: Home, label: 'Dashboard', path: '/' },
-    { icon: DownloadCloud, label: 'Auto Downloader', path: '/download' },
-    { icon: FileText, label: 'Bill Analysis Generation', path: '/bill-buddy' },
-    { icon: Database, label: 'Consumer Connect', path: '/consumer-connect' },
-    { icon: Cpu, label: 'Quick Bill AI', path: '/quick-analysis' },
-    { icon: FolderDown, label: 'Generated Reports', path: '/reports' },
-    { icon: Settings, label: 'Settings & Master Data', path: '/settings' },
+    { icon: Home, label: "Dashboard", path: "/" },
+    { icon: DownloadCloud, label: "Auto Downloader", path: "/download" },
+    { icon: FileText, label: "Bill Analysis Generation", path: "/bill-buddy" },
+    { icon: Database, label: "Consumer Connect", path: "/consumer-connect" },
+    { icon: FolderArchive, label: "Bill & Drive Archive", path: "/bill-archive" },
+    { icon: Cpu, label: "Quick Bill AI", path: "/quick-analysis" },
+    { icon: FolderDown, label: "Generated Reports", path: "/reports" },
+    { icon: Settings, label: "Settings & Master Data", path: "/settings" },
   ];
 
   if (userRole === "admin") {
-    navItems.push({ icon: Users, label: 'User Management', path: '/user-management' });
+    navItems.push({
+      icon: Users,
+      label: "User Management",
+      path: "/user-management",
+    });
   }
 
   return (
     <>
-      <aside className={cn(
-        "w-64 min-h-screen bg-sidebar flex flex-col fixed left-0 top-0 bottom-0 z-50 shadow-2xl transition-all duration-300",
-        isCollapsed && "-translate-x-full"
-      )}>
+      <aside
+        className={cn(
+          "w-64 min-h-screen bg-sidebar flex flex-col fixed left-0 top-0 bottom-0 z-50 shadow-2xl transition-all duration-300",
+          isCollapsed && "-translate-x-full",
+        )}
+      >
         {/* Logo Header */}
         <div className="p-6 border-b border-sidebar-border/20 bg-sidebar-accent/10">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-xl bg-white flex items-center justify-center shadow-lg shadow-arin-green/20 overflow-hidden p-1">
-                <img src="/arin_logo.jpg" alt="Arin Energy Logo" className="w-full h-full object-contain" />
+                <img
+                  src="/arin_logo.jpg"
+                  alt="Arin Energy Logo"
+                  className="w-full h-full object-contain"
+                />
               </div>
               <div>
-                <h1 className="text-white font-bold text-lg leading-tight tracking-tight">Arin Energy</h1>
-                <p className="text-sidebar-foreground text-[10px] font-medium opacity-70 uppercase tracking-widest">Billing Automation</p>
+                <h1 className="text-white font-bold text-lg leading-tight tracking-tight">
+                  Arin Energy
+                </h1>
+                <p className="text-sidebar-foreground text-[10px] font-medium opacity-70 uppercase tracking-widest">
+                  Billing Automation
+                </p>
               </div>
             </div>
             {onToggle && (
@@ -178,10 +251,17 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                   "flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group relative overflow-hidden",
                   isActive
                     ? "bg-gradient-to-r from-arin-green to-arin-teal text-white shadow-md font-semibold"
-                    : "text-sidebar-foreground hover:bg-white/10 hover:text-white"
+                    : "text-sidebar-foreground hover:bg-white/10 hover:text-white",
                 )}
               >
-                <item.icon className={cn("w-5 h-5", isActive ? "animate-pulse" : "group-hover:scale-110 transition-transform")} />
+                <item.icon
+                  className={cn(
+                    "w-5 h-5",
+                    isActive
+                      ? "animate-pulse"
+                      : "group-hover:scale-110 transition-transform",
+                  )}
+                />
                 <span className="flex-1 z-10">{item.label}</span>
                 {isActive && (
                   <div className="absolute inset-0 bg-white/10 mix-blend-overlay" />
@@ -196,7 +276,7 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
           <div className="flex flex-col gap-2 mb-4">
             <div className="flex gap-2">
               <button
-                onClick={() => navigate('/settings')}
+                onClick={() => navigate("/settings")}
                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-slate-300 hover:bg-white/10 transition-colors font-bold text-sm tracking-wide bg-white/5"
                 title="Settings & Master Data"
               >
@@ -241,30 +321,36 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
 
           <div className="space-y-4 pt-4">
             <div className="flex flex-col gap-3">
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Current Password</label>
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                Current Password
+              </label>
               <Input
                 type="password"
                 placeholder="Current Password"
                 value={currentPassword}
-                onChange={e => setCurrentPassword(e.target.value)}
+                onChange={(e) => setCurrentPassword(e.target.value)}
                 className="bg-white h-12 border-slate-200 rounded-xl text-sm"
               />
 
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">New Password</label>
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                New Password
+              </label>
               <Input
                 type="password"
                 placeholder="New Password (min 6 chars)"
                 value={ownNewPassword}
-                onChange={e => setOwnNewPassword(e.target.value)}
+                onChange={(e) => setOwnNewPassword(e.target.value)}
                 className="bg-white h-12 border-slate-200 rounded-xl text-sm"
               />
 
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Confirm New Password</label>
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                Confirm New Password
+              </label>
               <Input
                 type="password"
                 placeholder="Confirm New Password"
                 value={confirmPassword}
-                onChange={e => setConfirmPassword(e.target.value)}
+                onChange={(e) => setConfirmPassword(e.target.value)}
                 className="bg-white h-12 border-slate-200 rounded-xl text-sm"
               />
 
@@ -284,25 +370,28 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
         <DialogContent className="glass-card shadow-2xl border-white/20 sm:max-w-md rounded-2xl">
           <DialogHeader>
             <DialogTitle className="text-xl font-black bg-clip-text text-transparent bg-gradient-to-r from-arin-teal to-arin-green flex items-center gap-2">
-              <Settings className="w-5 h-5 text-arin-teal" /> Manage MSEDCL Portal Users
+              <Settings className="w-5 h-5 text-arin-teal" /> Manage MSEDCL
+              Portal Users
             </DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4 pt-4">
             <div className="bg-slate-50 border border-slate-100 rounded-xl p-4">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3">Add New User</h3>
+              <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3">
+                Add New User
+              </h3>
               <div className="flex flex-col gap-3">
                 <Input
                   placeholder="Username"
                   value={newUsername}
-                  onChange={e => setNewUsername(e.target.value)}
+                  onChange={(e) => setNewUsername(e.target.value)}
                   className="bg-white h-10 border-slate-200 rounded-lg text-sm"
                 />
                 <Input
                   type="text"
                   placeholder="Password"
                   value={newPassword}
-                  onChange={e => setNewPassword(e.target.value)}
+                  onChange={(e) => setNewPassword(e.target.value)}
                   className="bg-white h-10 border-slate-200 rounded-lg text-sm"
                 />
                 <Button
@@ -315,12 +404,21 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
             </div>
 
             <div className="space-y-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2 sticky top-0 bg-white py-1">Active Accounts</h3>
+              <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2 sticky top-0 bg-white py-1">
+                Active Accounts
+              </h3>
               {portalUsers.map((u, idx) => (
-                <div key={idx} className="flex items-center justify-between p-3 rounded-lg border border-slate-100 bg-white shadow-sm">
+                <div
+                  key={idx}
+                  className="flex items-center justify-between p-3 rounded-lg border border-slate-100 bg-white shadow-sm"
+                >
                   <div className="flex flex-col">
-                    <span className="text-sm font-black text-slate-800">{u.username}</span>
-                    <span className="text-[10px] font-mono text-slate-400">••••••••</span>
+                    <span className="text-sm font-black text-slate-800">
+                      {u.username}
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-400">
+                      ••••••••
+                    </span>
                   </div>
                   <button
                     onClick={() => handleRemoveUser(u.username)}

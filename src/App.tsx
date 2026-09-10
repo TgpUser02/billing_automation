@@ -33,18 +33,88 @@ const App = () => {
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<Login />} />
-            
-            <Route path="/" element={<ProtectedLayout><Dashboard /></ProtectedLayout>} />
-            <Route path="/download" element={<ProtectedLayout><Index /></ProtectedLayout>} />
-            <Route path="/bill-buddy" element={<ProtectedLayout><ArinBillGenerator /></ProtectedLayout>} />
-            <Route path="/consumer-connect" element={<ProtectedLayout><ConsumerConnect /></ProtectedLayout>} />
-            <Route path="/consumerconnect" element={<ProtectedLayout><ConsumerConnect /></ProtectedLayout>} />
-            <Route path="/reports" element={<ProtectedLayout><Reports /></ProtectedLayout>} />
-            <Route path="/user-management" element={<ProtectedLayout><UserManagement /></ProtectedLayout>} />
-            <Route path="/quick-analysis" element={<ProtectedLayout><QuickBillAnalysis /></ProtectedLayout>} />
-            <Route path="/settings" element={<ProtectedLayout><Settings /></ProtectedLayout>} />
+
+            <Route
+              path="/"
+              element={
+                <ProtectedLayout>
+                  <Dashboard />
+                </ProtectedLayout>
+              }
+            />
+            <Route
+              path="/download"
+              element={
+                <ProtectedLayout>
+                  <Index />
+                </ProtectedLayout>
+              }
+            />
+            <Route
+              path="/bill-buddy"
+              element={
+                <ProtectedLayout>
+                  <ArinBillGenerator />
+                </ProtectedLayout>
+              }
+            />
+            <Route
+              path="/consumer-connect"
+              element={
+                <ProtectedLayout>
+                  <ConsumerConnect />
+                </ProtectedLayout>
+              }
+            />
+            <Route
+              path="/consumerconnect"
+              element={
+                <ProtectedLayout>
+                  <ConsumerConnect />
+                </ProtectedLayout>
+              }
+            />
+            <Route
+              path="/reports"
+              element={
+                <ProtectedLayout>
+                  <Reports />
+                </ProtectedLayout>
+              }
+            />
+            <Route
+              path="/user-management"
+              element={
+                <ProtectedLayout>
+                  <UserManagement />
+                </ProtectedLayout>
+              }
+            />
+            <Route
+              path="/quick-analysis"
+              element={
+                <ProtectedLayout>
+                  <QuickBillAnalysis />
+                </ProtectedLayout>
+              }
+            />
+            <Route
+              path="/settings"
+              element={
+                <ProtectedLayout>
+                  <Settings />
+                </ProtectedLayout>
+              }
+            />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-            <Route path="*" element={<ProtectedLayout><NotFound /></ProtectedLayout>} />
+            <Route
+              path="*"
+              element={
+                <ProtectedLayout>
+                  <NotFound />
+                </ProtectedLayout>
+              }
+            />
           </Routes>
         </BrowserRouter>
       </TooltipProvider>
