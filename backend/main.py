@@ -1323,7 +1323,7 @@ Analyze the attached electricity bill image/PDF and extract the following fields
   "consumer_name": "Full Customer Name",
   "sanctioned_load_kw": 3.0,
   "billing_date": "DD/MM/YYYY - CRITICAL: Must be the देयक दिनांक (Deyak Dinank / Bill Date) found in the right-hand box next to 'देयक दिनांक :' (e.g. 06-09-2026). Do NOT take reading date or agreement date.",
-  "reading_date": "DD/MM/YYYY - Must be the चालू रिडिंग दिनांक (Current Reading Date, e.g. 02-09-2026). Do NOT take agreement or supply date.",
+  "reading_date": "DD/MM/YYYY - CRITICAL: Must be the चालू रिडिंग दिनांक (Current Reading Date, e.g. 02-09-2026). Found in the meter reading block next to 'चालू रिडिंग दिनांक'. It is ALWAYS on or before billing_date. Do NOT take देयक भरणा दिनांक (Due Date), agreement date, or supply date.",
   "bill_month": "Month Year from 'BILL OF SUPPLY FOR THE MONTH OF - ...' (e.g. सप्टेंबर-2026 -> 'September 2026')",
   "billing_amount": 0.0,
   "billing_units": 0.0,
@@ -1345,6 +1345,7 @@ Analyze the attached electricity bill image/PDF and extract the following fields
 }
 Important:
 - 'billing_date' is 'देयक दिनांक' (Bill Date), NOT reading date.
+- 'reading_date' is 'चालू रिडिंग दिनांक' (Current Reading Date). It must be <= 'billing_date'. NEVER confuse it with 'देयक भरणा दिनांक' (Due Date).
 - 'current_banked_units' is the units in the 'Bank Solar Units' / 'सौर बँक युनिट' column (e.g. 52).
 - 'previous_banked_units' is the units in the 'Prev Bank Units' / 'मागील बँक युनिट' column (e.g. 85).
 - 'meter_readings' contains the Current Reading (चालू रिडिंग), Previous Reading (मागील रिडिंग), MF, and Consumption for Import, Export, and Generation.
@@ -1372,7 +1373,12 @@ Return ONLY valid raw JSON without markdown formatting."""
                 if res.status_code == 200:
                     result_text = res.json()["candidates"][0]["content"]["parts"][0]["text"]
                     clean_json = result_text.strip().removeprefix("```json").removesuffix("```").strip()
-                    return json.loads(clean_json)
+                    parsed = json.loads(clean_json)
+                    # Normalize date separators
+                    for k in ("reading_date", "billing_date"):
+                        if parsed.get(k):
+                            parsed[k] = str(parsed[k]).replace("/", "-")
+                    return parsed
                 elif res.status_code in (401, 403):
                     logger.warning(f"AI Vision API ({model}) returned {res.status_code}: {res.text[:120]}")
                     break
@@ -1466,6 +1472,118 @@ def extract_text_ocr(content: bytes, filename: str) -> str:
     return extracted_text.translate(trans_table)
 
 
+def extract_msedcl_dates(text: str, billing_date_hint: str = None):
+    """
+    High-precision extraction for MSEDCL Current Reading Date (चालू रिडिंग दिनांक)
+    and Billing Date (देयक दिनांक) across Marathi, English, and Shree-Lipi OCR text.
+    Uses label parsing + pair-based meter reading detection to prevent confusing
+    Reading Date with Due Date (देयक भरणा दिनांक) or Billing Date.
+    """
+    if not text:
+        return None, None
+
+    def _parse_any_date(d_str):
+        if not d_str: return None
+        s = re.sub(r'\s+', '', str(d_str)).replace('/', '-').replace('.', '-')
+        for fmt in ('%d-%m-%Y', '%d-%m-%y', '%Y-%m-%d'):
+            try:
+                return datetime.strptime(s, fmt)
+            except Exception:
+                pass
+        return None
+
+    reading_date = None
+    billing_date = billing_date_hint
+
+    # 1. Billing Date from labels
+    if not billing_date:
+        bd_patterns = [
+            r'(?:देयक\s*दिनांक|Bill\s*Date|Date\s*of\s*Bill|देयक\s*तारीख|Deyak\s*Dinank|Bill\s*Issue\s*Date|¿úÌî´ø\s*ï¿Æîîë´ø|¿úÌî´ø\s*ï¿Æîë´ø)[\s:/.\-]+([0-3]?[0-9][-/.\s][0-1]?[0-9][-/.\s](?:20)?[2-3][0-9])'
+        ]
+        for pat in bd_patterns:
+            m = re.search(pat, text, re.IGNORECASE)
+            if m:
+                d = _parse_any_date(m.group(1))
+                if d:
+                    billing_date = d.strftime('%d-%m-%Y')
+                    break
+
+    # 2. Reading Date from labels (Strict Current Reading Date; exclude Next, Probable, and Previous)
+    rd_patterns = [
+        r'(?:चालू\s*[रर][ीि]ड[ीि]?ं?ंग\s*दिनांक|चालू\s*वाचन\s*दिनांक|Current\s*Reading\s*Date|°îîÑîõ\s*ïÏï¸ëë¬î\s*ï¿Æîîë´ø|°îîÑîõ\s*ïÏï¸ëë¬î)[\s:/.\-]+([0-3]?[0-9][-/.\s][0-1]?[0-9][-/.\s](?:20)?[2-3][0-9])',
+        r'(?<!पुढील\s)(?<!संभाव्य\s)(?<!मागील\s)(?<!Next\s)(?<!Previous\s)(?<!Probable\s)(?:वाचन\s*दिनांक|रिडिंग\s*दिनांक|Reading\s*Date)[\s:/.\-]+([0-3]?[0-9][-/.\s][0-1]?[0-9][-/.\s](?:20)?[2-3][0-9])'
+    ]
+    for pat in rd_patterns:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            d = _parse_any_date(m.group(1))
+            if d:
+                reading_date = d.strftime('%d-%m-%Y')
+                break
+
+    # 3. Pair-based meter reading detection:
+    # Current Reading Date is paired with Previous Reading Date ~27-35 days apart across consecutive months.
+    # The MORE RECENT date (max) is ALWAYS the CURRENT reading date!
+    all_dates = list(re.finditer(r'\b([0-3][0-9][-/][0-1][0-9][-/](?:20)?[2-3][0-9])\b', text))
+    paired_candidates = []
+    lines = [l.strip() for l in text.split('\n') if l.strip()]
+    for i in range(len(lines) - 1):
+        m1 = re.search(r'([0-3][0-9][-/][0-1][0-9][-/](?:20)?[2-3][0-9])', lines[i])
+        m2 = re.search(r'([0-3][0-9][-/][0-1][0-9][-/](?:20)?[2-3][0-9])', lines[i+1])
+        if m1 and m2:
+            d1 = _parse_any_date(m1.group(1))
+            d2 = _parse_any_date(m2.group(1))
+            if d1 and d2:
+                diff = abs((d1 - d2).days)
+                if 27 <= diff <= 35 and (d1.month != d2.month or d1.year != d2.year):
+                    has_colon = lines[i].startswith(':') or lines[i+1].startswith(':')
+                    curr_d = max(d1, d2)
+                    paired_candidates.append((curr_d, min(d1, d2), has_colon))
+
+    if not paired_candidates and len(all_dates) >= 2:
+        for i in range(len(all_dates) - 1):
+            d1 = _parse_any_date(all_dates[i].group(1))
+            d2 = _parse_any_date(all_dates[i+1].group(1))
+            if d1 and d2:
+                diff = abs((d1 - d2).days)
+                if 27 <= diff <= 35 and (d1.month != d2.month or d1.year != d2.year):
+                    paired_candidates.append((max(d1, d2), min(d1, d2), False))
+
+    best_paired = None
+    if paired_candidates:
+        paired_candidates.sort(key=lambda x: (x[2], x[0]), reverse=True)
+        best_paired = paired_candidates[0][0].strftime('%d-%m-%Y')
+
+    if best_paired:
+        if not reading_date:
+            reading_date = best_paired
+        else:
+            if billing_date:
+                rd_obj = _parse_any_date(reading_date)
+                bd_obj = _parse_any_date(billing_date)
+                if rd_obj and bd_obj and rd_obj > bd_obj:
+                    reading_date = best_paired
+
+    # If billing_date still missing, attempt detection from bill header dates (bill date followed by due date 15-25 days later)
+    if not billing_date and len(all_dates) >= 2:
+        top_d1 = _parse_any_date(all_dates[0].group(1))
+        top_d2 = _parse_any_date(all_dates[1].group(1))
+        if top_d1 and top_d2 and 15 <= (top_d2 - top_d1).days <= 25:
+            billing_date = top_d1.strftime('%d-%m-%Y')
+
+    # Sanity check: reading_date cannot be in the future relative to billing_date
+    if reading_date and billing_date:
+        rd_obj = _parse_any_date(reading_date)
+        bd_obj = _parse_any_date(billing_date)
+        if rd_obj and bd_obj and rd_obj > bd_obj:
+            if best_paired and _parse_any_date(best_paired) <= bd_obj:
+                reading_date = best_paired
+            else:
+                reading_date = None
+
+    return reading_date, billing_date
+
+
 @app.post("/api/analyze-bill-ocr")
 async def analyze_bill_ocr(file: UploadFile = File(...)):
     """
@@ -1481,7 +1599,7 @@ async def analyze_bill_ocr(file: UploadFile = File(...)):
         consumer_number = None
         consumer_name = "MSEDCL Consumer"
         capacity = "3.0"
-        reading_date = datetime.now().strftime("%d-%m-%Y")
+        reading_date = None
         billing_date = None
         bill_month = None
         billing_amount = 0.0
@@ -1585,11 +1703,15 @@ async def analyze_bill_ocr(file: UploadFile = File(...)):
                             if cust_row.get("solar_capacity_kw"): capacity = str(cust_row["solar_capacity_kw"])
 
                         if bill_row:
-                            if bill_row.get("reading_date"): reading_date = str(bill_row["reading_date"])
-                            if bill_row.get("billing_date"):
-                                billing_date = str(bill_row["billing_date"])
-                            elif bill_row.get("month_year"):
-                                billing_date = str(bill_row["month_year"])
+                            db_rd = str(bill_row["reading_date"]) if bill_row.get("reading_date") else None
+                            db_bd = str(bill_row["billing_date"]) if bill_row.get("billing_date") else (str(bill_row["month_year"]) if bill_row.get("month_year") else None)
+                            if db_rd:
+                                rd_parsed = _parse_any_date(db_rd)
+                                bd_parsed = _parse_any_date(db_bd) if db_bd else None
+                                if not bd_parsed or (rd_parsed and rd_parsed <= bd_parsed):
+                                    reading_date = db_rd
+                            if db_bd and not billing_date:
+                                billing_date = db_bd
                             if bill_row.get("month_year") and not bill_month:
                                 try:
                                     m_dt = bill_row["month_year"]
@@ -1621,20 +1743,15 @@ async def analyze_bill_ocr(file: UploadFile = File(...)):
                 if load_match:
                     capacity = str(float(load_match.group(1)))
 
-            # Reading Date: prioritize चालू रिडिंग दिनांक
-            rd_m = re.search(r'(?:चालू\s*[रर][ीि]ड[ीि]?ं?ंग|Reading\s*Date|वाचन\s*दिनांक)[\s:\-]+([0-3]?[0-9][-/][0-1]?[0-9][-/][2][0][2-3][0-9])', extracted_text, re.IGNORECASE)
-            if rd_m:
-                reading_date = rd_m.group(1)
-            elif not reading_date or reading_date == datetime.now().strftime("%d-%m-%Y"):
-                date_match = re.search(r'([0-3][0-9][-/][0-1][0-9][-/][2][0][2-3][0-9])', extracted_text)
-                if date_match:
-                    reading_date = date_match.group(1)
-
-            # Billing Date: strictly देयक दिनांक (Deyak Dinank)
-            if not billing_date:
-                bd_m = re.search(r'(?:देयक\s*दिनांक|Bill\s*Date|Date\s*of\s*Bill|देयक\s*तारीख|Deyak\s*Dinank)[\s:\-]+([0-3]?[0-9][-/][0-1]?[0-9][-/][2][0][2-3][0-9])', extracted_text, re.IGNORECASE)
-                if bd_m:
-                    billing_date = bd_m.group(1)
+            # Reading Date & Billing Date: strictly extracted with label + pair detection
+            ocr_rd, ocr_bd = extract_msedcl_dates(extracted_text, billing_date_hint=billing_date)
+            if ocr_rd:
+                rd_obj = _parse_any_date(reading_date) if reading_date else None
+                bd_obj = _parse_any_date(billing_date) if billing_date else None
+                if not reading_date or (bd_obj and rd_obj and rd_obj > bd_obj):
+                    reading_date = ocr_rd
+            if ocr_bd and not billing_date:
+                billing_date = ocr_bd
 
             if not bill_month:
                 bm_m = re.search(r'(?:FOR\s+THE\s+MONTH\s+OF|Bill\s*Month|बिल\s*महिना)\s*:?\s*([A-Za-z]+|[\u0900-\u097F]+)[-\s,]*(\d{4})', extracted_text, re.IGNORECASE)
@@ -1821,7 +1938,9 @@ async def analyze_bill_ocr(file: UploadFile = File(...)):
                                     service, tmp_path, upload_filename, consumer_folder_id,
                                     consumer_number=consumer_number,
                                     month_year=billing_date or reading_date,
-                                    category=category
+                                    category=category,
+                                    reading_date=reading_date,
+                                    billing_date=billing_date
                                 )
                                 if up_res and up_res[0]:
                                     drive_status = f"Saved to Drive: {upload_filename}"
@@ -2485,7 +2604,7 @@ async def upload_excel(file: UploadFile = File(...), user=Depends(get_current_us
         # Comprehensive header mappings
         col_mappings = {
             'consumer_number': ['consumer number', 'consumer_number', 'consumer no', 'consumer_no', 'consumer no.', 'number', 'msedcl no', 'msedcl_no', 'consumer_id', 'consumer id', 'consumer #', 'ca number', 'k no', 'knumber', 'account number', 'acc no', 'acc_no', 'connection no', 'connection number'],
-            'arin_id': ['arin id', 'arin_id', 'arin_identifier', 'arin', 'arinid', 'id', 'arin no', 'arin_no', 'arin no.', 'arin code', 'hash id', 'hash_id', 'hashid', 'consumer arin id'],
+            'arin_id': ['arin id', 'arin_id', 'arin_identifier', 'arin', 'arinid', 'id', 'arin no', 'arin_no', 'arin no.', 'arin code', 'hash id', 'hash_id', 'hashid', 'consumer arin id', 'user ids', 'user id', 'user_id', 'user_ids', "user id's"],
             'zone': ['zone', 'area', 'region', 'zone / area', 'zone/area', 'zone name', 'circle', 'division', 'sub division', 'subdivision', 'location zone', 'cluster', 'site zone'],
             'solar_capacity_kw': ['solar capacity kw', 'solar_capacity_kw', 'capacity', 'capacity kw', 'solar capacity', 'capacity_kw', 'system size', 'system capacity', 'plant capacity', 'spv capacity', 'capacity(kw)', 'capacity (kw)', 'solar cap', 'solar_cap', 'capacity in kw', 'sanction load', 'sanctioned load', 'load', 'system size (kw)', 'system size kw', 'kw capacity'],
             'customer_name': ['customer name', 'customer_name', 'name', 'consumer name', 'consumer_name', 'client name', 'client_name', 'account name'],
@@ -2590,11 +2709,11 @@ async def upload_excel(file: UploadFile = File(...), user=Depends(get_current_us
                     "customer_name": row_name
                 })
                 
-        # Deduplicate records by consumer number & date
+        # Deduplicate records by consumer number, date & arinId
         seen = set()
         deduped_data = []
         for item in data:
-            key = (item["consumerNumber"], item["date"])
+            key = (item["consumerNumber"], item["date"], item.get("arinId") or item.get("arin_id") or "")
             if key not in seen:
                 seen.add(key)
                 deduped_data.append(item)
@@ -4863,23 +4982,30 @@ def fetch_consumers(user=Depends(get_current_user)):
                 cname = consumer.get("name")
                 bu = consumer.get("bu")
                 if cnum:
-                    cursor.execute("SELECT id FROM customers WHERE consumer_number = %s", (cnum,))
-                    if not cursor.fetchone():
+                    cursor.execute("SELECT id, arin_id, customer_name FROM customers WHERE consumer_number = %s", (cnum,))
+                    row = cursor.fetchone()
+                    if not row:
                         # Also check backup
                         try:
-                            cursor.execute("SELECT id FROM customers_backup WHERE consumer_number = %s", (cnum,))
-                            if cursor.fetchone(): continue
+                            cursor.execute("SELECT id, arin_id, customer_name FROM customers_backup WHERE consumer_number = %s", (cnum,))
+                            row = cursor.fetchone()
                         except Exception: pass
                         
-                        logger.info(f"Adding missing consumer {cnum} from portal to database.")
-                        cursor.execute(
-                            "INSERT INTO customers (consumer_number, customer_name, billing_unit, label) VALUES (%s, %s, %s, %s)",
-                            (cnum, cname, bu, "Data yet to fill")
-                        )
+                        if not row:
+                            logger.info(f"Adding missing consumer {cnum} from portal to database.")
+                            cursor.execute(
+                                "INSERT INTO customers (consumer_number, customer_name, billing_unit, label) VALUES (%s, %s, %s, %s)",
+                                (cnum, cname, bu, "Data yet to fill")
+                            )
+                    if row:
+                        consumer["arinId"] = row.get("arin_id") or ""
+                        consumer["arin_id"] = row.get("arin_id") or ""
+                        if row.get("customer_name"):
+                            consumer["customerName"] = row["customer_name"]
             conn.commit()
             conn.close()
     except Exception as e:
-        logger.error(f"Error saving missing consumers: {e}")
+        logger.error(f"Error saving/enriching missing consumers: {e}")
         
     return data
 
@@ -5062,13 +5188,18 @@ async def api_reset(user=Depends(get_current_user)):
     # Delete saved session cookie files so next login is guaranteed to be fresh
     try:
         import glob
-        files = glob.glob("backend/secrets/session_cookies_*.json")
-        for f in files:
-            try:
-                os.remove(f)
-                logger.info(f"Deleted saved session cookie file {f} on reset request")
-            except Exception as fe:
-                logger.warning(f"Failed to remove file {f}: {fe}")
+        secrets_dir = os.path.join(os.path.dirname(__file__), "secrets")
+        patterns = [
+            os.path.join(secrets_dir, "session_cookies_*.json"),
+            os.path.join(secrets_dir, "portal_session_*.json"),
+        ]
+        for pat in patterns:
+            for f in glob.glob(pat):
+                try:
+                    os.remove(f)
+                    logger.info(f"Deleted saved session cookie file {f} on reset request")
+                except Exception as fe:
+                    logger.warning(f"Failed to remove file {f}: {fe}")
     except Exception as e:
         logger.error(f"Failed to delete session cookie files on reset: {e}")
         

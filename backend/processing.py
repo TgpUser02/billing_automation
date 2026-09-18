@@ -117,7 +117,21 @@ def search_consumers_in_db(identifiers):
                 except Exception as e:
                     logger.warning(f"Search in {table} failed: {e}")
                 
-        return results
+        # Ensure # and $ IDs never cross-match in search results
+        def _is_compatible(search_term, candidate_arin_id):
+            if not candidate_arin_id:
+                return True
+            s = str(search_term).lower()
+            c = str(candidate_arin_id).lower()
+            if ('#' in s and '$' in c) or ('$' in s and '#' in c):
+                return False
+            return True
+
+        filtered_results = [
+            r for r in results 
+            if any(_is_compatible(ident, r.get('arin_id')) for ident in identifiers)
+        ]
+        return filtered_results
     except Exception as e:
         logger.error(f"Search consumers error: {e}")
         return []
@@ -363,32 +377,89 @@ def extract_data_from_pdf(pdf_path, default_date=None):
                 data["bill_month_date"] = default_date
 
             # ── 4. Reading Date (चालू रिडिंग दिनांक) ────────────────────────
-            # Strictly matches चालू रिडिंग दिनांक (Current Reading Date)
-            rd_match = re.search(
-                r"(?:चालू\s*[रर][ीि]ड[ीि]?ं?ंग\s*दिनांक|Reading\s*Date|वाचन\s*दिनांक|°îîÑîõ\s*ïÏï¸ëë¬î\s*ï¿Æîîë´ø|°îîÑîõ\s*ïÏï¸ëë¬î)[\s:\-]+([0-3]?[0-9][-/][0-1]?[0-9][-/][2][0][2-3][0-9])",
-                text_trans, re.IGNORECASE
-            )
-            if rd_match:
-                raw_rd = rd_match.group(1).replace("/", "-")
-                try:
-                    data["reading_date"] = datetime.strptime(raw_rd, "%d-%m-%Y").strftime("%Y-%m-%d")
-                except: pass
+            def _parse_date_flexible(d_str):
+                if not d_str: return None
+                s = re.sub(r'\s+', '', d_str).replace('/', '-').replace('.', '-')
+                for fmt in ('%d-%m-%Y', '%d-%m-%y', '%Y-%m-%d'):
+                    try:
+                        return datetime.strptime(s, fmt).strftime('%Y-%m-%d')
+                    except Exception:
+                        pass
+                return None
+
+            # 1. Primary: Strictly matches चालू रिडिंग दिनांक / Current Reading Date
+            # Exclude पुढील (Next), संभाव्य (Probable), and मागील (Previous) reading dates
+            primary_rd_patterns = [
+                r"(?:चालू\s*[रर][ीि]ड[ीि]?ं?ंग(?:\s*दिनांक)?|चालू\s*वाचन\s*दिनांक|Current\s*Reading\s*Date|°îîÑîõ\s*ïÏï¸ëë¬î\s*ï¿Æîîë´ø|°îîÑîõ\s*ïÏï¸ëë¬î)[\s:/\.\-]+([0-3]?[0-9][-/.\s][0-1]?[0-9][-/.\s](?:20)?[2-3][0-9])",
+                r"(?<!पुढील\s)(?<!संभाव्य\s)(?<!मागील\s)(?<!Next\s)(?<!Previous\s)(?<!Probable\s)(?:वाचन\s*दिनांक|रिडिंग\s*दिनांक|Reading\s*Date)[\s:/\.\-]+([0-3]?[0-9][-/.\s][0-1]?[0-9][-/.\s](?:20)?[2-3][0-9])"
+            ]
+            for pat in primary_rd_patterns:
+                rd_m = re.search(pat, text_trans, re.IGNORECASE)
+                if rd_m:
+                    parsed_rd = _parse_date_flexible(rd_m.group(1))
+                    if parsed_rd:
+                        data["reading_date"] = parsed_rd
+                        break
 
             # ── 4b. Billing Date (देयक दिनांक) ──────────────────────────────
             # Strictly matches देयक दिनांक (Bill Date)
             bd_match = re.search(
-                r"(?:देयक\s*दिनांक|Bill\s*Date|Date\s*of\s*Bill|देयक\s*तारीख|Deyak\s*Dinank|¿úÌî´ø\s*ï¿Æîîë´ø|¿úÌî´ø\s*ï¿Æîë´ø)[\s:\-]+([0-3]?[0-9][-/][0-1]?[0-9][-/][2][0][2-3][0-9])",
+                r"(?:देयक\s*दिनांक|Bill\s*Date|Date\s*of\s*Bill|देयक\s*तारीख|Deyak\s*Dinank|Bill\s*Issue\s*Date|¿úÌî´ø\s*ï¿Æîîë´ø|¿úÌî´ø\s*ï¿Æîë´ø)[\s:/\.\-]+([0-3]?[0-9][-/.\s][0-1]?[0-9][-/.\s](?:20)?[2-3][0-9])",
                 text_trans, re.IGNORECASE
             )
             if bd_match:
-                raw_bd = bd_match.group(1).replace("/", "-")
-                try:
-                    data["billing_date"] = datetime.strptime(raw_bd, "%d-%m-%Y").strftime("%Y-%m-%d")
-                except: pass
-            elif data.get("bill_month_date"):
-                data["billing_date"] = data["bill_month_date"]
-            elif data.get("reading_date"):
-                data["billing_date"] = data["reading_date"]
+                parsed_bd = _parse_date_flexible(bd_match.group(1))
+                if parsed_bd:
+                    data["billing_date"] = parsed_bd
+
+            # If billing date still not found, check bill header dates (bill date followed by due date 15-25 days later)
+            all_raw_dates = list(re.finditer(r'\b([0-3][0-9][-/][0-1][0-9][-/](?:20)?[2-3][0-9])\b', text_trans))
+            if not data.get("billing_date") and len(all_raw_dates) >= 2:
+                for i in range(min(4, len(all_raw_dates) - 1)):
+                    d_a = _parse_date_flexible(all_raw_dates[i].group(1))
+                    d_b = _parse_date_flexible(all_raw_dates[i+1].group(1))
+                    if d_a and d_b:
+                        dt_a = datetime.strptime(d_a, '%Y-%m-%d')
+                        dt_b = datetime.strptime(d_b, '%Y-%m-%d')
+                        if 15 <= (dt_b - dt_a).days <= 25:
+                            data["billing_date"] = d_a
+                            break
+
+            # If billing date is still missing, fallback safely without preceding reading_date
+            if not data.get("billing_date"):
+                if data.get("reading_date"):
+                    data["billing_date"] = data["reading_date"]
+                elif data.get("bill_month_date"):
+                    data["billing_date"] = data["bill_month_date"]
+
+            # Pair-based meter reading detection:
+            # Current Reading Date and Previous Reading Date are 27-35 days apart.
+            # The MORE RECENT date (max) is the CURRENT reading date!
+            best_paired_rd = None
+            if len(all_raw_dates) >= 2:
+                for i in range(len(all_raw_dates) - 1):
+                    d1_str = _parse_date_flexible(all_raw_dates[i].group(1))
+                    d2_str = _parse_date_flexible(all_raw_dates[i+1].group(1))
+                    if d1_str and d2_str:
+                        dt1 = datetime.strptime(d1_str, '%Y-%m-%d')
+                        dt2 = datetime.strptime(d2_str, '%Y-%m-%d')
+                        diff = abs((dt1 - dt2).days)
+                        if 27 <= diff <= 35 and (dt1.month != dt2.month or dt1.year != dt2.year):
+                            candidate_curr = max(dt1, dt2).strftime('%Y-%m-%d')
+                            if not data.get("billing_date") or candidate_curr <= data["billing_date"]:
+                                best_paired_rd = candidate_curr
+                                break
+
+            # Sanity check: reading_date cannot be in the future relative to billing_date
+            if data.get("reading_date") and data.get("billing_date"):
+                if data["reading_date"] > data["billing_date"]:
+                    if best_paired_rd and best_paired_rd <= data["billing_date"]:
+                        data["reading_date"] = best_paired_rd
+                    else:
+                        data["reading_date"] = None
+
+            if not data.get("reading_date") and best_paired_rd:
+                data["reading_date"] = best_paired_rd
 
             # ── 5. Meter Readings Table (Current, Previous, MF, Consumption) ─
             meter_readings = {
@@ -1102,8 +1173,8 @@ def save_to_mysql(bill_data, conn=None):
             return None
 
         m_year = parse_date(bill_month_date)
-        r_date = parse_date(reading_date_raw) or m_year
-        b_date_parsed = parse_date(bill_data.get('billing_date') or bill_data.get('bill_date') or bill_data.get('bill_generation_date')) or m_year or r_date
+        r_date = parse_date(reading_date_raw)
+        b_date_parsed = parse_date(bill_data.get('billing_date') or bill_data.get('bill_date') or bill_data.get('bill_generation_date'))
 
         if not m_year:
             if re.match(r"\d{4}-\d{2}-\d{2}", str(bill_month_date)):
@@ -1111,6 +1182,18 @@ def save_to_mysql(bill_data, conn=None):
             else:
                 logger.warning(f"Skipping {consumer_number}: missing/invalid year month '{bill_month_date}'")
                 return False
+
+        # Safe billing date resolution:
+        if not b_date_parsed:
+            b_date_parsed = r_date or m_year
+        elif r_date and b_date_parsed < r_date:
+            # If b_date_parsed was defaulted to the 1st of month (m_year) and r_date is in that month:
+            if b_date_parsed == m_year:
+                b_date_parsed = r_date
+            else:
+                # reading_date cannot be in the future relative to true billing_date
+                logger.warning(f"Rejecting invalid reading_date {r_date} > billing_date {b_date_parsed} for {consumer_number}")
+                r_date = None
 
         # ── 3. CHECK IF CUSTOMER EXISTS ──
         cursor.execute("SELECT id FROM customers WHERE consumer_number = %s", (consumer_number,))
@@ -1135,7 +1218,7 @@ def save_to_mysql(bill_data, conn=None):
             'bill_month': m_year,
             'billing_date': b_date_parsed,
             'reading_date': r_date,
-            'bill_date': r_date,
+            'bill_date': r_date or b_date_parsed,
             'import_units': import_units,
             'export_units': export_units,
             'generation_units': generation_units,
@@ -1167,8 +1250,15 @@ def save_to_mysql(bill_data, conn=None):
         if existing_record:
             rec_id = existing_record['id']
             drive_updates = {}
-            for col in ['pdf_drive_file_id', 'pdf_drive_view_url', 'image_drive_file_id', 'image_drive_view_url', 'meter_readings_json', 'past_year_history_json', 'billing_date', 'bill_status']:
-                if val_map.get(col) and col in bill_cols:
+            update_cols = [
+                'import_units', 'export_units', 'generation_units', 'billing_amount',
+                'prev_bank_units', 'bank_solar_units', 'billing_date', 'reading_date',
+                'bill_status', 'pdf_drive_file_id', 'pdf_drive_view_url',
+                'image_drive_file_id', 'image_drive_view_url',
+                'meter_readings_json', 'past_year_history_json'
+            ]
+            for col in update_cols:
+                if col in val_map and val_map[col] is not None and col in bill_cols:
                     drive_updates[col] = val_map[col]
             if drive_updates:
                 set_str = ", ".join([f"`{k}` = %s" for k in drive_updates.keys()])

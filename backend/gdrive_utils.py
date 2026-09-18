@@ -335,13 +335,16 @@ def record_drive_upload_metadata(
     consumer_number=None,
     month_year=None,
     category='general',
-    uploaded_by='system'
+    uploaded_by='system',
+    reading_date=None,
+    billing_date=None
 ):
     """Safely logs Google Drive upload metadata into MySQL drive_uploads_meta and updates bill_generation_details if applicable."""
     if not file_id:
         return
     try:
         from processing import get_db_connection
+        from datetime import datetime, date
         conn = get_db_connection()
         if not conn:
             return
@@ -379,7 +382,6 @@ def record_drive_upload_metadata(
             parsed_month_year = None
             if month_year:
                 try:
-                    from datetime import datetime
                     if re.match(r"^\d{4}-\d{2}-\d{2}$", str(month_year)):
                         parsed_month_year = str(month_year)
                     else:
@@ -391,20 +393,64 @@ def record_drive_upload_metadata(
                 except Exception:
                     pass
 
+            # Fallback: Extract month and year from file_name (e.g. 410010744109_Sep_2026.pdf or Sep_2026.pdf)
+            if not parsed_month_year and file_name:
+                month_match = re.search(r'(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[a-z]*[_\-\s]*(20\d\d)', file_name, re.IGNORECASE)
+                if month_match:
+                    try:
+                        m_str = month_match.group(1).upper()
+                        y_str = month_match.group(2)
+                        parsed_month_year = datetime.strptime(f"{m_str} {y_str}", "%b %Y").strftime("%Y-%m-01")
+                    except Exception:
+                        pass
+                else:
+                    ym_match = re.search(r'(20\d\d)[_\-\.](0[1-9]|1[0-2])', file_name)
+                    if ym_match:
+                        parsed_month_year = f"{ym_match.group(1)}-{ym_match.group(2)}-01"
+
+            # Parse reading_date & billing_date if provided
+            parsed_reading_date = None
+            if reading_date:
+                try:
+                    if isinstance(reading_date, (datetime, date)):
+                        parsed_reading_date = reading_date.strftime("%Y-%m-%d")
+                    elif re.match(r"^\d{4}-\d{2}-\d{2}$", str(reading_date).strip()):
+                        parsed_reading_date = str(reading_date).strip()
+                    else:
+                        for fmt in ("%d-%m-%Y", "%d/%m/%Y", "%d-%m-%y", "%d/%m/%y"):
+                            try:
+                                parsed_reading_date = datetime.strptime(str(reading_date).strip(), fmt).strftime("%Y-%m-%d")
+                                break
+                            except: pass
+                except Exception:
+                    pass
+
+            parsed_billing_date = None
+            if billing_date:
+                try:
+                    if isinstance(billing_date, (datetime, date)):
+                        parsed_billing_date = billing_date.strftime("%Y-%m-%d")
+                    elif re.match(r"^\d{4}-\d{2}-\d{2}$", str(billing_date).strip()):
+                        parsed_billing_date = str(billing_date).strip()
+                    else:
+                        for fmt in ("%d-%m-%Y", "%d/%m/%Y", "%d-%m-%y", "%d/%m/%y"):
+                            try:
+                                parsed_billing_date = datetime.strptime(str(billing_date).strip(), fmt).strftime("%Y-%m-%d")
+                                break
+                            except: pass
+                except Exception:
+                    pass
+
+            # Sanity check: reading_date cannot be in the future relative to billing_date
+            if parsed_reading_date and parsed_billing_date and parsed_reading_date > parsed_billing_date:
+                logger.warning(f"gdrive_utils: Rejecting invalid reading_date {parsed_reading_date} > billing_date {parsed_billing_date}")
+                parsed_reading_date = None
+
             target_id = None
             if parsed_month_year:
                 cursor.execute(
                     "SELECT id FROM bill_generation_details WHERE consumer_number = %s AND month_year = %s LIMIT 1",
                     (clean_cnum, parsed_month_year)
-                )
-                r = cursor.fetchone()
-                if r:
-                    target_id = r[0]
-
-            if not target_id:
-                cursor.execute(
-                    "SELECT id FROM bill_generation_details WHERE consumer_number = %s ORDER BY month_year DESC, id DESC LIMIT 1",
-                    (clean_cnum,)
                 )
                 r = cursor.fetchone()
                 if r:
@@ -420,9 +466,9 @@ def record_drive_upload_metadata(
                 else:
                     cursor.execute("""
                         INSERT INTO bill_generation_details 
-                        (consumer_number, month_year, reading_date, pdf_drive_file_id, pdf_drive_view_url, pdf_file_name)
-                        VALUES (%s, COALESCE(%s, CURDATE()), CURDATE(), %s, %s, %s)
-                    """, (clean_cnum, parsed_month_year, file_id, actual_view_url, file_name))
+                        (consumer_number, month_year, reading_date, billing_date, pdf_drive_file_id, pdf_drive_view_url, pdf_file_name)
+                        VALUES (%s, COALESCE(%s, CURDATE()), %s, %s, %s, %s, %s)
+                    """, (clean_cnum, parsed_month_year, parsed_reading_date, parsed_billing_date, file_id, actual_view_url, file_name))
             elif ext_type == 'image' or category in ('bill_image', 'image'):
                 if target_id:
                     cursor.execute("""
@@ -433,9 +479,9 @@ def record_drive_upload_metadata(
                 else:
                     cursor.execute("""
                         INSERT INTO bill_generation_details 
-                        (consumer_number, month_year, reading_date, image_drive_file_id, image_drive_view_url, image_file_name, image_url)
-                        VALUES (%s, COALESCE(%s, CURDATE()), CURDATE(), %s, %s, %s, %s)
-                    """, (clean_cnum, parsed_month_year, file_id, actual_view_url, file_name, actual_view_url))
+                        (consumer_number, month_year, reading_date, billing_date, image_drive_file_id, image_drive_view_url, image_file_name, image_url)
+                        VALUES (%s, COALESCE(%s, CURDATE()), %s, %s, %s, %s, %s, %s)
+                    """, (clean_cnum, parsed_month_year, parsed_reading_date, parsed_billing_date, file_id, actual_view_url, file_name, actual_view_url))
 
         conn.commit()
         cursor.close()
@@ -444,7 +490,7 @@ def record_drive_upload_metadata(
     except Exception as e:
         logger.warning(f"Could not log Drive metadata in MySQL: {e}")
 
-def upload_file_to_drive(service, filepath, filename, folder_id, consumer_number=None, month_year=None, category='bill_pdf', folder_path=None, uploaded_by='system'):
+def upload_file_to_drive(service, filepath, filename, folder_id, consumer_number=None, month_year=None, category='bill_pdf', folder_path=None, uploaded_by='system', reading_date=None, billing_date=None):
     """Uploads a file to Google Drive, sets public reader permission, and logs metadata into MySQL."""
     if not service or not folder_id:
         return False, None, None, "Google Drive service or folder ID not available"
@@ -516,7 +562,9 @@ def upload_file_to_drive(service, filepath, filename, folder_id, consumer_number
             consumer_number=consumer_number,
             month_year=month_year,
             category=category,
-            uploaded_by=uploaded_by
+            uploaded_by=uploaded_by,
+            reading_date=reading_date,
+            billing_date=billing_date
         )
 
         return True, file_id, view_url, "Successfully uploaded to Google Drive"
@@ -525,7 +573,7 @@ def upload_file_to_drive(service, filepath, filename, folder_id, consumer_number
         logger.error(f"Failed to upload file to Google Drive: {e}")
         return False, None, None, str(e)
 
-def upload_base64_image_to_drive(service, base64_data, filename, folder_id, consumer_number=None, month_year=None, category='bill_image', folder_path=None, uploaded_by='system'):
+def upload_base64_image_to_drive(service, base64_data, filename, folder_id, consumer_number=None, month_year=None, category='bill_image', folder_path=None, uploaded_by='system', reading_date=None, billing_date=None):
     """Uploads base64 image data to Google Drive as a PNG file and logs metadata into MySQL."""
     if not service or not folder_id:
         return False, None, None, "Google Drive service or folder ID not available"
@@ -589,7 +637,9 @@ def upload_base64_image_to_drive(service, base64_data, filename, folder_id, cons
             consumer_number=consumer_number,
             month_year=month_year,
             category=category,
-            uploaded_by=uploaded_by
+            uploaded_by=uploaded_by,
+            reading_date=reading_date,
+            billing_date=billing_date
         )
 
         return True, file_id, view_url, "Successfully uploaded image to Google Drive"

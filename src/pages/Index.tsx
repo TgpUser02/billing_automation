@@ -8,7 +8,7 @@ import OutputPreview from "@/components/OutputPreview";
 import { api, API_BASE_URL } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { cn } from "@/lib/utils";
+import { cn, matchesArinId } from "@/lib/utils";
 import {
   DownloadCloud,
   FileText,
@@ -43,7 +43,7 @@ interface LogEntry {
   id: number;
   timestamp: string;
   message: string;
-  type: "info" | "success" | "error" | "process";
+  type: "info" | "success" | "process" | "warning" | "error";
 }
 
 interface DownloadedFile {
@@ -57,6 +57,7 @@ interface Consumer {
   index: number;
   consumerNumber: string;
   name: string;
+  arin_id?: string;
   selected: boolean;
 }
 
@@ -767,12 +768,17 @@ const Index = () => {
         const dedupedData = Array.from(uniqueItems.values());
 
         setConsumers(
-          dedupedData.map((c: any) => ({
-            index: c.index,
-            consumerNumber: c.consumerNumber,
-            name: c.name,
-            selected: true,
-          })),
+          dedupedData.map((c: any) => {
+            const arinId = c.arin_id || c.arinId || "";
+            const isSelected = currentCustomId ? matchesArinId(currentCustomId, arinId) : true;
+            return {
+              index: c.index,
+              consumerNumber: c.consumerNumber,
+              name: c.name,
+              arin_id: arinId,
+              selected: isSelected,
+            };
+          }),
         );
         setLogs((prev) => [
           ...prev,
@@ -1403,6 +1409,7 @@ const Index = () => {
                 onExcelUpload={handleExcelUpload}
                 excelData={excelData}
                 selectedDate={selectedDate}
+                customId={currentCustomId}
                 onLinkConsumerClick={() => setLinkModalOpen(true)}
               />
             </div>

@@ -72,13 +72,14 @@ def interactive_mode(unassigned):
         # Format input (e.g., replace 'arin #29' -> 'Arin#029')
         # We standardise the prefix to 'Arin#'
         formatted = val
-        if '#' in val:
-            parts = val.split('#')
-            prefix = parts[0].strip().capitalize()
+        sep = '#' if '#' in val else ('$' if '$' in val else None)
+        if sep:
+            parts = val.split(sep)
+            prefix = parts[0].strip().capitalize() or "Arin"
             num_str = parts[1].strip()
             # If the number is less than 3 digits, pad it with zero
             if num_str.isdigit():
-                formatted = f"{prefix}#{num_str.zfill(3)}"
+                formatted = f"{prefix}{sep}{num_str.zfill(3)}"
         
         success = update_arin_id(row['id'], formatted)
         if success:
@@ -125,12 +126,13 @@ def csv_mode():
             cnum = row[cnum_col].strip()
             arin_id = row[arin_col].strip()
             
-            if '#' in arin_id:
-                parts = arin_id.split('#')
-                prefix = parts[0].strip().capitalize()
+            sep = '#' if '#' in arin_id else ('$' if '$' in arin_id else None)
+            if sep:
+                parts = arin_id.split(sep)
+                prefix = parts[0].strip().capitalize() or "Arin"
                 num_str = parts[1].strip()
                 if num_str.isdigit():
-                    arin_id = f"{prefix}#{num_str.zfill(3)}"
+                    arin_id = f"{prefix}{sep}{num_str.zfill(3)}"
             
             cursor.execute("UPDATE customers SET arin_id = %s WHERE consumer_number = %s", (arin_id, cnum))
             if cursor.rowcount > 0:

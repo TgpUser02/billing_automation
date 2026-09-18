@@ -1228,7 +1228,9 @@ class BillAutomation:
                                                 service, final_target_path, final_local_name, consumer_folder_id,
                                                 consumer_number=final_c_num,
                                                 month_year=extracted_data.get("bill_month_date"),
-                                                category='bill_pdf'
+                                                category='bill_pdf',
+                                                reading_date=extracted_data.get("reading_date"),
+                                                billing_date=extracted_data.get("billing_date")
                                             )
                                             if up_ok:
                                                 logger.info(f"[{self.port}] ✓ Uploaded PDF to Drive: {final_local_name} -> {pdf_vurl}")
@@ -1245,6 +1247,11 @@ class BillAutomation:
                                     try: os.remove(stale)
                                     except: pass
                         self._update_cache_and_stats(target_dir, extracted_data)
+                        try:
+                            from processing import save_to_mysql
+                            save_to_mysql(extracted_data)
+                        except Exception as db_save_err:
+                            logger.warning(f"[{self.port}] DB save note: {db_save_err}")
                     except Exception as proc_err:
                         logger.error(f"[{self.port}] Processing error for HTTP {c_num}: {proc_err}")
 
@@ -1296,7 +1303,9 @@ class BillAutomation:
                                                     service, final_target_path, final_local_name, consumer_folder_id,
                                                     consumer_number=final_c_num,
                                                     month_year=extracted_data.get("bill_month_date"),
-                                                    category='bill_pdf'
+                                                    category='bill_pdf',
+                                                    reading_date=extracted_data.get("reading_date"),
+                                                    billing_date=extracted_data.get("billing_date")
                                                 )
                                                 if up_ok:
                                                     logger.info(f"[{self.port}] ✓ Uploaded straggler PDF to Drive: {final_local_name} -> {pdf_vurl}")
@@ -1307,6 +1316,11 @@ class BillAutomation:
                                 logger.warning(f"[{self.port}] Straggler Drive PDF upload note: {drive_err}")
 
                             self._update_cache_and_stats(target_dir, extracted_data)
+                            try:
+                                from processing import save_to_mysql
+                                save_to_mysql(extracted_data)
+                            except Exception as db_save_err:
+                                logger.warning(f"[{self.port}] Straggler DB save note: {db_save_err}")
                     except Exception as e:
                         logger.error(f"[{self.port}] Failed to bulk rename {pdf_file}: {e}")
 

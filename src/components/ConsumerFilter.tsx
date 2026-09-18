@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { format } from "date-fns";
 import { Trash2, Upload, Edit2, X, RefreshCw, Layers, Plus, ExternalLink } from "lucide-react";
 import { api } from "@/lib/api";
+import { matchesArinId } from "@/lib/utils";
 import { useToast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,6 +31,7 @@ interface Consumer {
   name: string;
   bu?: string;
   month?: string;
+  arin_id?: string;
   selected: boolean;
 }
 
@@ -40,10 +42,11 @@ interface ConsumerFilterProps {
   onExcelUpload: (file: File) => void;
   excelData: any[];
   selectedDate?: Date;
+  customId?: string;
   onLinkConsumerClick?: () => void;
 }
 
-const ConsumerFilter = ({ consumers, setConsumers, onFetch, onExcelUpload, excelData, selectedDate, onLinkConsumerClick }: ConsumerFilterProps) => {
+const ConsumerFilter = ({ consumers, setConsumers, onFetch, onExcelUpload, excelData, selectedDate, customId, onLinkConsumerClick }: ConsumerFilterProps) => {
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [bulkNumbers, setBulkNumbers] = useState("");
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -251,11 +254,24 @@ const ConsumerFilter = ({ consumers, setConsumers, onFetch, onExcelUpload, excel
 
     const targetDate = normalizeDate(selectedDate);
 
+    const consumerArinMap = new Map<string, string>();
+    consumers.forEach(c => {
+      const cClean = normalizeNum(c.consumerNumber);
+      if (cClean && c.arin_id) consumerArinMap.set(cClean, c.arin_id);
+    });
+
     const filteredExcel = excelData.filter(d => {
-      if (!targetDate) return true;
-      if (!d.date && !d.Date) return false;
-      const rowDate = normalizeDate(d.date || d.Date);
-      return rowDate === targetDate;
+      if (targetDate) {
+        if (!d.date && !d.Date) return false;
+        const rowDate = normalizeDate(d.date || d.Date);
+        if (rowDate !== targetDate) return false;
+      }
+      const rawCNum = normalizeNum(d.consumerNumber || d['Consumer Number'] || d['Consumer No']);
+      const rowArinId = d.arinId || d.arin_id || d['Arin ID'] || d['arin_identifier'] || d["User Id's"] || d['User ID'] || (rawCNum ? consumerArinMap.get(rawCNum) : "");
+      if (customId) {
+        if (!rowArinId || !matchesArinId(customId, rowArinId)) return false;
+      }
+      return true;
     });
 
     const excelNumbersSet = new Set(filteredExcel.map(d => normalizeNum(d.consumerNumber || d['Consumer Number'] || d['Consumer No'])));
@@ -287,7 +303,7 @@ const ConsumerFilter = ({ consumers, setConsumers, onFetch, onExcelUpload, excel
     if (excelData.length > 0 && consumers.length > 0) {
       applyExcelFilter(true);
     }
-  }, [selectedDate, excelData, consumers]);
+  }, [selectedDate, excelData, consumers, customId]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.[0]) {

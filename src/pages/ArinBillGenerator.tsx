@@ -356,7 +356,7 @@ export default function ArinBillGenerator() {
 
                 // Map/Fallback logic identical to GenerationControls fetchDataAndGenerate
                 const formatDate = (dateStr: string) => {
-                    if (!dateStr || dateStr === 'N/A') return format(selectedDate, 'dd/MM/yy');
+                    if (!dateStr || dateStr === 'N/A') return '';
                     if (dateStr.includes('-') && dateStr.split('-')[0].length === 4) {
                         const [y, m, d] = dateStr.split('T')[0].split('-');
                         return `${d}/${m}/${y.slice(2)}`;
@@ -376,7 +376,7 @@ export default function ArinBillGenerator() {
                     consumerName: targetData.customer_name || consumer.name || "N/A",
                     consumerNumber: targetData.consumer_number || targetId,
                     readingDate: formatDate(targetData.reading_date),
-                    billingDate: formatDate(targetData.billing_date || targetData.month_year || targetData.reading_date),
+                    billingDate: formatDate(targetData.billing_date || targetData.month_year) || format(selectedDate, 'dd/MM/yy'),
                     generatedElectricity: targetData.generated || 0,
                     exportedToGrid: targetData.export || 0,
                     importedFromGrid: targetData.import || 0,

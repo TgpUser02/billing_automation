@@ -9,8 +9,9 @@ import json
 import os
 
 def get_session_file_path(username):
-    # Sanitize username to avoid path traversal
-    safe_name = "".join([c for c in username if c.isalnum() or c in ("-", "_")]).strip()
+    # Sanitize username to avoid path traversal while strictly differentiating '#' and '$'
+    encoded = str(username).replace("#", "_hash_").replace("$", "_dollar_")
+    safe_name = "".join([c for c in encoded if c.isalnum() or c in ("-", "_")]).strip()
     backend_dir = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(backend_dir, "secrets", f"portal_session_{safe_name}.json")
 
@@ -107,18 +108,21 @@ class LoginAutomation:
 
     async def start_login(self, username, password):
         if self.page and self.status == "SUCCESS":
-            try:
-                state_res = await self.check_post_login_state()
-                if state_res.get("status") == "SUCCESS":
-                    logger.info(f"✓ Reuse active valid browser session for {username}. Skipping login.")
-                    self.current_login_username = username
-                    return {
-                        "status": "SUCCESS",
-                        "message": "Reused active session.",
-                        "session": await self.context.cookies()
-                    }
-            except Exception as check_err:
-                logger.warning(f"Failed to verify active browser session state: {check_err}")
+            if self.current_login_username == username:
+                try:
+                    state_res = await self.check_post_login_state()
+                    if state_res.get("status") == "SUCCESS":
+                        logger.info(f"✓ Reuse active valid browser session for {username}. Skipping login.")
+                        return {
+                            "status": "SUCCESS",
+                            "message": "Reused active session.",
+                            "session": await self.context.cookies()
+                        }
+                except Exception as check_err:
+                    logger.warning(f"Failed to verify active browser session state: {check_err}")
+            else:
+                logger.info(f"Requested username '{username}' differs from active session '{self.current_login_username}'. Closing existing session.")
+                await self.close_browser()
 
         await self.close_browser()  # Clean up any existing session
         

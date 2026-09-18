@@ -13,7 +13,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { cn } from '@/lib/utils';
+import { cn, matchesArinId } from '@/lib/utils';
 import { ConsumerData, BillInputs, mockConsumers, calculateBillData } from '@/lib/billCalculations';
 import { api } from '@/lib/api';
 import { toast } from '@/hooks/use-toast';
@@ -253,17 +253,27 @@ export function GenerationControls({
     if (selectedId && selectedId !== 'all') {
       const targetId = selectedId.toLowerCase().trim();
       const targetClean = targetId.replace(/[^a-z0-9]/g, '');
+      const targetHasSymbol = targetId.includes('#') || targetId.includes('$');
 
       list = list.filter((b: any) => {
-        const consumerArinId = String(b.arin_id || "").toLowerCase().trim();
-        const consumerClean = consumerArinId.replace(/[^a-z0-9]/g, '');
+        const consumerArinId = String(b.arin_id || "").trim();
         const cNumClean = String(b.consumer_number || '').replace(/[^0-9]/g, '');
         
-        const isExactMatch = consumerArinId === targetId || consumerArinId.includes(targetId) || targetId.includes(consumerArinId);
-        const isCleanMatch = !!(targetClean && consumerClean && (consumerClean.includes(targetClean) || targetClean.includes(consumerClean)));
-        const isConsumerMatch = !!(targetClean && cNumClean && cNumClean.includes(targetClean));
+        // 1. If targetId has # or $, match strictly by Arin ID (never match across symbols or consumer numbers)
+        if (targetHasSymbol) {
+          return matchesArinId(targetId, consumerArinId);
+        }
 
-        return isExactMatch || isCleanMatch || isConsumerMatch;
+        // 2. If targetId has no symbol:
+        // Could be an exact or normalized Arin ID match (if consumerArinId also has no symbol)
+        if (matchesArinId(targetId, consumerArinId)) return true;
+
+        // Could be a consumer number match
+        if (targetClean && cNumClean && (cNumClean.includes(targetClean) || targetClean.includes(cNumClean))) {
+          return true;
+        }
+
+        return false;
       });
     }
 
@@ -273,18 +283,26 @@ export function GenerationControls({
   const filteredDayBills = useMemo(() => {
     if (!consumerFilterQuery.trim()) return dayBills;
     const query = consumerFilterQuery.toLowerCase().trim();
-    const queryClean = query.replace(/[^a-z0-9]/g, '');
+    const queryHasSymbol = query.includes('#') || query.includes('$');
+
     return dayBills.filter(b => {
       const cNum = String(b.consumer_number || '').toLowerCase();
       const cName = String(b.consumer_name || b.customer_name || '').toLowerCase();
       const aId = String(b.arin_id || '').toLowerCase();
-      const aIdClean = aId.replace(/[^a-z0-9]/g, '');
       const cNumClean = cNum.replace(/[^0-9]/g, '');
-      
+      const queryDigitsOnly = query.replace(/[^0-9]/g, '');
+
+      if (queryHasSymbol) {
+        return matchesArinId(query, aId) || aId.includes(query);
+      }
+
+      const queryClean = query.replace(/[^a-z0-9]/g, '');
+      const aIdClean = aId.replace(/[^a-z0-9]/g, '');
+
       return cNum.includes(query) ||
         cName.includes(query) ||
-        aId.includes(query) ||
-        (queryClean ? (aIdClean.includes(queryClean) || cNumClean.includes(queryClean)) : false);
+        (aId && !aId.includes('#') && !aId.includes('$') && aId.includes(query)) ||
+        (queryDigitsOnly && cNumClean.includes(queryDigitsOnly));
     });
   }, [dayBills, consumerFilterQuery]);
 
@@ -438,7 +456,7 @@ export function GenerationControls({
       const data = await api.getBillingAnalysis(targetId, monthStr);
 
       const formatDateStr = (dateStr: string) => {
-        if (!dateStr || dateStr === 'N/A') return format(targetDate, 'dd/MM/yy');
+        if (!dateStr || dateStr === 'N/A') return '';
         if (dateStr.includes('-') && dateStr.split('-')[0].length === 4) {
           const [y, m, d] = dateStr.split('T')[0].split('-');
           return `${d}/${m}/${y.slice(2)}`;
@@ -451,7 +469,7 @@ export function GenerationControls({
         consumerName: data.customer_name || (consumer as any).consumer_name || (consumer as any).customer_name || 'N/A',
         consumerNumber: data.consumer_number || (consumer as any).consumer_number,
         readingDate: formatDateStr(data.reading_date),
-        billingDate: formatDateStr(data.billing_date || data.bill_date || data.month_year || data.reading_date),
+        billingDate: formatDateStr(data.billing_date || data.bill_date || data.month_year) || format(targetDate, 'dd/MM/yy'),
         generatedElectricity: data.generated || 0,
         exportedToGrid: data.export || 0,
         importedFromGrid: data.import || 0,
@@ -663,7 +681,11 @@ export function GenerationControls({
                     <button
                       key={account.username}
                       type="button"
-                      onClick={() => setSelectedId(selectedId === account.username ? "" : account.username)}
+                      onClick={() => {
+                        const newId = selectedId === account.username ? "" : account.username;
+                        setSelectedId(newId);
+                        setSelectedForDownload(new Set());
+                      }}
                       className={cn(
                         "px-3 py-1.5 rounded-lg text-[10px] font-black transition-all border",
                         selectedId === account.username 
@@ -676,7 +698,10 @@ export function GenerationControls({
                   ))}
                   <button
                      type="button"
-                     onClick={() => setSelectedId("")}
+                     onClick={() => {
+                       setSelectedId("");
+                       setSelectedForDownload(new Set());
+                     }}
                      className={cn(
                        "px-3 py-1.5 rounded-lg text-[10px] font-black transition-all border",
                        selectedId === "" 

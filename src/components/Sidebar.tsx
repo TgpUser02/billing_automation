@@ -185,7 +185,7 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
     { icon: DownloadCloud, label: "Auto Downloader", path: "/download" },
     { icon: FileText, label: "Bill Analysis Generation", path: "/bill-buddy" },
     { icon: Database, label: "Consumer Connect", path: "/consumer-connect" },
-    { icon: FolderArchive, label: "Bill & Drive Archive", path: "/bill-archive" },
+    // { icon: FolderArchive, label: "Bill & Drive Archive", path: "/bill-archive" },
     { icon: Cpu, label: "Quick Bill AI", path: "/quick-analysis" },
     { icon: FolderDown, label: "Generated Reports", path: "/reports" },
     { icon: Settings, label: "Settings & Master Data", path: "/settings" },
