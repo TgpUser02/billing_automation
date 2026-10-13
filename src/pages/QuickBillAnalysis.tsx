@@ -1362,6 +1362,17 @@ export default function QuickBillAnalysis() {
                         <p>{solarResult.extracted_data.system_health_reason}</p>
                       </div>
                     )}
+
+                    {/* AI Engineering Advice & Maintenance Recommendation */}
+                    {solarResult.extracted_data.ai_recommendation && (
+                      <div className="p-4 rounded-2xl border border-indigo-200 bg-gradient-to-r from-indigo-50/70 to-purple-50/60 text-indigo-950 text-xs font-medium leading-relaxed">
+                        <strong className="font-bold flex items-center gap-1.5 mb-1 uppercase tracking-wider text-[11px] text-indigo-900">
+                          <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                          AI Engineering & Maintenance Recommendation:
+                        </strong>
+                        <p>{solarResult.extracted_data.ai_recommendation}</p>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
                 {/* EXPORT BUTTONS ACTION BAR */}

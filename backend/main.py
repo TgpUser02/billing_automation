@@ -1400,6 +1400,33 @@ Important:
                     result_text = res.json()["candidates"][0]["content"]["parts"][0]["text"]
                     clean_json = result_text.strip().removeprefix("```json").removesuffix("```").strip()
                     parsed = json.loads(clean_json)
+                    if isinstance(parsed, list) and len(parsed) > 0 and isinstance(parsed[0], dict):
+                        parsed = parsed[0]
+                    elif not isinstance(parsed, dict):
+                        parsed = {}
+
+                    # Unnest sub-objects if Gemini nested them under keys
+                    if "bill_information" in parsed and isinstance(parsed["bill_information"], dict):
+                        for k, v in parsed["bill_information"].items():
+                            if k not in parsed: parsed[k] = v
+                    if "consumer_details" in parsed and isinstance(parsed["consumer_details"], dict):
+                        if "consumer_name" not in parsed and "name" in parsed["consumer_details"]:
+                            parsed["consumer_name"] = parsed["consumer_details"]["name"]
+                    if "solar_information" in parsed and isinstance(parsed["solar_information"], dict):
+                        for k, v in parsed["solar_information"].items():
+                            if k not in parsed: parsed[k] = v
+                        if "solar_net_meter_capacity" in parsed["solar_information"] and "sanctioned_load_kw" not in parsed:
+                            parsed["sanctioned_load_kw"] = parsed["solar_information"]["solar_net_meter_capacity"]
+                    if "meter_reading_details" in parsed and isinstance(parsed["meter_reading_details"], dict):
+                        mrd = parsed["meter_reading_details"]
+                        if "consumption" in mrd and isinstance(mrd["consumption"], dict):
+                            if "generated_electricity_kwh" not in parsed and "generation" in mrd["consumption"]:
+                                parsed["generated_electricity_kwh"] = mrd["consumption"]["generation"]
+                            if "exported_to_grid_kwh" not in parsed and "export" in mrd["consumption"]:
+                                parsed["exported_to_grid_kwh"] = mrd["consumption"]["export"]
+                            if "imported_from_grid_kwh" not in parsed and "import" in mrd["consumption"]:
+                                parsed["imported_from_grid_kwh"] = mrd["consumption"]["import"]
+
                     parsed["ai_model"] = model
                     parsed["is_ai_extracted"] = True
                     # Normalize date separators
@@ -1411,7 +1438,7 @@ Important:
                     logger.warning(f"AI Vision API ({model}) returned {res.status_code}: {res.text[:120]}")
                     break
             except Exception as req_ex:
-                logger.debug(f"AI Model {model} attempt error: {req_ex}")
+                logger.warning(f"AI Model {model} attempt error: {req_ex}")
                 continue
     except Exception as ai_err:
         logger.warning(f"AI Vision Bill Extraction warning: {ai_err}")
@@ -2283,15 +2310,17 @@ async def analyze_bill_ocr(
                 "system_health": final_system_health,
                 "system_health_reason": final_health_reason,
                 "benchmark_x": health_eval["benchmark_x"],
+                "plant_base_benchmark": health_eval.get("plant_base_benchmark"),
                 "target_generation_kwh": health_eval["target_generation_kwh"],
                 "plant_age_years": health_eval["plant_age_years"],
                 "solar_age_years": health_eval["plant_age_years"],
                 "degradation_percent": health_eval["degradation_percent"],
+                "ai_recommendation": ai_data.get("ai_recommendation") if is_real_ai and ai_data else None,
                 "commissioning_date": health_eval["commissioning_date"] or commissioning_date,
                 "commissioning_date_source": commissioning_date_source,
                 "is_ai_extracted": is_real_ai,
                 "fallback_used": not is_real_ai,
-                "ai_model": ai_model_name or ("gemini-3.8-flash" if is_real_ai else "Deterministic Rule-Engine"),
+                "ai_model": ai_model_name or ("gemini-3.1-flash-lite" if is_real_ai else "Deterministic Rule-Engine"),
                 "analysis_engine": f"Real AI Vision ({ai_model_name})" if is_real_ai else "Fallback Formula Engine (Deterministic Rule-Engine)",
                 "engine_notice": (
                     f"Report generated & verified by Multimodal AI Vision ({ai_model_name})." if is_real_ai
