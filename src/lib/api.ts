@@ -625,6 +625,18 @@ export const api = {
         });
         return checkResponse(response);
     },
+    getSystemBenchmarks: async () => {
+        const response = await fetch(`${API_BASE_URL}/system-benchmarks`);
+        return checkResponse(response);
+    },
+    saveSystemBenchmarks: async (benchmarks: Record<string, number>) => {
+        const response = await authFetch(`${API_BASE_URL}/system-benchmarks`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ benchmarks })
+        });
+        return checkResponse(response);
+    },
     downloadConsumersTemplateXlsx: async () => {
         const response = await authFetch(`${API_BASE_URL}/download-consumers-template-xlsx`);
         if (!response.ok) throw new Error("Failed to download Excel template");

@@ -163,24 +163,75 @@ export function calculateBillData(
     }
   }
 
-  // 5) system health: GOOD if gen/capacity > threshold, else POOR (default threshold 75)
-  const threshold = inputs.healthThreshold !== undefined ? inputs.healthThreshold : 75;
-  let systemHealth: 'Normal' | 'POOR' | 'GOOD' = 'POOR';
-  if (capacity > 0 && (gen / capacity) > threshold) {
-    systemHealth = 'GOOD';
-  }
-
   // Parse Commissioning Date
-  let commDateObj = new Date();
-  if (inputs.commissioningDate && inputs.commissioningDate !== 'N/A') {
-    const parts = inputs.commissioningDate.split('/');
-    if (parts.length === 3) {
-      let year = parseInt(parts[2], 10);
-      year += year < 50 ? 2000 : 1900;
-      commDateObj = new Date(year, parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
+  let commDateObj: Date = new Date();
+  let commDateParsed = false;
+  if (inputs.commissioningDate && inputs.commissioningDate !== 'N/A' && inputs.commissioningDate !== 'null') {
+    if (inputs.commissioningDate.includes('-')) {
+      const parts = inputs.commissioningDate.split('T')[0].split('-');
+      if (parts.length === 3) {
+        commDateObj = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+        commDateParsed = true;
+      }
+    } else if (inputs.commissioningDate.includes('/')) {
+      const parts = inputs.commissioningDate.split('/');
+      if (parts.length === 3) {
+        let year = parseInt(parts[2], 10);
+        year += year < 50 ? 2000 : (year < 100 ? 1900 : 0);
+        commDateObj = new Date(year, parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
+        commDateParsed = true;
+      }
     }
   } else if (consumer.installationDate) {
-    commDateObj = consumer.installationDate;
+    commDateObj = new Date(consumer.installationDate);
+    commDateParsed = true;
+  }
+
+  // Parse Billing Date
+  let billDateObj = new Date();
+  if (inputs.billingDate && inputs.billingDate !== 'N/A') {
+    if (inputs.billingDate.includes('-')) {
+      const parts = inputs.billingDate.split('T')[0].split('-');
+      if (parts.length === 3) {
+        billDateObj = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+      }
+    } else if (inputs.billingDate.includes('/')) {
+      const parts = inputs.billingDate.split('/');
+      if (parts.length === 3) {
+        let year = parseInt(parts[2], 10);
+        year += year < 50 ? 2000 : (year < 100 ? 1900 : 0);
+        billDateObj = new Date(year, parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
+      }
+    }
+  }
+
+  // 5) System Health Formula: Target = (X) * (1.0 - (age_in_years * 0.01))
+  // Panel degradation is 1% per year from date of commissioning
+  let ageYears = 0;
+  if (commDateParsed && !isNaN(commDateObj.getTime())) {
+    const diffMs = Math.max(0, billDateObj.getTime() - commDateObj.getTime());
+    ageYears = Math.max(0, Number((diffMs / (1000 * 60 * 60 * 24 * 365.25)).toFixed(2)));
+  }
+
+  const degradationPct = ageYears * 0.01;
+  const degradationFactor = Math.max(0.70, 1.0 - degradationPct);
+  const resolvedX = (inputs as any).expectedUnitsX !== undefined && Number((inputs as any).expectedUnitsX) > 0
+    ? Number((inputs as any).expectedUnitsX)
+    : (capacity > 0 ? capacity * 100 : 100);
+  const degradedTarget = Number((resolvedX * degradationFactor).toFixed(1));
+
+  let systemHealth: 'Normal' | 'POOR' | 'GOOD' = 'POOR';
+  if (gen <= 0) {
+    systemHealth = 'POOR';
+  } else if (gen >= degradedTarget) {
+    systemHealth = 'GOOD';
+  } else {
+    systemHealth = 'POOR';
+  }
+
+  // If backend real AI evaluated health, keep it if gen > 0
+  if (inputs.systemHealth && (inputs.systemHealth === 'GOOD' || inputs.systemHealth === 'POOR') && gen > 0) {
+    systemHealth = inputs.systemHealth;
   }
 
   // Helper for Warranty Dates

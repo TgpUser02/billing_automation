@@ -1920,11 +1920,12 @@ const ConsumerConnect = () => {
                             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Select File</span>
                             {!selectedFile ? (
                                 <div
-                                    onDragOver={(e) => { e.preventDefault(); setIsDragActive(true); }}
-                                    onDragLeave={() => setIsDragActive(false)}
-                                    onDrop={(e) => { e.preventDefault(); setIsDragActive(false); if (e.dataTransfer.files && e.dataTransfer.files[0]) handleFileSelect(e.dataTransfer.files[0]); }}
+                                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragActive(true); }}
+                                    onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragActive(true); }}
+                                    onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); if (e.currentTarget.contains(e.relatedTarget as Node)) return; setIsDragActive(false); }}
+                                    onDrop={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragActive(false); if (e.dataTransfer.files && e.dataTransfer.files[0]) handleFileSelect(e.dataTransfer.files[0]); }}
                                     className={`flex flex-col items-center justify-center border-2 border-dashed rounded-xl p-8 cursor-pointer transition-all duration-300 min-h-[160px] ${isDragActive
-                                            ? 'border-arin-teal bg-arin-teal/5 shadow-inner scale-[0.99]'
+                                            ? 'border-arin-teal bg-arin-teal/10 shadow-inner scale-[0.99] ring-2 ring-arin-teal/20'
                                             : 'border-muted hover:border-arin-teal hover:bg-accent/5'
                                         }`}
                                     onClick={() => document.getElementById("file-import-upload")?.click()}
@@ -1936,9 +1937,13 @@ const ConsumerConnect = () => {
                                         className="hidden"
                                         onChange={(e) => { if (e.target.files && e.target.files[0]) handleFileSelect(e.target.files[0]); }}
                                     />
-                                    <Upload className="w-10 h-10 text-muted-foreground mb-3 animate-pulse" />
-                                    <p className="font-semibold text-center text-foreground text-sm">Drag and drop file here, or click to browse</p>
-                                    <p className="text-xs text-muted-foreground mt-1">Supports CSV, XLS, XLSX formats</p>
+                                    <div className="pointer-events-none flex flex-col items-center">
+                                        <Upload className={`w-10 h-10 mb-3 transition-transform ${isDragActive ? 'text-arin-teal scale-110 animate-bounce' : 'text-muted-foreground animate-pulse'}`} />
+                                        <p className="font-semibold text-center text-foreground text-sm">
+                                            {isDragActive ? "Drop CSV/Excel file here!" : "Drag and drop file here, or click to browse"}
+                                        </p>
+                                        <p className="text-xs text-muted-foreground mt-1">Supports CSV, XLS, XLSX formats</p>
+                                    </div>
                                 </div>
                             ) : (
                                 <div className="flex items-center justify-between border border-border p-4 rounded-xl bg-accent/10">

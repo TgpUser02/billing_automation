@@ -49,7 +49,10 @@ import {
     Copy,
     Eye,
     EyeOff,
-    Lock
+    Lock,
+    Calculator,
+    Save,
+    TrendingDown
 } from "lucide-react";
 
 interface LookupItem {
@@ -126,6 +129,21 @@ const CATEGORIES = [
     }
 ];
 
+const MONTH_SEASONS: Record<string, { season: string; icon: string; color: string }> = {
+    January: { season: "Winter", icon: "❄️", color: "text-blue-500" },
+    February: { season: "Early Spring", icon: "🌱", color: "text-teal-500" },
+    March: { season: "Spring / Peak", icon: "☀️", color: "text-amber-500" },
+    April: { season: "Summer Peak", icon: "🔥", color: "text-orange-500" },
+    May: { season: "High Solar Peak", icon: "⚡", color: "text-red-500" },
+    June: { season: "Pre-Monsoon", icon: "🌤️", color: "text-amber-600" },
+    July: { season: "Monsoon", icon: "🌧️", color: "text-sky-600" },
+    August: { season: "Monsoon Low", icon: "🌧️", color: "text-sky-600" },
+    September: { season: "Late Monsoon", icon: "🌦️", color: "text-cyan-600" },
+    October: { season: "Post-Monsoon", icon: "☀️", color: "text-amber-500" },
+    November: { season: "Winter Start", icon: "🌤️", color: "text-blue-400" },
+    December: { season: "Winter Low", icon: "❄️", color: "text-blue-500" },
+};
+
 export default function Settings() {
     const { toast } = useToast();
     const [activeTab, setActiveTab] = useState("lookups");
@@ -192,6 +210,112 @@ export default function Settings() {
     const [showAdvancedDriveConfig, setShowAdvancedDriveConfig] = useState(false);
     const [showRefreshToken, setShowRefreshToken] = useState(false);
     const [hasCopiedUri, setHasCopiedUri] = useState(false);
+
+    // Solar Plant Health & Monthly Benchmark (X) State
+    const [monthlyBenchmarks, setMonthlyBenchmarks] = useState<Record<string, number>>({
+        January: 100, February: 100, March: 100, April: 100,
+        May: 100, June: 100, July: 100, August: 100,
+        September: 100, October: 100, November: 100, December: 100
+    });
+    const [bulkBenchmarkInput, setBulkBenchmarkInput] = useState<string>("100");
+    const [isLoadingBenchmarks, setIsLoadingBenchmarks] = useState(false);
+    const [isSavingBenchmarks, setIsSavingBenchmarks] = useState(false);
+
+    // Live Simulator State in Settings
+    const [simCommissioningDate, setSimCommissioningDate] = useState<string>("2021-10-13");
+    const [simSelectedMonth, setSimSelectedMonth] = useState<string>("October");
+    const [simActualGeneration, setSimActualGeneration] = useState<string>("95");
+
+    const fetchSolarBenchmarks = async () => {
+        setIsLoadingBenchmarks(true);
+        try {
+            const res = await api.getSystemBenchmarks();
+            if (res?.benchmarks) {
+                setMonthlyBenchmarks(res.benchmarks);
+            }
+        } catch (err: any) {
+            console.error("Failed to load solar benchmarks:", err);
+        } finally {
+            setIsLoadingBenchmarks(false);
+        }
+    };
+
+    const handleSaveSolarBenchmarks = async () => {
+        setIsSavingBenchmarks(true);
+        try {
+            const res = await api.saveSystemBenchmarks(monthlyBenchmarks);
+            if (res.status === "success") {
+                toast({
+                    title: "Solar Benchmarks Saved!",
+                    description: "Updated 12-month baseline generation (X) across Arin Energy AI Bill Analyzer.",
+                    className: "bg-emerald-600 text-white font-bold"
+                });
+            } else {
+                toast({
+                    title: "Notice",
+                    description: res.message || "Benchmarks updated",
+                });
+            }
+        } catch (err: any) {
+            toast({
+                title: "Failed to save benchmarks",
+                description: err.message || "Could not update settings",
+                variant: "destructive"
+            });
+        } finally {
+            setIsSavingBenchmarks(false);
+        }
+    };
+
+    const handleApplyBulkBenchmark = () => {
+        const val = parseFloat(bulkBenchmarkInput);
+        if (isNaN(val) || val <= 0) {
+            toast({
+                title: "Invalid Benchmark Value",
+                description: "Please enter a positive numeric benchmark for X (e.g. 100).",
+                variant: "destructive"
+            });
+            return;
+        }
+        setMonthlyBenchmarks(prev => {
+            const updated = { ...prev };
+            Object.keys(updated).forEach(m => {
+                updated[m] = val;
+            });
+            return updated;
+        });
+        toast({
+            title: "Applied to All 12 Months",
+            description: `Set benchmark X = ${val} kWh across January through December. Click Save to persist.`,
+            className: "bg-amber-600 text-white font-bold"
+        });
+    };
+
+    const simCalc = useMemo(() => {
+        let ageYears = 5.0;
+        if (simCommissioningDate) {
+            const comm = new Date(simCommissioningDate);
+            if (!isNaN(comm.getTime())) {
+                const now = new Date();
+                const diffTime = Math.max(0, now.getTime() - comm.getTime());
+                ageYears = Math.max(0, parseFloat((diffTime / (1000 * 60 * 60 * 24 * 365.25)).toFixed(2)));
+            }
+        }
+        const xVal = monthlyBenchmarks[simSelectedMonth] ?? 100;
+        const degradationPct = parseFloat((ageYears * 1.0).toFixed(2));
+        const factor = Math.max(0.70, 1.0 - (ageYears * 0.01));
+        const targetUnits = parseFloat((xVal * factor).toFixed(1));
+        const actual = parseFloat(simActualGeneration) || 0;
+        const isGood = actual > 0 && actual >= targetUnits;
+        return {
+            ageYears,
+            xVal,
+            degradationPct,
+            targetUnits,
+            actual,
+            isGood
+        };
+    }, [simCommissioningDate, simSelectedMonth, simActualGeneration, monthlyBenchmarks]);
 
     const fetchDriveConfig = async () => {
         setIsLoadingDriveConfig(true);
@@ -435,6 +559,7 @@ export default function Settings() {
         fetchDbBackupsAndStats();
         fetchDriveFiles();
         fetchDriveConfig();
+        fetchSolarBenchmarks();
     }, []);
 
     useEffect(() => {
@@ -443,6 +568,8 @@ export default function Settings() {
             fetchDriveConfig();
         } else if (activeTab === "backups") {
             fetchDbBackupsAndStats();
+        } else if (activeTab === "solar_benchmarks") {
+            fetchSolarBenchmarks();
         }
     }, [activeTab]);
 
@@ -752,10 +879,14 @@ export default function Settings() {
 
                 {/* Main Tabs */}
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6 w-full">
-                    <TabsList className="grid grid-cols-2 sm:grid-cols-5 w-full bg-card border border-border p-1.5 rounded-2xl shadow-sm gap-1">
+                    <TabsList className="grid grid-cols-2 sm:grid-cols-6 w-full bg-card border border-border p-1.5 rounded-2xl shadow-sm gap-1">
                         <TabsTrigger value="lookups" className="flex items-center justify-center gap-2 rounded-xl text-xs font-bold py-2.5">
                             <Database className="w-4 h-4 text-emerald-600" />
                             Dropdowns
+                        </TabsTrigger>
+                        <TabsTrigger value="solar_benchmarks" className="flex items-center justify-center gap-2 rounded-xl text-xs font-bold py-2.5">
+                            <Sun className="w-4 h-4 text-amber-500" />
+                            Solar Benchmarks (X)
                         </TabsTrigger>
                         <TabsTrigger value="drive" className="flex items-center justify-center gap-2 rounded-xl text-xs font-bold py-2.5">
                             <Cloud className="w-4 h-4 text-blue-600" />
@@ -1048,6 +1179,415 @@ export default function Settings() {
                                 <span>
                                     <strong>Auto-Sync Active:</strong> Whenever an Excel template (.xlsx) is imported with new brands, types, or zones, they are auto-saved here and immediately populated in dropdown menus.
                                 </span>
+                            </div>
+                        </div>
+                    </TabsContent>
+
+                    {/* TAB: SOLAR HEALTH & FORMULA BENCHMARKS (X) */}
+                    <TabsContent value="solar_benchmarks" className="space-y-6 animate-in fade-in-50 duration-300">
+                        {/* Top Banner & Action Bar */}
+                        <div className="bg-card border border-border/80 rounded-3xl p-6 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                            <div className="flex items-center gap-3.5">
+                                <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400">
+                                    <Sun className="w-6 h-6 animate-spin-slow" />
+                                </div>
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <h2 className="text-xl font-bold tracking-tight text-foreground">
+                                            Solar System Health Benchmarks & Degradation Model
+                                        </h2>
+                                        <Badge variant="outline" className="bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30 text-xs font-semibold">
+                                            AI Analyzer Master Rules
+                                        </Badge>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground mt-0.5">
+                                        Configure baseline monthly expected generation (X) and 1%/year panel degradation from date of commissioning.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="flex items-center gap-2.5 w-full md:w-auto">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={fetchSolarBenchmarks}
+                                    disabled={isLoadingBenchmarks}
+                                    className="rounded-xl border-border/80 text-xs font-semibold hover:bg-accent/40"
+                                >
+                                    <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isLoadingBenchmarks ? "animate-spin" : ""}`} />
+                                    Reload
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    onClick={handleSaveSolarBenchmarks}
+                                    disabled={isSavingBenchmarks}
+                                    className="rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 text-white font-bold text-xs shadow-md shadow-amber-600/20"
+                                >
+                                    {isSavingBenchmarks ? (
+                                        <>
+                                            <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                                            Saving...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Save className="w-3.5 h-3.5 mr-1.5" />
+                                            Save 12-Month Benchmarks
+                                        </>
+                                    )}
+                                </Button>
+                            </div>
+                        </div>
+
+                        {/* Formula Specification Card */}
+                        <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 border border-amber-500/30 rounded-3xl p-6 text-white shadow-xl relative overflow-hidden">
+                            <div className="absolute top-0 right-0 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+                            <div className="relative z-10 space-y-4">
+                                <div className="flex items-center justify-between flex-wrap gap-2">
+                                    <div className="flex items-center gap-2">
+                                        <Sparkles className="w-5 h-5 text-amber-400" />
+                                        <h3 className="text-base font-bold text-amber-300 uppercase tracking-wider">
+                                            Arin Energy Formula for Good System Health
+                                        </h3>
+                                    </div>
+                                    <span className="px-3 py-1 rounded-full text-xs font-mono font-bold bg-amber-400/20 text-amber-300 border border-amber-400/30">
+                                        1% Panel Degradation / Year
+                                    </span>
+                                </div>
+
+                                <div className="p-4 rounded-2xl bg-black/40 border border-white/10 font-mono text-sm sm:text-base text-emerald-300 text-center font-bold tracking-wide">
+                                    Target Good Generation = (X) × [ 1.0 − (System Age in Years × 0.01) ]
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs text-slate-300">
+                                    <div className="p-3.5 rounded-xl bg-white/5 border border-white/10">
+                                        <p className="font-semibold text-white mb-1">📌 Benchmark X (Monthly Base)</p>
+                                        <p>Provided per calendar month (e.g. 100 units). Represents new plant monthly baseline before degradation.</p>
+                                    </div>
+                                    <div className="p-3.5 rounded-xl bg-white/5 border border-white/10">
+                                        <p className="font-semibold text-white mb-1">📉 Degradation Factor</p>
+                                        <p>Calculated strictly from the Date of Commissioning up to the bill month at 1% per year (e.g. 5 yrs = 5% loss).</p>
+                                    </div>
+                                    <div className="p-3.5 rounded-xl bg-white/5 border border-white/10">
+                                        <p className="font-semibold text-white mb-1">✅ Decision Threshold</p>
+                                        <p>If Actual Generation ≥ Degraded Target, health is <strong>GOOD</strong>. If below or zero, it evaluates to <strong>POOR</strong>.</p>
+                                    </div>
+                                </div>
+
+                                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-200">
+                                    💡 <strong>Canonical Example:</strong> For a 5-year-old system with X = 100 units/month, expected degradation is 5 × 1% = 5%. The target good generation is 100 × (1 − 0.05) = <strong>95 units or above</strong>. Actual generation of 95+ is GOOD; 94 or 0 units is diagnosed as POOR.
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 12-Month Benchmarks Matrix Manager */}
+                        <div className="bg-card border border-border/80 rounded-3xl p-6 shadow-sm space-y-6">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-border/60">
+                                <div>
+                                    <h3 className="text-base font-bold text-foreground flex items-center gap-2">
+                                        <Calendar className="w-4 h-4 text-amber-500" />
+                                        12-Month Baseline Solar Benchmarks (Value of X)
+                                    </h3>
+                                    <p className="text-xs text-muted-foreground mt-0.5">
+                                        Define expected un-degraded monthly kWh generation for each calendar month.
+                                    </p>
+                                </div>
+
+                                {/* Bulk Setter */}
+                                <div className="flex items-center gap-2">
+                                    <Label className="text-xs font-semibold text-muted-foreground whitespace-nowrap">
+                                        Bulk Set All:
+                                    </Label>
+                                    <Input
+                                        type="number"
+                                        min="1"
+                                        value={bulkBenchmarkInput}
+                                        onChange={(e) => setBulkBenchmarkInput(e.target.value)}
+                                        className="w-24 h-8 text-xs font-bold rounded-lg border-border"
+                                        placeholder="100"
+                                    />
+                                    <Button
+                                        size="sm"
+                                        variant="secondary"
+                                        onClick={handleApplyBulkBenchmark}
+                                        className="h-8 text-xs font-semibold rounded-lg"
+                                    >
+                                        Apply All
+                                    </Button>
+                                </div>
+                            </div>
+
+                            {/* 12-Month Grid */}
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3.5">
+                                {Object.keys(monthlyBenchmarks).map((m) => {
+                                    const meta = MONTH_SEASONS[m] || { season: "Season", icon: "☀️", color: "text-amber-500" };
+                                    const val = monthlyBenchmarks[m] ?? 100;
+                                    const sample5Yr = (val * 0.95).toFixed(1);
+                                    return (
+                                        <div
+                                            key={m}
+                                            className="p-3.5 rounded-2xl border border-border/80 bg-background/50 hover:border-amber-500/40 transition-all flex flex-col justify-between space-y-2.5 shadow-sm"
+                                        >
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-xs font-bold text-foreground">{m}</span>
+                                                <span className="text-sm" title={meta.season}>{meta.icon}</span>
+                                            </div>
+                                            <div className="text-[10px] text-muted-foreground font-medium flex items-center justify-between">
+                                                <span>{meta.season}</span>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <Label className="text-[10px] uppercase font-bold text-muted-foreground">
+                                                    Base X (kWh)
+                                                </Label>
+                                                <div className="relative">
+                                                    <Input
+                                                        type="number"
+                                                        min="0"
+                                                        value={val}
+                                                        onChange={(e) => {
+                                                            const num = parseFloat(e.target.value) || 0;
+                                                            setMonthlyBenchmarks(prev => ({ ...prev, [m]: num }));
+                                                        }}
+                                                        className="h-8 text-xs font-bold rounded-lg border-border pr-8 text-right font-mono"
+                                                    />
+                                                    <span className="absolute right-2 top-2 text-[10px] text-muted-foreground font-semibold pointer-events-none">
+                                                        u
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <div className="text-[10px] text-muted-foreground/80 font-mono text-center pt-1 border-t border-border/40">
+                                                At 5 yrs: <strong className="text-foreground">{sample5Yr}</strong> u
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            <div className="flex justify-end pt-2">
+                                <Button
+                                    onClick={handleSaveSolarBenchmarks}
+                                    disabled={isSavingBenchmarks}
+                                    className="rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-700 hover:to-orange-700 text-white font-bold text-xs shadow-md shadow-amber-600/20"
+                                >
+                                    {isSavingBenchmarks ? (
+                                        <>
+                                            <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                                            Saving Changes...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Save className="w-3.5 h-3.5 mr-1.5" />
+                                            Save Monthly Benchmarks
+                                        </>
+                                    )}
+                                </Button>
+                            </div>
+                        </div>
+
+                        {/* Interactive Formula Simulator & Diagnostic Sandbox */}
+                        <div className="bg-card border border-border/80 rounded-3xl p-6 shadow-sm space-y-6">
+                            <div className="flex items-center gap-3 pb-4 border-b border-border/60">
+                                <div className="p-2.5 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400">
+                                    <Calculator className="w-5 h-5" />
+                                </div>
+                                <div>
+                                    <h3 className="text-base font-bold text-foreground">
+                                        Live Formula Simulator & Verification Sandbox
+                                    </h3>
+                                    <p className="text-xs text-muted-foreground mt-0.5">
+                                        Simulate how any commissioning date, billing month, and generation units evaluate under the Good System Health formula.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+                                {/* Simulation Inputs */}
+                                <div className="lg:col-span-5 space-y-4 p-5 rounded-2xl bg-accent/20 border border-border/60">
+                                    <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                                        Simulator Inputs
+                                    </h4>
+
+                                    <div className="space-y-1.5">
+                                        <Label className="text-xs font-semibold text-foreground flex items-center justify-between">
+                                            <span>Date of Commissioning</span>
+                                            <span className="text-[11px] font-mono text-amber-600 dark:text-amber-400">
+                                                {simCalc.ageYears} Yrs Old
+                                            </span>
+                                        </Label>
+                                        <Input
+                                            type="date"
+                                            value={simCommissioningDate}
+                                            onChange={(e) => setSimCommissioningDate(e.target.value)}
+                                            className="h-9 text-xs rounded-xl border-border bg-card"
+                                        />
+                                    </div>
+
+                                    <div className="space-y-1.5">
+                                        <Label className="text-xs font-semibold text-foreground flex items-center justify-between">
+                                            <span>Billing Month Benchmark (X)</span>
+                                            <span className="text-[11px] font-mono text-muted-foreground">
+                                                X = {simCalc.xVal} kWh
+                                            </span>
+                                        </Label>
+                                        <select
+                                            value={simSelectedMonth}
+                                            onChange={(e) => setSimSelectedMonth(e.target.value)}
+                                            className="w-full h-9 px-3 text-xs rounded-xl border border-border bg-card text-foreground focus:ring-2 focus:ring-amber-500"
+                                        >
+                                            {Object.keys(monthlyBenchmarks).map(m => (
+                                                <option key={m} value={m}>{m} (X = {monthlyBenchmarks[m]} kWh)</option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <div className="space-y-1.5">
+                                        <Label className="text-xs font-semibold text-foreground flex items-center justify-between">
+                                            <span>Actual Generation from Bill</span>
+                                            <span className="text-[11px] font-mono text-foreground font-bold">
+                                                {simActualGeneration || "0"} kWh
+                                            </span>
+                                        </Label>
+                                        <div className="relative">
+                                            <Input
+                                                type="number"
+                                                min="0"
+                                                step="1"
+                                                value={simActualGeneration}
+                                                onChange={(e) => setSimActualGeneration(e.target.value)}
+                                                className="h-9 text-xs font-bold rounded-xl border-border bg-card pr-12 font-mono"
+                                                placeholder="95"
+                                            />
+                                            <span className="absolute right-3 top-2.5 text-xs text-muted-foreground font-semibold pointer-events-none">
+                                                kWh
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {/* Quick test buttons */}
+                                    <div className="pt-2 flex items-center gap-2 flex-wrap">
+                                        <span className="text-[10px] text-muted-foreground font-semibold">Presets:</span>
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={() => setSimActualGeneration("95")}
+                                            className="h-6 text-[10px] px-2 rounded-lg"
+                                        >
+                                            95 kWh (Good)
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={() => setSimActualGeneration("94")}
+                                            className="h-6 text-[10px] px-2 rounded-lg"
+                                        >
+                                            94 kWh (Poor)
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={() => setSimActualGeneration("0")}
+                                            className="h-6 text-[10px] px-2 rounded-lg"
+                                        >
+                                            0 kWh (Zero)
+                                        </Button>
+                                    </div>
+                                </div>
+
+                                {/* Simulation Results */}
+                                <div className="lg:col-span-7 p-5 rounded-2xl bg-card border border-border/80 flex flex-col justify-between space-y-4">
+                                    <div className="space-y-3">
+                                        <div className="flex items-center justify-between pb-3 border-b border-border/60">
+                                            <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                                                Computed Health Diagnosis
+                                            </span>
+                                            <Badge
+                                                className={`text-xs px-3 py-1 font-black uppercase tracking-wider ${
+                                                    simCalc.isGood
+                                                        ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
+                                                        : "bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30"
+                                                }`}
+                                            >
+                                                {simCalc.isGood ? (
+                                                    <span className="flex items-center gap-1.5">
+                                                        <CheckCircle2 className="w-3.5 h-3.5" />
+                                                        GOOD SYSTEM HEALTH
+                                                    </span>
+                                                ) : (
+                                                    <span className="flex items-center gap-1.5">
+                                                        <AlertCircle className="w-3.5 h-3.5" />
+                                                        POOR / UNDERPERFORMING
+                                                    </span>
+                                                )}
+                                            </Badge>
+                                        </div>
+
+                                        {/* Step-by-step numbers */}
+                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                                            <div className="p-3 rounded-xl bg-accent/20 border border-border/60 text-center">
+                                                <span className="text-[10px] uppercase font-bold text-muted-foreground block">
+                                                    Base X
+                                                </span>
+                                                <span className="text-sm font-black font-mono text-foreground">
+                                                    {simCalc.xVal} kWh
+                                                </span>
+                                            </div>
+                                            <div className="p-3 rounded-xl bg-accent/20 border border-border/60 text-center">
+                                                <span className="text-[10px] uppercase font-bold text-muted-foreground block">
+                                                    Plant Age
+                                                </span>
+                                                <span className="text-sm font-black font-mono text-amber-600 dark:text-amber-400">
+                                                    {simCalc.ageYears} Yrs
+                                                </span>
+                                            </div>
+                                            <div className="p-3 rounded-xl bg-accent/20 border border-border/60 text-center">
+                                                <span className="text-[10px] uppercase font-bold text-muted-foreground block">
+                                                    Degradation
+                                                </span>
+                                                <span className="text-sm font-black font-mono text-rose-500">
+                                                    -{simCalc.degradationPct}%
+                                                </span>
+                                            </div>
+                                            <div className="p-3 rounded-xl bg-accent/20 border border-border/60 text-center">
+                                                <span className="text-[10px] uppercase font-bold text-muted-foreground block">
+                                                    Good Threshold
+                                                </span>
+                                                <span className="text-sm font-black font-mono text-emerald-600 dark:text-emerald-400">
+                                                    ≥ {simCalc.targetUnits} kWh
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        {/* Diagnostic Statement */}
+                                        <div className={`p-4 rounded-xl border text-xs leading-relaxed ${
+                                            simCalc.isGood
+                                                ? "bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-500/20 text-emerald-800 dark:text-emerald-300"
+                                                : "bg-rose-50/50 dark:bg-rose-950/20 border-rose-500/20 text-rose-800 dark:text-rose-300"
+                                        }`}>
+                                            {simCalc.isGood ? (
+                                                <div className="flex items-start gap-2.5">
+                                                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                                                    <div>
+                                                        <strong>Optimal Generation Verified:</strong> Actual generation of {simCalc.actual} kWh meets or exceeds the degraded threshold of {simCalc.targetUnits} kWh. Calculated from {simSelectedMonth} baseline X = {simCalc.xVal} kWh with {simCalc.degradationPct}% degradation over {simCalc.ageYears} years.
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div className="flex items-start gap-2.5">
+                                                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                                                    <div>
+                                                        <strong>Sub-optimal Generation Flagged:</strong> Actual generation of {simCalc.actual} kWh is below the degraded threshold of {simCalc.targetUnits} kWh (Deficit: {(simCalc.targetUnits - simCalc.actual).toFixed(1)} kWh). Calculated from {simSelectedMonth} baseline X = {simCalc.xVal} kWh with {simCalc.degradationPct}% degradation over {simCalc.ageYears} years.
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div className="text-[11px] text-muted-foreground pt-2 border-t border-border/40 flex items-center justify-between">
+                                        <span>Formula: <code>(X) × [1 - (Age × 0.01)]</code></span>
+                                        <span className="font-semibold text-emerald-600 dark:text-emerald-400">✓ Formula matches AI Prompt</span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </TabsContent>

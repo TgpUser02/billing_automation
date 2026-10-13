@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,7 +7,8 @@ import {
   Upload, FileText, CloudSun, Zap, CheckCircle2, Cpu, Loader2, 
   ArrowUpRight, ArrowDownLeft, ShieldCheck, Sun, TrendingUp, 
   Download, Image as ImageIcon, FileCheck, Activity, Calendar,
-  Sparkles, Clock, Leaf, Trees
+  Sparkles, Clock, Leaf, Trees, Sliders, Info, AlertTriangle,
+  Save, RefreshCw, CheckCircle, ShieldAlert
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -33,27 +34,200 @@ export default function QuickBillAnalysis() {
   const [isAnalyzingSolar, setIsAnalyzingSolar] = useState(false);
   const [solarResult, setSolarResult] = useState<any>(null);
 
+  // Solar Plant Health & Benchmark Formula States
+  const [commissioningDateInput, setCommissioningDateInput] = useState<string>("");
+  const [benchmarkXInput, setBenchmarkXInput] = useState<string>("100");
+  const [showBenchmarkMatrix, setShowBenchmarkMatrix] = useState<boolean>(false);
+  const [isSavingBenchmarks, setIsSavingBenchmarks] = useState<boolean>(false);
+  const [monthlyBenchmarks, setMonthlyBenchmarks] = useState<Record<string, number>>({
+    January: 100, February: 100, March: 100, April: 100,
+    May: 100, June: 100, July: 100, August: 100,
+    September: 100, October: 100, November: 100, December: 100
+  });
+
   // Export & Preview States
   const [uploadedBillPreviewUrl, setUploadedBillPreviewUrl] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
 
+  // Drag and Drop active states
+  const [isDragActiveProspective, setIsDragActiveProspective] = useState<boolean>(false);
+  const [isDragActiveSolar, setIsDragActiveSolar] = useState<boolean>(false);
+
+  // Prevent unwanted browser file opens when dropping outside target zone
+  useEffect(() => {
+    const preventWindowDrop = (e: DragEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener("dragover", preventWindowDrop);
+    window.addEventListener("drop", preventWindowDrop);
+    return () => {
+      window.removeEventListener("dragover", preventWindowDrop);
+      window.removeEventListener("drop", preventWindowDrop);
+    };
+  }, []);
+
+  // Load 12-month benchmarks from backend on mount
+  useEffect(() => {
+    api.getSystemBenchmarks().then((res: any) => {
+      if (res?.benchmarks) {
+        setMonthlyBenchmarks(res.benchmarks);
+      }
+    }).catch((err) => {
+      console.debug("Could not load benchmarks:", err);
+    });
+  }, []);
+
+  // Compute live plant age in years from commissioningDateInput
+  const liveAgeYears = useMemo(() => {
+    if (!commissioningDateInput) return 0;
+    try {
+      const s = commissioningDateInput.trim();
+      let d: Date | null = null;
+      if (s.includes('-')) {
+        const parts = s.split('-');
+        if (parts.length === 3) {
+          if (parts[0].length === 4) {
+            d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+          } else {
+            let yr = parseInt(parts[2], 10);
+            if (yr < 100) yr += yr < 50 ? 2000 : 1900;
+            d = new Date(yr, parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
+          }
+        }
+      } else if (s.includes('/')) {
+        const parts = s.split('/');
+        if (parts.length === 3) {
+          let yr = parseInt(parts[2], 10);
+          if (yr < 100) yr += yr < 50 ? 2000 : 1900;
+          d = new Date(yr, parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
+        }
+      }
+      if (d && !isNaN(d.getTime())) {
+        const diffMs = Math.max(0, Date.now() - d.getTime());
+        return Number((diffMs / (1000 * 60 * 60 * 24 * 365.25)).toFixed(1));
+      }
+    } catch {
+      return 0;
+    }
+    return 0;
+  }, [commissioningDateInput]);
+
+  const liveDegradationPct = Number((liveAgeYears * 1.0).toFixed(1));
+  const liveTargetGeneration = useMemo(() => {
+    const x = parseFloat(benchmarkXInput) || 100;
+    const cap = parseFloat(String(solarResult?.extracted_data?.capacity || "3.0")) || 3.0;
+    const plantBase = x <= 200 ? cap * x : x;
+    const factor = Math.max(0.70, 1.0 - (liveAgeYears * 0.01));
+    return Number((plantBase * factor).toFixed(1));
+  }, [benchmarkXInput, liveAgeYears, solarResult]);
+
+  const handleSaveBenchmarks = async () => {
+    setIsSavingBenchmarks(true);
+    try {
+      await api.saveSystemBenchmarks(monthlyBenchmarks);
+      toast.success("12-month generation benchmarks (X) saved successfully!");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save benchmarks.");
+    } finally {
+      setIsSavingBenchmarks(false);
+    }
+  };
+
+  const processProspectiveFile = (file: File) => {
+    const validExtensions = [".pdf", ".png", ".jpg", ".jpeg"];
+    const ext = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
+    if (!validExtensions.includes(ext) && !file.type.startsWith("image/") && file.type !== "application/pdf") {
+      toast.error("Unsupported file format. Please upload a PDF or Image file (.pdf, .png, .jpg, .jpeg).");
+      return;
+    }
+    setProspectiveFile(file);
+    setProspectiveResult(null);
+    const reader = new FileReader();
+    reader.onload = () => setUploadedBillPreviewUrl(reader.result as string);
+    reader.readAsDataURL(file);
+    toast.success(`Selected file: ${file.name}`);
+  };
+
+  const processSolarFile = (file: File) => {
+    const validExtensions = [".pdf", ".png", ".jpg", ".jpeg"];
+    const ext = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
+    if (!validExtensions.includes(ext) && !file.type.startsWith("image/") && file.type !== "application/pdf") {
+      toast.error("Unsupported file format. Please upload a PDF or Image file (.pdf, .png, .jpg, .jpeg).");
+      return;
+    }
+    setSolarFile(file);
+    setSolarResult(null);
+    const reader = new FileReader();
+    reader.onload = () => setUploadedBillPreviewUrl(reader.result as string);
+    reader.readAsDataURL(file);
+    toast.success(`Selected file: ${file.name}`);
+  };
+
   const handleProspectiveFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      setProspectiveFile(file);
-      const reader = new FileReader();
-      reader.onload = () => setUploadedBillPreviewUrl(reader.result as string);
-      reader.readAsDataURL(file);
+      processProspectiveFile(e.target.files[0]);
     }
   };
 
   const handleSolarFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      setSolarFile(file);
-      const reader = new FileReader();
-      reader.onload = () => setUploadedBillPreviewUrl(reader.result as string);
-      reader.readAsDataURL(file);
+      processSolarFile(e.target.files[0]);
+    }
+  };
+
+  const handleProspectiveDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragActiveProspective(true);
+  };
+
+  const handleProspectiveDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragActiveProspective(true);
+  };
+
+  const handleProspectiveDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setIsDragActiveProspective(false);
+  };
+
+  const handleProspectiveDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragActiveProspective(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      processProspectiveFile(e.dataTransfer.files[0]);
+    }
+  };
+
+  const handleSolarDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragActiveSolar(true);
+  };
+
+  const handleSolarDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragActiveSolar(true);
+  };
+
+  const handleSolarDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setIsDragActiveSolar(false);
+  };
+
+  const handleSolarDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragActiveSolar(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      processSolarFile(e.dataTransfer.files[0]);
     }
   };
 
@@ -79,9 +253,23 @@ export default function QuickBillAnalysis() {
     try {
       const formData = new FormData();
       formData.append("file", solarFile);
+      formData.append("monthly_benchmarks_json", JSON.stringify(monthlyBenchmarks));
+
       const res = await api.analyzeBillOcr(formData);
       setSolarResult(res);
-      toast.success("Solar bill OCR & weather AI analysis completed!");
+
+      if (res?.extracted_data?.commissioning_date) {
+        setCommissioningDateInput(res.extracted_data.commissioning_date);
+      }
+      if (res?.extracted_data?.benchmark_x) {
+        setBenchmarkXInput(String(res.extracted_data.benchmark_x));
+      }
+
+      if (res?.extracted_data?.is_ai_extracted && !res?.extracted_data?.fallback_used) {
+        toast.success(`✨ Report generated by Real AI Vision (${res.extracted_data.ai_model || "Gemini"})!`);
+      } else {
+        toast.warning("⚠️ AI Vision unavailable: Report generated using Fallback Formula Engine (Target = X × [1 - Age × 1%]).");
+      }
     } catch (err: any) {
       toast.error(err.message || "Failed to analyze solar bill.");
     } finally {
@@ -357,7 +545,19 @@ export default function QuickBillAnalysis() {
     totalConsumption: String(solarResult.extracted_data.total_consumption || `${Math.round(parsedCap * 110)} kWh`),
     previousBankedUnit: String(rawPrevBanked),
     currentBankedUnit: String(calculatedBanked),
-    systemHealth: solarResult.extracted_data.system_health || "GOOD",
+    systemHealth: solarResult.extracted_data.system_health || "POOR",
+    targetGeneration: solarResult.extracted_data.target_generation_kwh ?? liveTargetGeneration,
+    benchmarkX: solarResult.extracted_data.benchmark_x ?? parseFloat(benchmarkXInput),
+    plantAgeYears: solarResult.extracted_data.plant_age_years ?? liveAgeYears,
+    degradationPercent: solarResult.extracted_data.degradation_percent ?? liveDegradationPct,
+    systemHealthReason: solarResult.extracted_data.system_health_reason,
+    commissioningDate: solarResult.extracted_data.commissioning_date || commissioningDateInput,
+    commissioningDateSource: solarResult.extracted_data.commissioning_date_source,
+    isAiExtracted: solarResult.extracted_data.is_ai_extracted ?? false,
+    fallbackUsed: solarResult.extracted_data.fallback_used ?? false,
+    aiModel: solarResult.extracted_data.ai_model,
+    analysisEngine: solarResult.extracted_data.analysis_engine,
+    engineNotice: solarResult.extracted_data.engine_notice,
     weatherCondition: solarResult.weather_ai_analysis?.weather_condition,
     performanceScore: solarResult.weather_ai_analysis?.performance_score,
     recommendedCapacity: String(parsedCap),
@@ -431,7 +631,20 @@ export default function QuickBillAnalysis() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="border-2 border-dashed border-slate-200 hover:border-emerald-500/50 transition-all rounded-2xl p-8 text-center bg-slate-50/50">
+                <div
+                  onDragOver={handleProspectiveDragOver}
+                  onDragEnter={handleProspectiveDragEnter}
+                  onDragLeave={handleProspectiveDragLeave}
+                  onDrop={handleProspectiveDrop}
+                  onClick={() => document.getElementById("prospective-bill-upload")?.click()}
+                  className={`border-2 border-dashed rounded-2xl p-8 text-center transition-all duration-200 cursor-pointer ${
+                    isDragActiveProspective
+                      ? "border-emerald-500 bg-emerald-500/15 shadow-xl ring-4 ring-emerald-500/20 scale-[1.01]"
+                      : prospectiveFile
+                      ? "border-emerald-400 bg-emerald-50/50 hover:border-emerald-500"
+                      : "border-slate-300 hover:border-emerald-500/60 bg-slate-50/60 hover:bg-slate-50"
+                  }`}
+                >
                   <input
                     type="file"
                     id="prospective-bill-upload"
@@ -439,17 +652,31 @@ export default function QuickBillAnalysis() {
                     accept=".pdf, .png, .jpg, .jpeg"
                     onChange={handleProspectiveFileChange}
                   />
-                  <label htmlFor="prospective-bill-upload" className="cursor-pointer space-y-3 block">
-                    <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-inner">
-                      <Upload className="w-7 h-7" />
+                  <div className="pointer-events-none space-y-3">
+                    <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto shadow-inner transition-transform duration-200 ${
+                      isDragActiveProspective
+                        ? "bg-emerald-600 text-white scale-110 animate-bounce"
+                        : prospectiveFile
+                        ? "bg-emerald-500 text-white shadow-emerald-500/30"
+                        : "bg-emerald-100 text-emerald-600"
+                    }`}>
+                      {prospectiveFile ? <CheckCircle2 className="w-7 h-7" /> : <Upload className="w-7 h-7" />}
                     </div>
                     <div>
                       <p className="text-sm font-bold text-slate-800">
-                        {prospectiveFile ? prospectiveFile.name : "Click to select or drag & drop Standard Electricity Bill (PDF/Image)"}
+                        {isDragActiveProspective
+                          ? "Drop Standard Electricity Bill here!"
+                          : prospectiveFile
+                          ? prospectiveFile.name
+                          : "Click to select or drag & drop Standard Electricity Bill (PDF/Image)"}
                       </p>
-                      <p className="text-xs text-slate-400 mt-1">Accepts PDF, JPG, PNG formats</p>
+                      <p className="text-xs text-slate-500 mt-1">
+                        {prospectiveFile
+                          ? `${(prospectiveFile.size / 1024).toFixed(1)} KB • Click or drop new file to replace`
+                          : "Accepts PDF, JPG, PNG formats"}
+                      </p>
                     </div>
-                  </label>
+                  </div>
                 </div>
 
                 <Button
@@ -753,16 +980,93 @@ export default function QuickBillAnalysis() {
         {/* TAB 2: SOLAR CLIENT BILL OCR & WEATHER AI ANALYSIS */}
         {activeTab === "solar" && (
           <div className="space-y-8 animate-in fade-in duration-300">
-            {/* Upload Card */}
+            {/* Upload Card with Health Formula & Benchmark Controls */}
             <Card className="border border-emerald-500/20 bg-white shadow-sm">
               <CardHeader>
-                <CardTitle className="text-lg font-bold">Upload Solar Bill</CardTitle>
-                <CardDescription className="text-xs">
-                  Upload a PDF solar bill or bill image. Extracts generation & consumption details directly from the document without requiring customer registration or warranty data.
-                </CardDescription>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <CardTitle className="text-lg font-bold flex items-center gap-2">
+                      <Cpu className="w-5 h-5 text-emerald-600" />
+                      Upload Solar Client Bill & Real AI Performance Diagnostic
+                    </CardTitle>
+                    <CardDescription className="text-xs mt-1">
+                      Extract generation and verify plant health against Arin Energy's 1%/year degradation benchmark formula.
+                    </CardDescription>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowBenchmarkMatrix(!showBenchmarkMatrix)}
+                    className="text-xs font-bold border-emerald-300 text-emerald-700 hover:bg-emerald-50 rounded-xl flex items-center gap-1.5"
+                  >
+                    <Sliders className="w-3.5 h-3.5" />
+                    {showBenchmarkMatrix ? "Hide 12-Month Matrix" : "Configure 12-Month Benchmarks (X)"}
+                  </Button>
+                </div>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="border-2 border-dashed border-slate-200 hover:border-emerald-500/50 transition-all rounded-2xl p-8 text-center bg-slate-50/50">
+              <CardContent className="space-y-5">
+                {/* 12-Month Benchmarks Matrix (Collapsible) */}
+                {showBenchmarkMatrix && (
+                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3 animate-in fade-in duration-200">
+                    <div className="flex items-center justify-between border-b border-slate-200 pb-2.5">
+                      <div>
+                        <h4 className="text-xs font-black uppercase text-slate-800 tracking-wider flex items-center gap-2">
+                          <Sliders className="w-4 h-4 text-emerald-600" />
+                          Monthly Generation Benchmark Matrix (X per Month in kWh)
+                        </h4>
+                        <p className="text-[11px] text-slate-500">
+                          Set the base expected generation (X) for each calendar month. The analyzer automatically applies 1% degradation per year.
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        onClick={handleSaveBenchmarks}
+                        disabled={isSavingBenchmarks}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs h-8 px-3 rounded-xl flex items-center gap-1.5"
+                      >
+                        {isSavingBenchmarks ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                        Save Defaults
+                      </Button>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5 pt-1">
+                      {Object.entries(monthlyBenchmarks).map(([month, val]) => (
+                        <div key={month} className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-xs">
+                          <Label className="text-[10px] font-black uppercase text-slate-500 block mb-1">{month}</Label>
+                          <div className="flex items-center gap-1">
+                            <Input
+                              type="number"
+                              value={val}
+                              onChange={(e) => {
+                                const newBM = { ...monthlyBenchmarks, [month]: parseFloat(e.target.value) || 0 };
+                                setMonthlyBenchmarks(newBM);
+                              }}
+                              className="h-8 text-xs font-bold text-center"
+                            />
+                            <span className="text-[10px] font-bold text-slate-400">kWh</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Upload Area */}
+                <div
+                  onDragOver={handleSolarDragOver}
+                  onDragEnter={handleSolarDragEnter}
+                  onDragLeave={handleSolarDragLeave}
+                  onDrop={handleSolarDrop}
+                  onClick={() => document.getElementById("quick-bill-upload")?.click()}
+                  className={`border-2 border-dashed rounded-2xl p-6 text-center transition-all duration-200 cursor-pointer ${
+                    isDragActiveSolar
+                      ? "border-emerald-500 bg-emerald-500/15 shadow-xl ring-4 ring-emerald-500/20 scale-[1.01]"
+                      : solarFile
+                      ? "border-emerald-400 bg-emerald-50/50 hover:border-emerald-500"
+                      : "border-slate-300 hover:border-emerald-500/60 bg-slate-50/60 hover:bg-slate-50"
+                  }`}
+                >
                   <input
                     type="file"
                     id="quick-bill-upload"
@@ -770,33 +1074,89 @@ export default function QuickBillAnalysis() {
                     accept=".pdf, .png, .jpg, .jpeg"
                     onChange={handleSolarFileChange}
                   />
-                  <label htmlFor="quick-bill-upload" className="cursor-pointer space-y-3 block">
-                    <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-inner">
-                      <Upload className="w-7 h-7" />
+                  <div className="pointer-events-none space-y-3">
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto shadow-inner transition-transform duration-200 ${
+                      isDragActiveSolar
+                        ? "bg-emerald-600 text-white scale-110 animate-bounce"
+                        : solarFile
+                        ? "bg-emerald-500 text-white shadow-emerald-500/30"
+                        : "bg-emerald-100 text-emerald-600"
+                    }`}>
+                      {solarFile ? <CheckCircle2 className="w-6 h-6" /> : <Upload className="w-6 h-6" />}
                     </div>
                     <div>
                       <p className="text-sm font-bold text-slate-800">
-                        {solarFile ? solarFile.name : "Click to choose or drag & drop Solar Bill"}
+                        {isDragActiveSolar
+                          ? "Drop Solar Electricity Bill here for AI Analysis!"
+                          : solarFile
+                          ? solarFile.name
+                          : "Click to select or drag & drop Solar Electricity Bill (PDF/Image)"}
                       </p>
-                      <p className="text-xs text-slate-400 mt-1">Supports PDF, PNG, JPG formats</p>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {solarFile
+                          ? `${(solarFile.size / 1024).toFixed(1)} KB • Click or drop new file to replace`
+                          : "Supports MSEDCL PDF and high-res image formats"}
+                      </p>
                     </div>
-                  </label>
+                  </div>
+                </div>
+
+                {/* Automatic Health Engine & Fallback Model Indicator */}
+                <div className="bg-gradient-to-r from-slate-50 via-emerald-50/40 to-teal-50/40 border border-emerald-200/70 p-4 rounded-2xl space-y-2.5">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-emerald-600/10 text-emerald-700 flex items-center justify-center font-bold">
+                        <ShieldCheck className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-black uppercase text-slate-900 tracking-wider">
+                          Automatic Health Diagnosis & Fallback Engine
+                        </h4>
+                        <p className="text-[11px] text-slate-500">
+                          Solar age is auto-extracted from database by Consumer ID. No manual parameters required.
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-[11px] font-mono font-bold text-emerald-800 bg-white px-3 py-1 rounded-full border border-emerald-300 shadow-xs">
+                      Formula: Target = (Capacity in kW × X) × [1 − (Solar Age × 1%)]
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1 text-xs">
+                    <div className="bg-white/90 p-2.5 rounded-xl border border-slate-200/80">
+                      <span className="text-[10px] uppercase font-bold text-slate-500 block">1. Auto Solar Age</span>
+                      <p className="font-bold text-slate-800 mt-0.5">Consumer ID Database Match</p>
+                      <span className="text-[10px] text-slate-500">Auto-retrieves commissioning date from customer profile</span>
+                    </div>
+
+                    <div className="bg-white/90 p-2.5 rounded-xl border border-slate-200/80">
+                      <span className="text-[10px] uppercase font-bold text-slate-500 block">2. Monthly Benchmark (X)</span>
+                      <p className="font-bold text-slate-800 mt-0.5">Base Monthly Target</p>
+                      <span className="text-[10px] text-slate-500">Loaded from 12-month baseline table (default 100 kWh)</span>
+                    </div>
+
+                    <div className="bg-white/90 p-2.5 rounded-xl border border-slate-200/80">
+                      <span className="text-[10px] uppercase font-bold text-slate-500 block">3. Fallback Formula Policy</span>
+                      <p className="font-bold text-slate-800 mt-0.5">Automated AI → Rule Fallback</p>
+                      <span className="text-[10px] text-slate-500">If AI is unreachable, fallback formula runs seamlessly</span>
+                    </div>
+                  </div>
                 </div>
 
                 <Button
                   onClick={handleAnalyzeSolar}
                   disabled={!solarFile || isAnalyzingSolar}
-                  className="w-full h-12 bg-gradient-to-r from-emerald-600 to-teal-600 hover:opacity-90 text-white font-bold text-sm uppercase tracking-wider rounded-xl flex items-center justify-center gap-2"
+                  className="w-full h-12 bg-gradient-to-r from-emerald-600 to-teal-600 hover:opacity-90 text-white font-bold text-sm uppercase tracking-wider rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20"
                 >
                   {isAnalyzingSolar ? (
                     <>
                       <Loader2 className="w-5 h-5 animate-spin" />
-                      Analyzing Bill & Weather Data...
+                      Analyzing Bill & Running AI Health Diagnosis...
                     </>
                   ) : (
                     <>
                       <Cpu className="w-5 h-5" />
-                      Generate AI Analysis Report
+                      Generate Real AI Analysis Report
                     </>
                   )}
                 </Button>
@@ -806,6 +1166,204 @@ export default function QuickBillAnalysis() {
             {/* Results View & Branded Report Export Container */}
             {solarResult && (
               <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                {/* PROMINENT ENGINE SOURCE BANNER: REAL AI VISION vs FALLBACK FORMULA ENGINE */}
+                {solarResult.extracted_data.is_ai_extracted && !solarResult.extracted_data.fallback_used ? (
+                  <div className="p-4 sm:p-5 rounded-2xl border-2 border-emerald-400 bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-emerald-500/5 shadow-md flex items-center justify-between flex-wrap gap-4">
+                    <div className="flex items-center gap-3.5">
+                      <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-600 text-white flex items-center justify-center shadow-lg shadow-emerald-600/30">
+                        <Sparkles className="w-6 h-6 animate-pulse" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] font-black uppercase tracking-wider text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-full border border-emerald-300">
+                            Verified Real AI Vision
+                          </span>
+                          <span className="text-xs text-slate-500 font-bold">
+                            Model: {solarResult.extracted_data.ai_model || "Gemini 3.1 Flash"}
+                          </span>
+                        </div>
+                        <h3 className="text-base sm:text-lg font-black text-slate-900 mt-1 flex items-center gap-2">
+                          ✨ Report Generated by Real AI Multimodal Vision
+                        </h3>
+                        <p className="text-xs text-slate-600 mt-0.5">
+                          {solarResult.extracted_data.engine_notice || "Direct multimodal AI vision parsed all readings, billing parameters, and solar degradation."}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 bg-white/90 px-3.5 py-2 rounded-xl border border-emerald-200 shadow-xs">
+                      <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                      <div className="text-right">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase block">Engine Status</span>
+                        <strong className="text-xs font-black text-emerald-700">AI Active & Confirmed</strong>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-4 sm:p-5 rounded-2xl border-2 border-amber-400 bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-yellow-500/10 shadow-lg flex items-center justify-between flex-wrap gap-4">
+                    <div className="flex items-center gap-3.5">
+                      <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 text-white flex items-center justify-center shadow-lg shadow-amber-500/30">
+                        <AlertTriangle className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] font-black uppercase tracking-wider text-amber-900 bg-amber-100 px-2.5 py-0.5 rounded-full border border-amber-300">
+                            Fallback Formula Engine Active
+                          </span>
+                          <span className="text-xs text-amber-800 font-bold">
+                            Deterministic Degradation Rule Policy
+                          </span>
+                        </div>
+                        <h3 className="text-base sm:text-lg font-black text-amber-950 mt-1 flex items-center gap-2">
+                          ⚠️ Report Generated by Fallback Formula Engine
+                        </h3>
+                        <p className="text-xs text-amber-900 mt-0.5">
+                          {solarResult.extracted_data.engine_notice || "AI Vision was unavailable. System health was accurately calculated using Arin Energy's Fallback Formula: Target = (X) × [1 - (Solar Age × 1%)]."}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 bg-white/90 px-3.5 py-2 rounded-xl border border-amber-300 shadow-xs">
+                      <Cpu className="w-4 h-4 text-amber-600" />
+                      <div className="text-right">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase block">Formula Used</span>
+                        <strong className="text-xs font-black text-amber-800">Target = (X) × [1 - (Age × 1%)]</strong>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* AI PLANT HEALTH & DEGRADATION DIAGNOSIS RESULT CARD */}
+                <Card className={`border shadow-lg transition-all ${
+                  (solarResult.extracted_data.system_health || "POOR").toUpperCase() === "GOOD"
+                    ? "border-emerald-500/40 bg-gradient-to-br from-white via-emerald-50/30 to-teal-50/20"
+                    : "border-rose-500/40 bg-gradient-to-br from-white via-rose-50/30 to-orange-50/20"
+                }`}>
+                  <CardContent className="p-6 space-y-6">
+                    {/* Header Status Bar */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b pb-5">
+                      <div className="flex items-center gap-3.5">
+                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-md ${
+                          (solarResult.extracted_data.system_health || "POOR").toUpperCase() === "GOOD"
+                            ? "bg-emerald-600 text-white"
+                            : "bg-rose-600 text-white"
+                        }`}>
+                          {(solarResult.extracted_data.system_health || "POOR").toUpperCase() === "GOOD" ? (
+                            <CheckCircle className="w-7 h-7" />
+                          ) : (
+                            <AlertTriangle className="w-7 h-7" />
+                          )}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-black uppercase tracking-wider text-slate-400">
+                              Arin Energy Plant Diagnosis
+                            </span>
+                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                              (solarResult.extracted_data.system_health || "POOR").toUpperCase() === "GOOD"
+                                ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                                : "bg-rose-100 text-rose-800 border border-rose-200"
+                            }`}>
+                              {(solarResult.extracted_data.system_health || "POOR").toUpperCase() === "GOOD" ? "Optimal Performance" : "Attention Required"}
+                            </span>
+                          </div>
+                          <h2 className={`text-2xl font-black tracking-tight ${
+                            (solarResult.extracted_data.system_health || "POOR").toUpperCase() === "GOOD"
+                              ? "text-emerald-700"
+                              : "text-rose-700"
+                          }`}>
+                            {solarResult.extracted_data.is_ai_extracted ? "AI VERIFIED" : "FALLBACK VERIFIED"} SYSTEM HEALTH: {(solarResult.extracted_data.system_health || "POOR").toUpperCase()}
+                          </h2>
+                        </div>
+                      </div>
+
+                      <div className="text-right">
+                        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold border ${
+                          solarResult.extracted_data.is_ai_extracted
+                            ? "bg-emerald-50 text-emerald-800 border-emerald-300"
+                            : "bg-amber-50 text-amber-800 border-amber-300"
+                        }`}>
+                          <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                          {solarResult.extracted_data.is_ai_extracted ? `Real AI (${solarResult.extracted_data.ai_model || "Gemini 3.1 Flash"})` : "Fallback Formula Engine"}
+                        </span>
+                        <p className="text-[10px] font-medium text-slate-400 mt-1">
+                          Formula: (Capacity × X) × [1 - (Age × 1%)]
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* 4-Stat Mathematical Comparison Grid */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                          Actual Generation
+                        </span>
+                        <strong className={`text-xl font-black block mt-1 ${
+                          (solarResult.extracted_data.system_health || "POOR").toUpperCase() === "GOOD" ? "text-emerald-600" : "text-rose-600"
+                        }`}>
+                          {solarResult.extracted_data.generated_electricity || "0 kWh"}
+                        </strong>
+                        <span className="text-[10px] font-medium text-slate-400">Recorded from MSEDCL meter</span>
+                      </div>
+
+                      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                          Good Health Target
+                        </span>
+                        <strong className="text-xl font-black text-slate-900 block mt-1">
+                          ≥ {solarResult.extracted_data.target_generation_kwh ?? liveTargetGeneration} kWh
+                        </strong>
+                        <span className="text-[10px] font-medium text-slate-400">
+                          {solarResult.extracted_data.capacity ? `Scaled for ${solarResult.extracted_data.capacity} kW plant` : "Degraded threshold"}
+                        </span>
+                      </div>
+
+                      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                          Monthly Benchmark (X)
+                        </span>
+                        <strong className="text-xl font-black text-slate-900 block mt-1">
+                          {solarResult.extracted_data.benchmark_x ?? benchmarkXInput} kWh/kW
+                        </strong>
+                        <span className="text-[10px] font-medium text-slate-400">
+                          {solarResult.extracted_data.plant_base_benchmark
+                            ? `Plant baseline: ${solarResult.extracted_data.plant_base_benchmark} kWh`
+                            : `Baseline: ${Math.round((parseFloat(String(solarResult.extracted_data.capacity || "1"))) * (Number(solarResult.extracted_data.benchmark_x) || 100))} kWh`}
+                        </span>
+                      </div>
+
+                      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                          Solar Age & Degradation
+                        </span>
+                        <strong className="text-xl font-black text-slate-900 block mt-1">
+                          {solarResult.extracted_data.plant_age_years ?? solarResult.extracted_data.solar_age_years ?? liveAgeYears} Yrs
+                          <span className="text-xs font-bold text-slate-500 ml-1">
+                            (-{solarResult.extracted_data.degradation_percent ?? liveDegradationPct}%)
+                          </span>
+                        </strong>
+                        <span className="text-[10px] font-medium text-emerald-700 block truncate" title={solarResult.extracted_data.commissioning_date_source || "From Database"}>
+                          {solarResult.extracted_data.commissioning_date
+                            ? `DB: ${solarResult.extracted_data.commissioning_date}`
+                            : "Auto-extracted by Consumer ID"}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* AI Diagnostic Reasoning Box */}
+                    {solarResult.extracted_data.system_health_reason && (
+                      <div className={`p-4 rounded-2xl border text-xs font-medium leading-relaxed ${
+                        (solarResult.extracted_data.system_health || "POOR").toUpperCase() === "GOOD"
+                          ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-950"
+                          : "bg-rose-500/10 border-rose-500/20 text-rose-950"
+                      }`}>
+                        <strong className="font-bold flex items-center gap-1.5 mb-1 uppercase tracking-wider text-[11px]">
+                          <Info className="w-3.5 h-3.5" />
+                          AI Diagnostic Analysis & Evaluation:
+                        </strong>
+                        <p>{solarResult.extracted_data.system_health_reason}</p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
                 {/* EXPORT BUTTONS ACTION BAR */}
                 <Card className="border border-emerald-500/30 bg-gradient-to-r from-slate-900 to-emerald-950 text-white shadow-xl">
                   <CardContent className="p-6 flex flex-col md:flex-row items-center justify-between gap-4">

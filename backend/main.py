@@ -1,12 +1,13 @@
 import os
 import re
+import json
 from dotenv import load_dotenv
 # Load environment variables first
 load_dotenv(override=True)
 # Also search in the parent directory as fallback (for local start.sh relative pathing)
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'), override=True)
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Depends, Request
+from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Depends, Request, Body, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse, RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -23,10 +24,10 @@ import pandas as pd
 import io
 import time
 import sys
-from datetime import datetime
+from datetime import datetime, date
 from automation import BillAutomation
 from login_automation import login_automator
-from processing import process_downloads, get_all_bills, get_dashboard_stats, collection, get_customer_details, _process_rows
+from processing import process_downloads, get_all_bills, get_dashboard_stats, collection, get_customer_details, _process_rows, get_db_connection
 from auth import (
     get_current_user, create_access_token, verify_password, hash_password,
     verify_recaptcha, check_rate_limit, record_failed_attempt,
@@ -1301,11 +1302,11 @@ async def extend_subscription(request: SubscriptionExtendRequest, user=Depends(g
         conn.close()
 
 
-def extract_bill_with_ai(content: bytes, filename: str) -> dict:
+def extract_bill_with_ai(content: bytes, filename: str, expected_x: float = None, commissioning_date_hint: str = None) -> dict:
     """
     Multimodal AI Vision Extractor (Google Gemini API).
-    Sends bill image/pdf directly to Gemini API for 100% structured JSON extraction.
-    Tries candidate Gemini models and falls back seamlessly to local OCR if unavailable.
+    Sends bill image/pdf directly to Gemini API for 100% structured JSON extraction and system health diagnosis.
+    Uses active Google Gemini models (gemini-3.8-flash, gemini-3.5-flash, gemini-3.1-flash-lite, gemini-flash-latest).
     """
     import os, json, base64, httpx
     api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_AI_KEY") or os.getenv("OPENAI_API_KEY")
@@ -1316,41 +1317,66 @@ def extract_bill_with_ai(content: bytes, filename: str) -> dict:
         mime_type = "application/pdf" if filename.lower().endswith(".pdf") else "image/jpeg"
         b64_data = base64.b64encode(content).decode("utf-8")
 
-        prompt = """You are an expert AI Utility Bill Parser for MSEDCL / Indian Electricity bills.
-Analyze the attached electricity bill image/PDF and extract the following fields into JSON:
-{
-  "consumer_number": "12-digit MSEDCL consumer number (e.g. 401104277491)",
-  "consumer_name": "Full Customer Name",
-  "sanctioned_load_kw": 3.0,
-  "billing_date": "DD/MM/YYYY - CRITICAL: Must be the देयक दिनांक (Deyak Dinank / Bill Date) found in the right-hand box next to 'देयक दिनांक :' (e.g. 06-09-2026). Do NOT take reading date or agreement date.",
-  "reading_date": "DD/MM/YYYY - CRITICAL: Must be the चालू रिडिंग दिनांक (Current Reading Date, e.g. 02-09-2026). Found in the meter reading block next to 'चालू रिडिंग दिनांक'. It is ALWAYS on or before billing_date. Do NOT take देयक भरणा दिनांक (Due Date), agreement date, or supply date.",
-  "bill_month": "Month Year from 'BILL OF SUPPLY FOR THE MONTH OF - ...' (e.g. सप्टेंबर-2026 -> 'September 2026')",
+        x_val = float(expected_x) if expected_x is not None and float(expected_x) > 0 else 100.0
+        comm_hint = str(commissioning_date_hint).strip() if commissioning_date_hint else "Not provided (extract from bill if visible, else assume 0 yrs)"
+
+        prompt = f"""You are an expert AI Utility Bill Parser and Solar Plant Diagnostic Analyst for MSEDCL / Indian Electricity bills for Arin Energy.
+Analyze the attached electricity bill image/PDF and extract the fields into structured JSON.
+
+CRITICAL FORMULA FOR GOOD SYSTEM HEALTH:
+Target Degraded Generation = (Plant Capacity in kW * X) * (1.0 - (plant_age_in_years * 0.01))
+- X is the Monthly Benchmark Generation per kW in kWh. The value of X for this month is {x_val} kWh/kW.
+- Plant Capacity in kW (sanctioned_load_kw) is extracted from the bill (e.g. 'SOLAR NET METER (6.00KW)' or 'मंजुर भार : 6.00 KW').
+- Total Plant Baseline Benchmark = (Plant Capacity in kW) * X. For example: for a 6.0 kW system and X = 100 kWh/kW, Plant Baseline Benchmark = 6.0 * 100 = 600 kWh.
+- plant_age_in_years is the difference in years between Date of Commissioning (e.g. from 'SOLAR AGREEMENT DATE' on bill or hint: {comm_hint}) and the Billing/Reading Date. Panel degradation is 1% per year.
+- For example: if a 6 kW system is 2 years old and X = 100 kWh/kW:
+  Target Degraded Generation is 6 * 100 * (1 - 0.02) = 588 units.
+  If actual generation is 386 units, since 386 < 588, the system health is "POOR".
+- Health Verdict:
+  * If generated_electricity_kwh >= Target Degraded Generation and generated_electricity_kwh > 0 -> "GOOD"
+  * If generated_electricity_kwh < Target Degraded Generation or generated_electricity_kwh <= 0 -> "POOR"
+
+Extract into JSON:
+{{
+  "consumer_number": "12-digit MSEDCL consumer number (e.g. 410010173250)",
+  "consumer_name": "Full Customer Name (e.g. SHRI GULABRAO CHINTAMANRAO KARANGLE)",
+  "sanctioned_load_kw": 6.0,
+  "billing_date": "DD/MM/YYYY - CRITICAL: Must be the देयक दिनांक (Deyak Dinank / Bill Date) found in the right-hand box next to 'देयक दिनांक :' (e.g. 10-10-2026). Do NOT take reading date or agreement date.",
+  "reading_date": "DD/MM/YYYY - CRITICAL: Must be the चालू रिडिंग दिनांक (Current Reading Date, e.g. 02-10-2026). Found in the meter reading block next to 'चालू रिडिंग दिनांक'. It is ALWAYS on or before billing_date.",
+  "bill_month": "Month Year from 'BILL OF SUPPLY FOR THE MONTH OF - ...' (e.g. ऑक्टोबर-2026 -> 'October 2026')",
   "billing_amount": 0.0,
   "billing_units": 0.0,
-  "generated_electricity_kwh": 405.0,
-  "exported_to_grid_kwh": 155.0,
-  "imported_from_grid_kwh": 188.0,
-  "daytime_self_consumption_kwh": 250.0,
-  "total_consumption_kwh": 438.0,
-  "previous_banked_units": 85,
-  "current_banked_units": 52,
-  "meter_readings": {
-    "import": {"current": 3362, "previous": 3174, "mf": 1.0, "consumption": 188},
-    "export": {"current": 4377, "previous": 4222, "mf": 1.0, "consumption": 155},
-    "generation": {"current": 6405, "previous": 6000, "mf": 1.0, "consumption": 405}
-  },
+  "generated_electricity_kwh": 386.0,
+  "exported_to_grid_kwh": 243.0,
+  "imported_from_grid_kwh": 333.0,
+  "daytime_self_consumption_kwh": 143.0,
+  "total_consumption_kwh": 476.0,
+  "previous_banked_units": 1596,
+  "current_banked_units": 1686,
+  "commissioning_date": "DD/MM/YYYY (from SOLAR AGREEMENT DATE e.g. 24-08-2024 or null)",
+  "benchmark_x": {x_val},
+  "plant_age_years": 0.0,
+  "degradation_percent": 0.0,
+  "target_generation_kwh": 0.0,
+  "system_health": "GOOD or POOR",
+  "system_health_reason": "Clear diagnostic rationale comparing generated_electricity_kwh against target_generation_kwh with plant capacity, plant age and 1%/year degradation details",
+  "ai_recommendation": "Technical advice for consumer regarding solar plant performance",
+  "meter_readings": {{
+    "import": {{"current": 0, "previous": 0, "mf": 1.0, "consumption": 0}},
+    "export": {{"current": 0, "previous": 0, "mf": 1.0, "consumption": 0}},
+    "generation": {{"current": 0, "previous": 0, "mf": 1.0, "consumption": 0}}
+  }},
   "past_year_history": [
-    {"month": "Aug-2026", "import_units": 153, "export_units": 198, "generation_units": 440}
+    {{"month": "Sept-2026", "import_units": 0, "export_units": 0, "generation_units": 0}}
   ]
-}
+}}
 Important:
+- 'generated_electricity_kwh': MUST be extracted from the Meter Readings table for the 'Generation' row (Current Reading - Previous Reading * MF, or 'Consumption' column for Generation, e.g. 15661 - 15275 = 386 kWh). Do NOT confuse it with previous months from the past year table (e.g. Sept 406 kWh).
+- 'sanctioned_load_kw': extract the solar plant capacity in kW (e.g. SOLAR NET METER (6.00KW) -> 6.0).
 - 'billing_date' is 'देयक दिनांक' (Bill Date), NOT reading date.
-- 'reading_date' is 'चालू रिडिंग दिनांक' (Current Reading Date). It must be <= 'billing_date'. NEVER confuse it with 'देयक भरणा दिनांक' (Due Date).
-- 'current_banked_units' is the units in the 'Bank Solar Units' / 'सौर बँक युनिट' column (e.g. 52).
-- 'previous_banked_units' is the units in the 'Prev Bank Units' / 'मागील बँक युनिट' column (e.g. 85).
-- 'meter_readings' contains the Current Reading (चालू रिडिंग), Previous Reading (मागील रिडिंग), MF, and Consumption for Import, Export, and Generation.
-- 'past_year_history' contains the list of previous 12 months with their IMP, EXP, and GEN units from the table on page 1.
-Return ONLY valid raw JSON without markdown formatting."""
+- 'reading_date' is 'चालू रिडिंग दिनांक' (Current Reading Date).
+- 'generated_electricity_kwh' must be 0 if the bill has no solar generation or is a non-solar bill. NEVER fabricate units.
+- Return ONLY valid raw JSON without markdown formatting."""
 
         payload = {
             "contents": [{
@@ -1362,27 +1388,30 @@ Return ONLY valid raw JSON without markdown formatting."""
             "generationConfig": {"response_mime_type": "application/json"}
         }
 
-        # Try active Gemini models in order
-        candidate_models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash-latest", "gemini-1.5-flash", "gemini-flash-latest"]
+        # Try active Gemini models in order (gemini-3.1-flash-lite first for speed, then gemini-3.8-flash)
+        candidate_models = ["gemini-3.1-flash-lite", "gemini-3.8-flash"]
         headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
         
         for model in candidate_models:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
             try:
-                res = httpx.post(url, headers=headers, json=payload, timeout=12.0)
+                res = httpx.post(url, headers=headers, json=payload, timeout=14.0)
                 if res.status_code == 200:
                     result_text = res.json()["candidates"][0]["content"]["parts"][0]["text"]
                     clean_json = result_text.strip().removeprefix("```json").removesuffix("```").strip()
                     parsed = json.loads(clean_json)
+                    parsed["ai_model"] = model
+                    parsed["is_ai_extracted"] = True
                     # Normalize date separators
-                    for k in ("reading_date", "billing_date"):
+                    for k in ("reading_date", "billing_date", "commissioning_date"):
                         if parsed.get(k):
                             parsed[k] = str(parsed[k]).replace("/", "-")
                     return parsed
                 elif res.status_code in (401, 403):
                     logger.warning(f"AI Vision API ({model}) returned {res.status_code}: {res.text[:120]}")
                     break
-            except Exception:
+            except Exception as req_ex:
+                logger.debug(f"AI Model {model} attempt error: {req_ex}")
                 continue
     except Exception as ai_err:
         logger.warning(f"AI Vision Bill Extraction warning: {ai_err}")
@@ -1584,11 +1613,194 @@ def extract_msedcl_dates(text: str, billing_date_hint: str = None):
     return reading_date, billing_date
 
 
+def calculate_solar_health_and_degradation(
+    generated_units: float,
+    capacity: float = 3.0,
+    commissioning_date = None,
+    billing_date = None,
+    expected_x: float = None,
+    month_name: str = None,
+    monthly_benchmarks: dict = None
+) -> dict:
+    """
+    Evaluates Arin Energy Solar Plant System Health using the formula:
+    Target Degraded Generation = (X) * (1.0 - (age_in_years * 0.01))
+    - Panel degradation: 1% per year from date of commissioning.
+    - X: Base monthly benchmark generation in kWh.
+    - If generated_units >= Target and generated_units > 0 -> "GOOD"
+    - If generated_units < Target or generated_units <= 0 -> "POOR"
+    """
+    from datetime import datetime, date
+
+    default_monthly = {
+        "January": 100.0, "February": 100.0, "March": 100.0, "April": 100.0,
+        "May": 100.0, "June": 100.0, "July": 100.0, "August": 100.0,
+        "September": 100.0, "October": 100.0, "November": 100.0, "December": 100.0
+    }
+    benchmarks = {**default_monthly, **(monthly_benchmarks or {})}
+
+    # Detect month name if bill_month string provided
+    resolved_month = None
+    if month_name:
+        for m in default_monthly.keys():
+            if m.lower() in str(month_name).lower():
+                resolved_month = m
+                break
+
+    if expected_x is not None and float(expected_x) > 0:
+        resolved_x = float(expected_x)
+    elif resolved_month and resolved_month in benchmarks:
+        resolved_x = float(benchmarks[resolved_month])
+    else:
+        resolved_x = 100.0
+
+    def _parse_dt(d):
+        if not d or str(d).strip().upper() in ("N/A", "NONE", "NULL", ""):
+            return None
+        if isinstance(d, datetime):
+            return d
+        if isinstance(d, date):
+            return datetime.combine(d, datetime.min.time())
+        s = str(d).strip()
+        for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%d/%m/%y", "%d-%m-%y", "%Y/%m/%d", "%d.%m.%Y", "%d %b %Y", "%d %B %Y"):
+            try:
+                return datetime.strptime(s, fmt)
+            except ValueError:
+                pass
+        return None
+
+    comm_dt = _parse_dt(commissioning_date)
+    bill_dt = _parse_dt(billing_date) or datetime.now()
+
+    if comm_dt:
+        diff_days = max(0, (bill_dt - comm_dt).days)
+        age_years = max(0.0, round(diff_days / 365.25, 2))
+    else:
+        age_years = 0.0
+
+    cap = float(capacity or 1.0)
+    if cap <= 0:
+        cap = 1.0
+
+    # Monthly benchmark X is per kW (e.g. 100 kWh/kW).
+    # Base plant benchmark = capacity (kW) * X.
+    # If user explicitly passed an already-scaled total benchmark (> 200 while cap > 1), use as total.
+    if resolved_x <= 200:
+        plant_base_benchmark = round(resolved_x * cap, 1)
+    else:
+        plant_base_benchmark = round(resolved_x, 1)
+
+    degradation_percent = round(age_years * 1.0, 2)
+    degradation_factor = max(0.70, 1.0 - (age_years * 0.01))
+    target_units = round(plant_base_benchmark * degradation_factor, 1)
+
+    gen = float(generated_units or 0.0)
+    if gen <= 0:
+        system_health = "POOR"
+        health_reason = (
+            f"Zero generation detected (0 kWh vs target {target_units} kWh for {cap} kW plant). "
+            f"Plant may be tripped, in inverter fault, or disconnected."
+        )
+    elif gen >= target_units:
+        system_health = "GOOD"
+        health_reason = (
+            f"Good generation confirmed: Actual generation ({int(gen)} kWh) meets or exceeds "
+            f"the degraded target of {target_units} kWh (calculated for {cap} kW plant with base benchmark X={int(resolved_x)} kWh/kW "
+            f"[{int(plant_base_benchmark)} kWh plant baseline] and {degradation_percent}% degradation over {age_years} years from commissioning)."
+        )
+    else:
+        system_health = "POOR"
+        health_reason = (
+            f"Sub-optimal generation detected: Actual generation ({int(gen)} kWh) is below "
+            f"the expected target of {target_units} kWh (calculated for {cap} kW plant with base benchmark X={int(resolved_x)} kWh/kW "
+            f"[{int(plant_base_benchmark)} kWh plant baseline] and {degradation_percent}% degradation over {age_years} years from commissioning). "
+            f"Plant requires panel cleaning or inverter diagnostics."
+        )
+
+    return {
+        "system_health": system_health,
+        "system_health_reason": health_reason,
+        "benchmark_x": resolved_x,
+        "plant_base_benchmark": plant_base_benchmark,
+        "capacity_kw": cap,
+        "target_generation_kwh": target_units,
+        "plant_age_years": age_years,
+        "degradation_percent": degradation_percent,
+        "degradation_factor": round(degradation_factor, 4),
+        "commissioning_date": comm_dt.strftime("%d/%m/%Y") if comm_dt else (str(commissioning_date) if commissioning_date else None)
+    }
+
+
+@app.get("/api/system-benchmarks")
+def get_system_benchmarks():
+    """Returns stored 12-month solar benchmarks (value of X for each month) and degradation rate."""
+    default_monthly = {
+        "January": 100, "February": 100, "March": 100, "April": 100,
+        "May": 100, "June": 100, "July": 100, "August": 100,
+        "September": 100, "October": 100, "November": 100, "December": 100
+    }
+    benchmarks = dict(default_monthly)
+    try:
+        conn = get_db_connection()
+        if conn:
+            cur = conn.cursor(dictionary=True)
+            cur.execute("SELECT setting_value FROM system_settings WHERE setting_key = 'monthly_solar_benchmarks_x'")
+            row = cur.fetchone()
+            cur.close()
+            conn.close()
+            if row and row.get("setting_value"):
+                loaded = json.loads(row["setting_value"])
+                if isinstance(loaded, dict):
+                    benchmarks.update({k: float(v) for k, v in loaded.items() if v is not None})
+    except Exception as e:
+        logger.warning(f"Error reading monthly_solar_benchmarks_x: {e}")
+    return {
+        "status": "success",
+        "benchmarks": benchmarks,
+        "degradation_rate_per_year": 0.01,
+        "formula": "(X) * (1 - (age_in_years * 0.01))"
+    }
+
+
+@app.post("/api/system-benchmarks")
+async def save_system_benchmarks(data: dict = Body(...), user=Depends(get_current_user)):
+    """Saves updated 12-month solar benchmarks (value of X for each month) to system_settings."""
+    benchmarks = data.get("benchmarks", {})
+    if not isinstance(benchmarks, dict):
+        raise HTTPException(status_code=400, detail="Invalid benchmarks format.")
+    try:
+        conn = get_db_connection()
+        if not conn:
+            raise HTTPException(status_code=500, detail="Database connection failed.")
+        cur = conn.cursor()
+        val_str = json.dumps(benchmarks)
+        cur.execute(
+            "INSERT INTO system_settings (setting_key, setting_value) VALUES ('monthly_solar_benchmarks_x', %s) "
+            "ON DUPLICATE KEY UPDATE setting_value = %s",
+            (val_str, val_str)
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+        return {"status": "success", "message": "Monthly solar benchmarks saved successfully.", "benchmarks": benchmarks}
+    except Exception as e:
+        logger.error(f"Error saving system benchmarks: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/analyze-bill-ocr")
-async def analyze_bill_ocr(file: UploadFile = File(...)):
+async def analyze_bill_ocr(
+    file: UploadFile = File(...),
+    expected_units_x: Optional[float] = Form(None),
+    commissioning_date: Optional[str] = Form(None),
+    capacity_kw: Optional[float] = Form(None),
+    monthly_benchmarks_json: Optional[str] = Form(None)
+):
     """
     Stand-alone endpoint to extract solar bill details from an uploaded bill (PDF/Image)
-    via Multimodal AI Vision or Cross-Platform OCR, enriched with historical weather data.
+    via Multimodal AI Vision (Gemini 3.8 Flash) or Cross-Platform OCR fallback,
+    evaluated with Arin Energy's Formula for Good System Health:
+    Target = (X) * (1 - age_in_years * 0.01).
     """
     try:
         content = await file.read()
@@ -1598,7 +1810,7 @@ async def analyze_bill_ocr(file: UploadFile = File(...)):
 
         consumer_number = None
         consumer_name = "MSEDCL Consumer"
-        capacity = "3.0"
+        capacity = str(capacity_kw) if capacity_kw else "3.0"
         reading_date = None
         billing_date = None
         bill_month = None
@@ -1614,8 +1826,72 @@ async def analyze_bill_ocr(file: UploadFile = File(...)):
 
         meter_readings = None
         past_year_history = None
+        is_real_ai = False
+        ai_model_name = None
+        ai_system_health = None
+        ai_health_reason = None
 
-        # 0. Direct high-precision PDF extraction (with Marathi font glyph mapping)
+        # Load monthly benchmarks for X from JSON or system_settings
+        monthly_benchmarks = {
+            "January": 100.0, "February": 100.0, "March": 100.0, "April": 100.0,
+            "May": 100.0, "June": 100.0, "July": 100.0, "August": 100.0,
+            "September": 100.0, "October": 100.0, "November": 100.0, "December": 100.0
+        }
+        if monthly_benchmarks_json:
+            try:
+                custom_bm = json.loads(monthly_benchmarks_json)
+                if isinstance(custom_bm, dict):
+                    monthly_benchmarks.update({k: float(v) for k, v in custom_bm.items() if v is not None})
+            except Exception:
+                pass
+        else:
+            try:
+                conn_bm = get_db_connection()
+                if conn_bm:
+                    bm_cur = conn_bm.cursor(dictionary=True)
+                    bm_cur.execute("SELECT setting_value FROM system_settings WHERE setting_key = 'monthly_solar_benchmarks_x'")
+                    bm_row = bm_cur.fetchone()
+                    bm_cur.close()
+                    conn_bm.close()
+                    if bm_row and bm_row.get("setting_value"):
+                        loaded_bm = json.loads(bm_row["setting_value"])
+                        if isinstance(loaded_bm, dict):
+                            monthly_benchmarks.update({k: float(v) for k, v in loaded_bm.items() if v is not None})
+            except Exception as bm_err:
+                logger.debug(f"Benchmark load note: {bm_err}")
+
+        # 0. Primary AI Multimodal Vision Extraction (Gemini 3.8 Flash)
+        ai_data = extract_bill_with_ai(
+            content=content,
+            filename=filename,
+            expected_x=expected_units_x,
+            commissioning_date_hint=commissioning_date
+        )
+        if ai_data:
+            is_real_ai = True
+            ai_model_name = ai_data.get("ai_model", "gemini-3.8-flash")
+            if ai_data.get("consumer_number"): consumer_number = str(ai_data.get("consumer_number")).strip()
+            if ai_data.get("consumer_name"): consumer_name = str(ai_data.get("consumer_name")).strip()
+            if ai_data.get("sanctioned_load_kw") and not capacity_kw: capacity = str(ai_data.get("sanctioned_load_kw"))
+            if ai_data.get("reading_date"): reading_date = str(ai_data.get("reading_date"))
+            if ai_data.get("billing_date"): billing_date = str(ai_data.get("billing_date")).strip()
+            if ai_data.get("bill_month"): bill_month = str(ai_data.get("bill_month")).strip()
+            if ai_data.get("billing_amount") is not None: billing_amount = float(ai_data.get("billing_amount"))
+            if ai_data.get("billing_units") is not None: billing_units = float(ai_data.get("billing_units"))
+            if ai_data.get("generated_electricity_kwh") is not None: generated_units = float(ai_data.get("generated_electricity_kwh"))
+            if ai_data.get("exported_to_grid_kwh") is not None: exported_units = float(ai_data.get("exported_to_grid_kwh"))
+            if ai_data.get("imported_from_grid_kwh") is not None: imported_units = float(ai_data.get("imported_from_grid_kwh"))
+            if ai_data.get("daytime_self_consumption_kwh") is not None: self_consumption = float(ai_data.get("daytime_self_consumption_kwh"))
+            if ai_data.get("total_consumption_kwh") is not None: total_consumption = float(ai_data.get("total_consumption_kwh"))
+            if ai_data.get("previous_banked_units") is not None: prev_banked = str(ai_data.get("previous_banked_units"))
+            if ai_data.get("current_banked_units") is not None: curr_banked = str(ai_data.get("current_banked_units"))
+            if ai_data.get("commissioning_date") and not commissioning_date: commissioning_date = str(ai_data.get("commissioning_date")).strip()
+            if ai_data.get("meter_readings"): meter_readings = ai_data.get("meter_readings")
+            if ai_data.get("past_year_history"): past_year_history = ai_data.get("past_year_history")
+            if ai_data.get("system_health"): ai_system_health = str(ai_data.get("system_health")).upper()
+            if ai_data.get("system_health_reason"): ai_health_reason = str(ai_data.get("system_health_reason"))
+
+        # 1. Direct high-precision PDF extraction backup (with Marathi font glyph mapping)
         if filename.endswith(".pdf"):
             try:
                 import tempfile
@@ -1626,53 +1902,31 @@ async def analyze_bill_ocr(file: UploadFile = File(...)):
                 try:
                     pdf_data = extract_data_from_pdf(tmp_pdf_path)
                     if pdf_data:
-                        if pdf_data.get("consumer_number"): consumer_number = str(pdf_data["consumer_number"]).strip()
-                        if pdf_data.get("consumer_name"): consumer_name = str(pdf_data["consumer_name"]).strip()
-                        if pdf_data.get("capacity"): capacity = str(pdf_data["capacity"])
-                        if pdf_data.get("reading_date"): reading_date = str(pdf_data["reading_date"])
-                        if pdf_data.get("billing_date"): billing_date = str(pdf_data["billing_date"])
-                        if pdf_data.get("bill_month"): bill_month = str(pdf_data["bill_month"])
-                        if pdf_data.get("billing_amount") is not None: billing_amount = float(pdf_data["billing_amount"])
-                        if pdf_data.get("generation_units") is not None: generated_units = float(pdf_data["generation_units"])
-                        if pdf_data.get("export_units") is not None: exported_units = float(pdf_data["export_units"])
-                        if pdf_data.get("import_units") is not None: imported_units = float(pdf_data["import_units"])
-                        if pdf_data.get("prev_bank_units") is not None: prev_banked = str(pdf_data["prev_bank_units"])
-                        if pdf_data.get("bank_solar_units") is not None: curr_banked = str(pdf_data["bank_solar_units"])
-                        if pdf_data.get("meter_readings"): meter_readings = pdf_data["meter_readings"]
-                        if pdf_data.get("past_year_history"): past_year_history = pdf_data["past_year_history"]
+                        if not consumer_number and pdf_data.get("consumer_number"): consumer_number = str(pdf_data["consumer_number"]).strip()
+                        if consumer_name == "MSEDCL Consumer" and pdf_data.get("consumer_name"): consumer_name = str(pdf_data["consumer_name"]).strip()
+                        if (not capacity or capacity == "3.0") and pdf_data.get("capacity"): capacity = str(pdf_data["capacity"])
+                        if not reading_date and pdf_data.get("reading_date"): reading_date = str(pdf_data["reading_date"])
+                        if not billing_date and pdf_data.get("billing_date"): billing_date = str(pdf_data["billing_date"])
+                        if not bill_month and pdf_data.get("bill_month"): bill_month = str(pdf_data["bill_month"])
+                        if billing_amount <= 0 and pdf_data.get("billing_amount") is not None: billing_amount = float(pdf_data["billing_amount"])
+                        if generated_units <= 0 and pdf_data.get("generation_units") is not None: generated_units = float(pdf_data["generation_units"])
+                        if exported_units <= 0 and pdf_data.get("export_units") is not None: exported_units = float(pdf_data["export_units"])
+                        if imported_units <= 0 and pdf_data.get("import_units") is not None: imported_units = float(pdf_data["import_units"])
+                        if prev_banked == "0" and pdf_data.get("prev_bank_units") is not None: prev_banked = str(pdf_data["prev_bank_units"])
+                        if curr_banked == "0" and pdf_data.get("bank_solar_units") is not None: curr_banked = str(pdf_data["bank_solar_units"])
+                        if not meter_readings and pdf_data.get("meter_readings"): meter_readings = pdf_data["meter_readings"]
+                        if not past_year_history and pdf_data.get("past_year_history"): past_year_history = pdf_data["past_year_history"]
                 finally:
                     if os.path.exists(tmp_pdf_path):
                         os.remove(tmp_pdf_path)
             except Exception as pdf_ex:
                 logger.debug(f"Direct extract_data_from_pdf in analyze_bill_ocr failed: {pdf_ex}")
 
-        # 1. Attempt AI Multimodal Vision Extraction (Gemini API) if not already extracted
-        if not consumer_number or generated_units <= 0:
-            ai_data = extract_bill_with_ai(content, filename)
-            if ai_data:
-                if ai_data.get("consumer_number"): consumer_number = str(ai_data.get("consumer_number")).strip()
-                if ai_data.get("consumer_name"): consumer_name = str(ai_data.get("consumer_name")).strip()
-                if ai_data.get("sanctioned_load_kw"): capacity = str(ai_data.get("sanctioned_load_kw"))
-                if ai_data.get("reading_date"): reading_date = str(ai_data.get("reading_date"))
-                if ai_data.get("billing_date"): billing_date = str(ai_data.get("billing_date")).strip()
-                if ai_data.get("bill_month"): bill_month = str(ai_data.get("bill_month")).strip()
-                if ai_data.get("billing_amount") is not None: billing_amount = float(ai_data.get("billing_amount"))
-                if ai_data.get("billing_units") is not None: billing_units = float(ai_data.get("billing_units"))
-                if ai_data.get("generated_electricity_kwh") is not None: generated_units = float(ai_data.get("generated_electricity_kwh"))
-                if ai_data.get("exported_to_grid_kwh") is not None: exported_units = float(ai_data.get("exported_to_grid_kwh"))
-                if ai_data.get("imported_from_grid_kwh") is not None: imported_units = float(ai_data.get("imported_from_grid_kwh"))
-                if ai_data.get("daytime_self_consumption_kwh") is not None: self_consumption = float(ai_data.get("daytime_self_consumption_kwh"))
-                if ai_data.get("total_consumption_kwh") is not None: total_consumption = float(ai_data.get("total_consumption_kwh"))
-                if ai_data.get("previous_banked_units") is not None: prev_banked = str(ai_data.get("previous_banked_units"))
-                if ai_data.get("current_banked_units") is not None: curr_banked = str(ai_data.get("current_banked_units"))
-                if ai_data.get("meter_readings"): meter_readings = ai_data.get("meter_readings")
-                if ai_data.get("past_year_history"): past_year_history = ai_data.get("past_year_history")
-
-        # 2. Local OCR / Text extraction
+        # 2. Local OCR / Text extraction fallback
         if not consumer_number or billing_units <= 0:
             extracted_text = extract_text_ocr(content, filename)
 
-            # A. Consumer Number (10 to 12 digits, prioritizing MSEDCL 3/4/5 prefixes)
+            # A. Consumer Number
             c_match = re.search(r"(?:Consumer|Cons|ग्राहक)\s*[:.\-]?\s*(?:No\.?|Number|क्रमांक)\s*[:.\-]?\s*(\d{10,12})", extracted_text, re.IGNORECASE)
             if c_match:
                 consumer_number = c_match.group(1).strip()
@@ -1685,50 +1939,6 @@ async def analyze_bill_ocr(file: UploadFile = File(...)):
                     if c_all:
                         consumer_number = c_all[0]
 
-            # B. Database Lookup for verified records
-            if consumer_number:
-                try:
-                    conn_chk = get_db_connection()
-                    if conn_chk:
-                        c_cur = conn_chk.cursor(dictionary=True)
-                        c_cur.execute("SELECT * FROM customers WHERE consumer_number = %s", (consumer_number,))
-                        cust_row = c_cur.fetchone()
-                        c_cur.execute("SELECT * FROM bill_generation_details WHERE consumer_number = %s ORDER BY month_year DESC LIMIT 1", (consumer_number,))
-                        bill_row = c_cur.fetchone()
-                        c_cur.close()
-                        conn_chk.close()
-
-                        if cust_row:
-                            if cust_row.get("customer_name"): consumer_name = cust_row["customer_name"]
-                            if cust_row.get("solar_capacity_kw"): capacity = str(cust_row["solar_capacity_kw"])
-
-                        if bill_row:
-                            db_rd = str(bill_row["reading_date"]) if bill_row.get("reading_date") else None
-                            db_bd = str(bill_row["billing_date"]) if bill_row.get("billing_date") else (str(bill_row["month_year"]) if bill_row.get("month_year") else None)
-                            if db_rd:
-                                rd_parsed = _parse_any_date(db_rd)
-                                bd_parsed = _parse_any_date(db_bd) if db_bd else None
-                                if not bd_parsed or (rd_parsed and rd_parsed <= bd_parsed):
-                                    reading_date = db_rd
-                            if db_bd and not billing_date:
-                                billing_date = db_bd
-                            if bill_row.get("month_year") and not bill_month:
-                                try:
-                                    m_dt = bill_row["month_year"]
-                                    if hasattr(m_dt, "strftime"):
-                                        bill_month = m_dt.strftime("%B %Y")
-                                except: pass
-                            if bill_row.get("billing_amount") is not None: billing_amount = float(bill_row["billing_amount"])
-                            if bill_row.get("generation_units") is not None and float(bill_row["generation_units"]) > 0:
-                                generated_units = float(bill_row["generation_units"])
-                            if bill_row.get("export_units") is not None: exported_units = float(bill_row["export_units"])
-                            if bill_row.get("import_units") is not None: imported_units = float(bill_row["import_units"])
-                            if bill_row.get("prev_bank_units") is not None: prev_banked = str(bill_row["prev_bank_units"])
-                            if bill_row.get("bank_solar_units") is not None: curr_banked = str(bill_row["bank_solar_units"])
-                except Exception as db_err:
-                    logger.debug(f"DB lookup note in analyze_bill_ocr: {db_err}")
-
-            # C. Parse from Text if still zero
             if consumer_name in ("MSEDCL Consumer", ""):
                 for line in extracted_text.split("\n"):
                     line_s = line.strip()
@@ -1743,13 +1953,9 @@ async def analyze_bill_ocr(file: UploadFile = File(...)):
                 if load_match:
                     capacity = str(float(load_match.group(1)))
 
-            # Reading Date & Billing Date: strictly extracted with label + pair detection
             ocr_rd, ocr_bd = extract_msedcl_dates(extracted_text, billing_date_hint=billing_date)
-            if ocr_rd:
-                rd_obj = _parse_any_date(reading_date) if reading_date else None
-                bd_obj = _parse_any_date(billing_date) if billing_date else None
-                if not reading_date or (bd_obj and rd_obj and rd_obj > bd_obj):
-                    reading_date = ocr_rd
+            if ocr_rd and not reading_date:
+                reading_date = ocr_rd
             if ocr_bd and not billing_date:
                 billing_date = ocr_bd
 
@@ -1783,22 +1989,79 @@ async def analyze_bill_ocr(file: UploadFile = File(...)):
                 if imp_match:
                     imported_units = float(imp_match.group(1))
 
-            # Banked units regex extraction from OCR text if still default "0"
             if prev_banked == "0" and curr_banked == "0":
                 bsu_m = re.search(r'(?:Bank\s*Solar\s*Units|सौर\s*बँक\s*युनिट)[\s:\-]+([0-9]+(?:\.[0-9]+)?)', extracted_text, re.IGNORECASE)
                 pbu_m = re.search(r'(?:Prev\s*Bank\s*Units|मागील\s*बँक\s*युनिट)[\s:\-]+([0-9]+(?:\.[0-9]+)?)', extracted_text, re.IGNORECASE)
                 if bsu_m: curr_banked = str(bsu_m.group(1))
                 if pbu_m: prev_banked = str(pbu_m.group(1))
 
-        # 3. Dynamic Balance & Proportional Derivation (Zero static defaults)
-        cap_val = max(1.0, float(capacity or 3.0))
-        if generated_units <= 0:
-            generated_units = round(cap_val * 120.0, 0)
-        if exported_units <= 0:
-            exported_units = round(generated_units * 0.55, 0)
-        if imported_units <= 0:
-            imported_units = round(generated_units * 0.45, 0)
-        if self_consumption <= 0:
+        # 3. Database Lookup for verified customer records & auto-extraction of solar age / commissioning date
+        cust_row = None
+        bill_row = None
+        commissioning_date_source = "Auto-extracted from Database by Consumer ID" if commissioning_date else "Not Registered in Database"
+        if consumer_number:
+            try:
+                conn_chk = get_db_connection()
+                if conn_chk:
+                    c_cur = conn_chk.cursor(dictionary=True)
+                    clean_cnum = re.sub(r'[^0-9]', '', str(consumer_number))
+                    c_cur.execute(
+                        "SELECT * FROM customers WHERE consumer_number = %s OR consumer_number = %s OR arin_id = %s LIMIT 1",
+                        (consumer_number, clean_cnum, consumer_number)
+                    )
+                    cust_row = c_cur.fetchone()
+                    c_cur.execute(
+                        "SELECT * FROM bill_generation_details WHERE consumer_number = %s OR consumer_number = %s ORDER BY month_year DESC LIMIT 1",
+                        (consumer_number, clean_cnum)
+                    )
+                    bill_row = c_cur.fetchone()
+                    c_cur.close()
+                    conn_chk.close()
+
+                    if cust_row:
+                        if cust_row.get("customer_name") and consumer_name in ("MSEDCL Consumer", ""):
+                            consumer_name = cust_row["customer_name"]
+                        if cust_row.get("solar_capacity_kw") and (not capacity_kw or float(capacity) <= 0):
+                            capacity = str(cust_row["solar_capacity_kw"])
+                        if cust_row.get("commission_date"):
+                            commissioning_date = str(cust_row["commission_date"])
+                            commissioning_date_source = "Auto-extracted from Database by Consumer ID"
+                            logger.info(f"Auto-extracted commissioning date from customers table for {consumer_number}: {commissioning_date}")
+
+                    if bill_row:
+                        db_rd = str(bill_row["reading_date"]) if bill_row.get("reading_date") else None
+                        db_bd = str(bill_row["billing_date"]) if bill_row.get("billing_date") else (str(bill_row["month_year"]) if bill_row.get("month_year") else None)
+                        if db_rd and not reading_date:
+                            reading_date = db_rd
+                        if db_bd and not billing_date:
+                            billing_date = db_bd
+                        if bill_row.get("month_year") and not bill_month:
+                            try:
+                                m_dt = bill_row["month_year"]
+                                if hasattr(m_dt, "strftime"):
+                                    bill_month = m_dt.strftime("%B %Y")
+                            except: pass
+                        if billing_amount <= 0 and bill_row.get("billing_amount") is not None:
+                            billing_amount = float(bill_row["billing_amount"])
+                        if generated_units <= 0 and bill_row.get("generation_units") is not None:
+                            generated_units = float(bill_row["generation_units"])
+                        if exported_units <= 0 and bill_row.get("export_units") is not None:
+                            exported_units = float(bill_row["export_units"])
+                        if imported_units <= 0 and bill_row.get("import_units") is not None:
+                            imported_units = float(bill_row["import_units"])
+                        if prev_banked == "0" and bill_row.get("prev_bank_units") is not None:
+                            prev_banked = str(bill_row["prev_bank_units"])
+                        if curr_banked == "0" and bill_row.get("bank_solar_units") is not None:
+                            curr_banked = str(bill_row["bank_solar_units"])
+                        if not commissioning_date and bill_row.get("commission_date"):
+                            commissioning_date = str(bill_row["commission_date"])
+                            commissioning_date_source = "Auto-extracted from Database by Consumer ID"
+            except Exception as db_err:
+                logger.debug(f"DB lookup note in analyze_bill_ocr: {db_err}")
+
+        # 4. Accurate Self-Consumption and Total Consumption Derivations
+        # DO NOT force fake generated units if 0! Keep real 0 if plant had 0 generation.
+        if self_consumption <= 0 and generated_units > 0:
             self_consumption = round(max(0.0, generated_units - exported_units), 0)
         if total_consumption <= 0:
             total_consumption = round(self_consumption + imported_units, 0)
@@ -1818,20 +2081,58 @@ async def analyze_bill_ocr(file: UploadFile = File(...)):
                 calc_curr_banked = 0.0
                 calc_net_billed = deficit_val - p_val
 
-        # If current banked is missing or has the legacy frozen bug:
         if (curr_banked == "0" and p_val > 0) or (curr_banked == str(int(p_val)) and net_export_val != 0):
             curr_banked = str(int(calc_curr_banked))
 
-        # Billed units reflects the actual net billed units after banked solar offset
         if billing_units <= 0 or billing_units == round(max(0.0, total_consumption - generated_units), 0):
             billing_units = calc_net_billed
 
-        # Dynamic Annual & Lifetime ROI Savings
+        # Annual & Lifetime Savings
         annual_savings = round(generated_units * 12.0 * 8.5, 0)
         lifetime_savings_str = f"{round(annual_savings * 25.0 / 100000.0, 1)} Lakhs"
 
         if not consumer_number:
             consumer_number = f"41{abs(hash(filename)) % 10000000000:010d}"
+
+        # Ensure billing_date & bill_month exist
+        if not billing_date and bill_month:
+            try:
+                bm_dt = datetime.strptime(bill_month, "%B %Y")
+                billing_date = bm_dt.strftime("01/%m/%Y")
+            except: pass
+
+        if not billing_date:
+            billing_date = reading_date
+
+        if not bill_month:
+            for d_str in (billing_date, reading_date):
+                if d_str:
+                    for fmt in ("%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d", "%d-%m-%y", "%d/%m/%y"):
+                        try:
+                            dt_val = datetime.strptime(d_str.strip(), fmt)
+                            bill_month = dt_val.strftime("%B %Y")
+                            break
+                        except: pass
+                if bill_month: break
+        if not bill_month:
+            bill_month = datetime.now().strftime("%B %Y")
+
+        # 5. Evaluate System Health with exact Formula:
+        # Target = (X) * (1 - (age_in_years * 0.01))
+        health_eval = calculate_solar_health_and_degradation(
+            generated_units=generated_units,
+            capacity=float(capacity or 3.0),
+            commissioning_date=commissioning_date,
+            billing_date=billing_date or reading_date,
+            expected_x=expected_units_x,
+            month_name=bill_month,
+            monthly_benchmarks=monthly_benchmarks
+        )
+
+        final_system_health = health_eval["system_health"]
+        final_health_reason = health_eval["system_health_reason"]
+        if is_real_ai and ai_data and ai_data.get("ai_recommendation"):
+            final_health_reason += f" | AI Recommendation: {ai_data['ai_recommendation']}"
 
         weather_summary = {
             "avg_solar_irradiance_kwh_m2": 5.2,
@@ -1841,7 +2142,6 @@ async def analyze_bill_ocr(file: UploadFile = File(...)):
         }
         
         try:
-            import json
             import urllib.request
             end_date = (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d")
             start_date = (datetime.now() - timedelta(days=32)).strftime("%Y-%m-%d")
@@ -1873,29 +2173,6 @@ async def analyze_bill_ocr(file: UploadFile = File(...)):
                                 weather_summary["performance_score"] = "75%"
         except Exception as w_err:
             logger.warning(f"Could not fetch Open-Meteo weather data: {w_err}")
-
-        # Ensure billing_date & bill_month exist
-        if not billing_date and bill_month:
-            try:
-                bm_dt = datetime.strptime(bill_month, "%B %Y")
-                billing_date = bm_dt.strftime("01/%m/%Y")
-            except: pass
-
-        if not billing_date:
-            billing_date = reading_date
-
-        if not bill_month:
-            for d_str in (billing_date, reading_date):
-                if d_str:
-                    for fmt in ("%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d", "%d-%m-%y", "%d/%m/%y"):
-                        try:
-                            dt_val = datetime.strptime(d_str.strip(), fmt)
-                            bill_month = dt_val.strftime("%B %Y")
-                            break
-                        except: pass
-                if bill_month: break
-        if not bill_month:
-            bill_month = datetime.now().strftime("%B %Y")
 
         # Upload uploaded bill file to Google Drive under Bill_Generation1/<consumer_number>/
         pdf_drive_file_id = None
@@ -1973,7 +2250,7 @@ async def analyze_bill_ocr(file: UploadFile = File(...)):
                     "billing_amount": billing_amount,
                     "prev_bank_units": float(prev_banked) if prev_banked else 0.0,
                     "bank_solar_units": float(curr_banked) if curr_banked else 0.0,
-                    "bill_status": "Normal",
+                    "bill_status": "Normal" if final_system_health == "GOOD" else "POOR",
                     "pdf_drive_file_id": pdf_drive_file_id,
                     "pdf_drive_view_url": pdf_drive_view_url,
                     "image_drive_file_id": image_drive_file_id,
@@ -2003,7 +2280,23 @@ async def analyze_bill_ocr(file: UploadFile = File(...)):
                 "billing_amount": billing_amount,
                 "previous_banked_unit": f"{prev_banked} Units",
                 "current_banked_unit": f"{curr_banked} Units",
-                "system_health": "GOOD" if generated_units > 200 else "NORMAL",
+                "system_health": final_system_health,
+                "system_health_reason": final_health_reason,
+                "benchmark_x": health_eval["benchmark_x"],
+                "target_generation_kwh": health_eval["target_generation_kwh"],
+                "plant_age_years": health_eval["plant_age_years"],
+                "solar_age_years": health_eval["plant_age_years"],
+                "degradation_percent": health_eval["degradation_percent"],
+                "commissioning_date": health_eval["commissioning_date"] or commissioning_date,
+                "commissioning_date_source": commissioning_date_source,
+                "is_ai_extracted": is_real_ai,
+                "fallback_used": not is_real_ai,
+                "ai_model": ai_model_name or ("gemini-3.8-flash" if is_real_ai else "Deterministic Rule-Engine"),
+                "analysis_engine": f"Real AI Vision ({ai_model_name})" if is_real_ai else "Fallback Formula Engine (Deterministic Rule-Engine)",
+                "engine_notice": (
+                    f"Report generated & verified by Multimodal AI Vision ({ai_model_name})." if is_real_ai
+                    else "AI Vision was unavailable. This report was accurately generated by the deterministic Fallback OCR & Good System Health Formula: (X) × [1 - (Solar Age × 1%)]."
+                ),
                 "annual_savings": annual_savings,
                 "lifetime_savings": lifetime_savings_str,
                 "pdf_drive_file_id": pdf_drive_file_id,
@@ -4609,6 +4902,18 @@ def get_billing_analysis(consumerNumber: str, month: str, user=Depends(get_curre
             "blacklisted_reason": cust_profile.get("blacklisted_reason") or ""
         }
     
+    t_gen = float(target_bill.get("generation_units") or target_bill.get("generated") or 0.0)
+    t_cap = float(target_bill.get("solar_capacity_kw") or target_bill.get("capacity") or 3.0)
+    t_comm = target_bill.get("commission_date")
+    t_bill_dt = target_bill.get("billing_date") or target_bill.get("month_year")
+    t_health = calculate_solar_health_and_degradation(
+        generated_units=t_gen,
+        capacity=t_cap,
+        commissioning_date=t_comm,
+        billing_date=t_bill_dt,
+        month_name=str(t_bill_dt)
+    )
+
     # Map database keys to frontend-expected keys
     return {
         "consumer_number": target_bill.get("consumer_number"),
@@ -4621,8 +4926,11 @@ def get_billing_analysis(consumerNumber: str, month: str, user=Depends(get_curre
         "amount": target_bill.get("billing_amount") or target_bill.get("amount", 0),
         "prev_banked": target_bill.get("prev_bank_units") or target_bill.get("prev_banked", 0),
         "curr_banked": target_bill.get("bank_solar_units") or target_bill.get("curr_banked", 0),
-        "system_health": "Analyzed",
-        "bill_status": target_bill.get("bill_status") or "Normal",
+        "system_health": t_health["system_health"],
+        "system_health_reason": t_health["system_health_reason"],
+        "target_generation_kwh": t_health["target_generation_kwh"],
+        "benchmark_x": t_health["benchmark_x"],
+        "bill_status": "Normal" if t_health["system_health"] == "GOOD" else "POOR",
         "reading_date": target_bill.get("reading_date"),
         "billing_date": target_bill.get("billing_date") or target_bill.get("month_year"),
         "capacity": target_bill.get("solar_capacity_kw") or target_bill.get("capacity", 0),
