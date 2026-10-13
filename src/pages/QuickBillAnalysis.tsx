@@ -8,11 +8,17 @@ import {
   ArrowUpRight, ArrowDownLeft, ShieldCheck, Sun, TrendingUp, 
   Download, Image as ImageIcon, FileCheck, Activity, Calendar,
   Sparkles, Clock, Leaf, Trees, Sliders, Info, AlertTriangle,
-  Save, RefreshCw, CheckCircle, ShieldAlert
+  Save, RefreshCw, CheckCircle, ShieldAlert, ChevronDown
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { BillPreview } from "@/components/BillPreview";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import { format } from "date-fns";
@@ -356,47 +362,76 @@ export default function QuickBillAnalysis() {
   };
 
   // Export Handlers for Solar Client Bill
-  const handleExportImage = async () => {
+  // CTA 1: Download Report Only (supports PDF and PNG)
+  const handleExportReportOnly = async (formatChoice: "pdf" | "png" = "pdf") => {
     if (!reportRef.current) {
       toast.error("Report preview element not ready.");
       return;
     }
     try {
       setIsExporting(true);
-      const canvas = await html2canvas(reportRef.current, {
+      const reportCanvas = await html2canvas(reportRef.current, {
         scale: 2,
         useCORS: true,
         backgroundColor: "#ffffff",
         width: 1200
       });
-      const imgData = canvas.toDataURL("image/png", 1.0);
-      const link = document.createElement("a");
       const cNum = solarResult?.extracted_data?.consumer_number || "Bill";
-      link.download = `Arin_Energy_AI_Solar_Bill_Analysis_${cNum}.png`;
-      link.href = imgData;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      toast.success("Report image downloaded successfully!");
 
-      // Background Drive Save
-      try {
-        const rawCNum = solarResult?.extracted_data?.consumer_number;
-        const bDate = solarResult?.extracted_data?.billing_date || solarResult?.extracted_data?.reading_date || format(new Date(), "yyyy-MM-dd");
-        if (rawCNum) {
-          api.saveBillImage(rawCNum, bDate, imgData).catch((err) => console.warn("Drive image save warning:", err));
+      if (formatChoice === "png") {
+        const imgData = reportCanvas.toDataURL("image/png", 1.0);
+        const link = document.createElement("a");
+        link.download = `Arin_Energy_AI_Solar_Bill_Report_${cNum}.png`;
+        link.href = imgData;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        toast.success("Report image (.png) downloaded successfully!");
+
+        // Background Drive Save
+        try {
+          const rawCNum = solarResult?.extracted_data?.consumer_number;
+          const bDate = solarResult?.extracted_data?.billing_date || solarResult?.extracted_data?.reading_date || format(new Date(), "yyyy-MM-dd");
+          if (rawCNum) {
+            api.saveBillImage(rawCNum, bDate, imgData).catch((err) => console.warn("Drive image save warning:", err));
+          }
+        } catch (saveErr) {
+          console.warn("Background drive save error:", saveErr);
         }
-      } catch (saveErr) {
-        console.warn("Background drive save error:", saveErr);
+      } else {
+        const reportImg = reportCanvas.toDataURL("image/jpeg", 0.95);
+        const pdf = new jsPDF({
+          orientation: "landscape",
+          unit: "px",
+          format: [reportCanvas.width, reportCanvas.height]
+        });
+
+        // Page 1 Only (Clean Report without attached section)
+        pdf.addImage(reportImg, "JPEG", 0, 0, reportCanvas.width, reportCanvas.height);
+        pdf.save(`Arin_Energy_AI_Solar_Bill_Report_${cNum}.pdf`);
+        toast.success("Report PDF downloaded successfully!");
+
+        // Background Drive Save
+        try {
+          const rawCNum = solarResult?.extracted_data?.consumer_number;
+          const bDate = solarResult?.extracted_data?.billing_date || solarResult?.extracted_data?.reading_date || format(new Date(), "yyyy-MM-dd");
+          if (rawCNum) {
+            const pdfBase64 = pdf.output("datauristring");
+            api.saveBillImage(rawCNum, bDate, reportImg, pdfBase64).catch((err) => console.warn("Drive PDF save warning:", err));
+          }
+        } catch (saveErr) {
+          console.warn("Background drive save error:", saveErr);
+        }
       }
     } catch (err: any) {
-      toast.error("Image export failed: " + err.message);
+      toast.error("Report export failed: " + err.message);
     } finally {
       setIsExporting(false);
     }
   };
 
-  const handleExportPDF = async () => {
+  // CTA 2: Download Report with Attached Section (2-Page PDF)
+  const handleExportReportWithAttached = async () => {
     if (!reportRef.current) {
       toast.error("Report preview element not ready.");
       return;
@@ -418,7 +453,7 @@ export default function QuickBillAnalysis() {
         format: [reportCanvas.width, reportCanvas.height]
       });
 
-      // Page 1
+      // Page 1: Report
       pdf.addImage(reportImg, "JPEG", 0, 0, reportCanvas.width, reportCanvas.height);
 
       // Page 2: Attached Original Uploaded Solar Bill
@@ -438,8 +473,8 @@ export default function QuickBillAnalysis() {
       }
 
       const cNum = solarResult?.extracted_data?.consumer_number || "Bill";
-      pdf.save(`Arin_Energy_AI_Solar_Bill_Analysis_${cNum}.pdf`);
-      toast.success("Report PDF with Attached Bill downloaded successfully!");
+      pdf.save(`Arin_Energy_AI_Solar_Bill_Analysis_With_Attached_${cNum}.pdf`);
+      toast.success("Report PDF with Attached Section downloaded successfully!");
 
       // Background Drive Save
       try {
@@ -453,11 +488,15 @@ export default function QuickBillAnalysis() {
         console.warn("Background drive save error:", saveErr);
       }
     } catch (err: any) {
-      toast.error("PDF export failed: " + err.message);
+      toast.error("Export with attached section failed: " + err.message);
     } finally {
       setIsExporting(false);
     }
   };
+
+  // Backwards compatibility aliases
+  const handleExportImage = () => handleExportReportOnly("png");
+  const handleExportPDF = () => handleExportReportWithAttached();
 
   // Dynamic Calculations for Prospective Tool (re-evaluates live when dynamicCap slider changes)
   const currentMonthlyBill = prospectiveResult?.extracted_data?.current_monthly_bill ?? prospectiveResult?.extracted_data?.billing_amount ?? 0;
@@ -1384,27 +1423,60 @@ export default function QuickBillAnalysis() {
                         Export AI Bill Analysis Report
                       </h3>
                       <p className="text-xs text-slate-300 mt-1">
-                        Download visual report image or 2-page PDF report with original solar bill attached.
+                        Select an option to download report only or complete report with attached utility bill.
                       </p>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-3">
-                      <Button
-                        onClick={handleExportImage}
-                        disabled={isExporting}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-wider px-5 py-3 rounded-xl flex items-center gap-2 shadow-lg shadow-emerald-600/20"
-                      >
-                        {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImageIcon className="w-4 h-4" />}
-                        Export Image (.png)
-                      </Button>
+                      {/* CTA 1: Download Report Only */}
+                      <DropdownMenu>
+                        <div className="inline-flex rounded-xl shadow-lg shadow-emerald-600/20 overflow-hidden border border-emerald-500/40">
+                          <Button
+                            onClick={() => handleExportReportOnly("pdf")}
+                            disabled={isExporting}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-wider px-5 py-3 rounded-none flex items-center gap-2 border-r border-emerald-500/50"
+                            title="Download 1-page visual report as PDF"
+                          >
+                            {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                            Download Report Only
+                          </Button>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              disabled={isExporting}
+                              className="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-3 rounded-none flex items-center justify-center transition-colors"
+                              title="Select format: PDF or Image (.png)"
+                            >
+                              <ChevronDown className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                        </div>
+                        <DropdownMenuContent align="end" className="w-52 bg-slate-900 border-slate-800 text-white shadow-2xl p-1.5">
+                          <DropdownMenuItem
+                            onClick={() => handleExportReportOnly("pdf")}
+                            className="hover:bg-slate-800 focus:bg-slate-800 cursor-pointer text-xs font-bold py-2.5 px-3 rounded-lg flex items-center gap-2.5 text-slate-200"
+                          >
+                            <FileText className="w-4 h-4 text-emerald-400" />
+                            Download as PDF (.pdf)
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => handleExportReportOnly("png")}
+                            className="hover:bg-slate-800 focus:bg-slate-800 cursor-pointer text-xs font-bold py-2.5 px-3 rounded-lg flex items-center gap-2.5 text-slate-200"
+                          >
+                            <ImageIcon className="w-4 h-4 text-emerald-400" />
+                            Download as Image (.png)
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
 
+                      {/* CTA 2: Download Report with Attached Section */}
                       <Button
-                        onClick={handleExportPDF}
+                        onClick={handleExportReportWithAttached}
                         disabled={isExporting}
-                        className="bg-gradient-to-r from-teal-600 to-emerald-600 hover:opacity-90 text-white font-black text-xs uppercase tracking-wider px-5 py-3 rounded-xl flex items-center gap-2 shadow-lg shadow-teal-600/20"
+                        className="bg-gradient-to-r from-teal-600 to-emerald-600 hover:opacity-90 text-white font-black text-xs uppercase tracking-wider px-5 py-3 rounded-xl flex items-center gap-2 shadow-lg shadow-teal-600/20 border border-teal-400/30"
+                        title="Download 2-page report PDF with original utility bill attached"
                       >
                         {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                        Export PDF with Attached Bill (.pdf)
+                        Download Report with Attached Section
                       </Button>
                     </div>
                   </CardContent>
